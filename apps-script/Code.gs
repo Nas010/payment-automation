@@ -14,6 +14,17 @@ function onOpen() {
     .addToUi();
 }
 
+function onEdit(event) {
+  if (!event || event.range.getSheet().getName() !== CP.dashboard || event.range.getA1Notation() !== CP.dashboardForm.packageName) return;
+  const packageConfig = packageByName_(String(event.range.getValue() || '').trim());
+  if (!packageConfig) return;
+  const dashboard = event.range.getSheet();
+  dashboard.getRange(CP.dashboardForm.paymentType).setValue(packageConfig.paymentType);
+  dashboard.getRange(CP.dashboardForm.totalPrice).setValue(packageConfig.totalPrice);
+  dashboard.getRange(CP.dashboardForm.installmentCount).setValue(packageConfig.installmentCount);
+  dashboard.getRange(CP.dashboardForm.intervalMonths).setValue(packageConfig.intervalMonths);
+}
+
 function saveClientFromDashboard() {
   const book = SpreadsheetApp.getActive();
   const dashboard = book.getSheetByName(CP.dashboard);
@@ -29,7 +40,8 @@ function saveClientFromDashboard() {
   const intervalMonths = Number(value('intervalMonths'));
   const notes = String(value('notes') || '').trim();
   const ui = SpreadsheetApp.getUi();
-  if (!clientName || !packageName || !['ONE_TIME', 'INSTALLMENTS'].includes(paymentType) || !(firstDueDate instanceof Date) || !Number.isFinite(totalPrice) || totalPrice <= 0) {
+  const packageConfig = packageByName_(packageName);
+  if (!clientName || !packageConfig || !packageConfig.active || !['ONE_TIME', 'INSTALLMENTS'].includes(paymentType) || !(firstDueDate instanceof Date) || !Number.isFinite(totalPrice) || totalPrice <= 0) {
     ui.alert('Enter client name, package, payment type, first due date, and a positive total price.'); return;
   }
   const count = paymentType === 'ONE_TIME' ? 1 : installmentCount;
@@ -98,6 +110,13 @@ function setting_(key) {
   const found = values.find((row) => row[0] === key);
   if (!found || !found[1] || found[1] === 'CONFIG_REQUIRED') throw new Error(`Settings value required: ${key}`);
   return String(found[1]);
+}
+
+function packageByName_(packageName) {
+  const rows = SpreadsheetApp.getActive().getSheetByName(CP.settings).getRange('D4:I').getValues();
+  const row = rows.find((value) => String(value[0] || '').trim() === packageName);
+  if (!row) return null;
+  return { totalPrice: Number(row[1]), paymentType: String(row[2]), installmentCount: Number(row[3]), intervalMonths: Number(row[4]), active: row[5] === true || String(row[5]).toUpperCase() === 'TRUE' };
 }
 
 function appendAudit_(paymentId, clientId, action, previousStatus, newStatus, reason, source, metadata) {
