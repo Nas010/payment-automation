@@ -5,6 +5,7 @@ import { validateImageUpload } from "./validate";
 import { parseSatang } from "@/lib/money";
 import { parseThaiSlipDate } from "@/lib/date";
 import { parseEmvQr } from "./qr";
+import { receiverFromOcrText } from "./ocr";
 
 export interface SlipAnalysis {
   imageHash: string;
@@ -33,7 +34,7 @@ function extractReference(payload: string | null): { reference: string | null; b
   return { reference, bank };
 }
 
-async function readOcr(bytes: Uint8Array): Promise<{ amount: number | null; receiver: string | null; date: string | null }> {
+async function readOcr(bytes: Uint8Array, receiverAliases: string[]): Promise<{ amount: number | null; receiver: string | null; date: string | null }> {
   if (process.env.OCR_ENABLED === "false") return { amount: null, receiver: null, date: null };
   try {
     const { createWorker } = await import("tesseract.js");
@@ -44,11 +45,11 @@ async function readOcr(bytes: Uint8Array): Promise<{ amount: number | null; rece
     const amountCandidate = text.match(/(?:฿|THB|บาท)?\s*\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?/i)?.[0] ?? "";
     const dateCandidate = text.match(/\b\d{1,2}[/-]\d{1,2}[/-](?:\d{2}|\d{4})\b/)?.[0] ?? "";
     const date = dateCandidate && dateCandidate.length >= 8 ? parseThaiSlipDate(dateCandidate, "Asia/Bangkok")?.toISOString() ?? null : null;
-    return { amount: parseSatang(amountCandidate), receiver: null, date };
+    return { amount: parseSatang(amountCandidate), receiver: receiverFromOcrText(text, receiverAliases), date };
   } catch { return { amount: null, receiver: null, date: null }; }
 }
 
-export async function analyzeSlip(bytes: Uint8Array, declaredType: string): Promise<SlipAnalysis> {
+export async function analyzeSlip(bytes: Uint8Array, declaredType: string, receiverAliases: string[] = []): Promise<SlipAnalysis> {
   const validation = await validateImageUpload({ bytes, declaredType, size: bytes.byteLength });
   if (!validation.ok) throw new Error(validation.reason);
   const normalized = await sharp(bytes).rotate().resize({ width: 2000, height: 2000, fit: "inside", withoutEnlargement: true }).toBuffer();
@@ -58,6 +59,6 @@ export async function analyzeSlip(bytes: Uint8Array, declaredType: string): Prom
   const payload = decodeQr(greyscale, metadata.width, metadata.height);
   const emv = payload ? parseEmvQr(payload) : null;
   const parsed = extractReference(payload);
-  const ocr = await readOcr(normalized);
+  const ocr = await readOcr(normalized, receiverAliases);
   return { imageHash: sha256(bytes), qrPayloadHash: payload ? sha256(new TextEncoder().encode(payload)) : null, qrValid: Boolean(emv), transactionRef: emv?.transactionReference ?? parsed.reference, originatingBank: parsed.bank, ocrAmountSatang: ocr.amount, ocrReceiver: ocr.receiver, ocrTransactionDate: ocr.date, reasons: emv ? ["Structurally valid EMV slip QR decoded locally; no bank confirmation"] : ["No structurally valid slip verification QR found; local OCR used as heuristic"] };
 }

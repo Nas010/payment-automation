@@ -20,12 +20,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const slip = form.get("slip");
   if (!(slip instanceof File)) return Response.json({ error: "A slip image is required" }, { status: 400 });
   try {
+    const config = serverConfig();
     const bytes = new Uint8Array(await slip.arrayBuffer());
-    const analysis = await analyzeSlip(bytes, slip.type);
+    const analysis = await analyzeSlip(bytes, slip.type, config.receiverAliases);
     if (payment.slip_hash === analysis.imageHash) return Response.json({ status: payment.status, message: "Payment slip already received." });
     const history = await listPayments();
     const otherPayment = history.find((candidate) => candidate.payment_id !== payment.payment_id && candidate.slip_hash === analysis.imageHash);
-    const config = serverConfig();
     const result = evaluatePayment({ paymentId: payment.payment_id, amountSatang: Math.round(Number(payment.amount_thb) * 100), createdAt: payment.created_at, receiverAliases: config.receiverAliases, timezone: "Asia/Bangkok" }, { imageDuplicate: Boolean(otherPayment), transactionDuplicate: detectTransactionDuplicate(history, payment.payment_id, analysis.originatingBank, analysis.transactionRef), qrValid: analysis.qrValid, transactionRef: analysis.transactionRef ?? undefined, amountSatang: analysis.ocrAmountSatang, receiver: analysis.ocrReceiver, transactionDate: analysis.ocrTransactionDate });
     const slipUrl = shouldRetainSlip(result.decision, 30) ? await storeExceptionSlip({ bytes, mimeType: slip.type, paymentId: payment.payment_id, imageHash: analysis.imageHash }) : payment.slip_url;
     const next = { ...payment, status: result.decision, submitted_at: new Date().toISOString(), recorded_at: result.decision === "AUTO_RECORDED" ? new Date().toISOString() : payment.recorded_at, slip_hash: analysis.imageHash, qr_payload_hash: analysis.qrPayloadHash ?? "", qr_valid: String(analysis.qrValid), transaction_ref: analysis.transactionRef ?? "", originating_bank: analysis.originatingBank ?? "", ocr_amount: analysis.ocrAmountSatang === null ? "" : String(analysis.ocrAmountSatang / 100), ocr_receiver: analysis.ocrReceiver ?? "", ocr_transaction_date: analysis.ocrTransactionDate ?? "", amount_match: String(result.amountMatch), receiver_match: String(result.receiverMatch), date_match: String(result.dateMatch), check_score: String(result.score), review_reason: result.reasons.join("; "), slip_url: slipUrl, updated_at: new Date().toISOString() };
