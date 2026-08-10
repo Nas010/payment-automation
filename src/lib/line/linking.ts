@@ -37,6 +37,10 @@ function maskedLineUserSuffix(lineUserId: string): string {
   return lineUserId.slice(-4);
 }
 
+function sheetSafeLineDisplayName(displayName: string): string {
+  return /^[=+\-@]/.test(displayName) ? `'${displayName}` : displayName;
+}
+
 function safeMetadata({ clientId, status, webhookEventId, lineUserId }: { clientId: string; status: string; webhookEventId?: string; lineUserId?: string }): string {
   return JSON.stringify({
     clientId,
@@ -124,7 +128,7 @@ export function createLineLinkService(dependencies: LineLinkDependencies): { lin
     async persistLineDisplayName({ lineUserId, displayName, now }: { lineUserId: string; displayName: string; now: Date | string }): Promise<boolean> {
       const client = (await dependencies.listClients()).find((item) => item.line_user_id === lineUserId && item.line_link_status === "LINKED");
       if (!client) return false;
-      await dependencies.updateClient({ ...client, line_display_name: displayName, updated_at: nowIso(now) });
+      await dependencies.updateClient({ ...client, line_display_name: sheetSafeLineDisplayName(displayName), updated_at: nowIso(now) });
       return true;
     },
   };

@@ -17,12 +17,13 @@ const REPLY_TEXT: Record<LinkResult, string> = {
   CONFLICT: "I couldn't connect this account automatically. Please contact your trainer so they can check the existing connection.",
 };
 
-type LineEvent = { webhookEventId?: unknown; replyToken?: unknown; source?: unknown; message?: unknown };
+type LineEvent = { type?: unknown; webhookEventId?: unknown; replyToken?: unknown; source?: unknown; message?: unknown };
 type DirectLinkEvent = { webhookEventId: string; replyToken: string; lineUserId: string; code: string };
 
 function directLinkEvent(value: unknown): DirectLinkEvent | null {
   if (!value || typeof value !== "object") return null;
   const event = value as LineEvent;
+  if (event.type !== "message") return null;
   const source = event.source;
   const message = event.message;
   if (!source || typeof source !== "object" || (source as { type?: unknown }).type !== "user") return null;

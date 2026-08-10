@@ -68,8 +68,11 @@ describe("POST /api/line/webhook", () => {
 
   it("rejects missing or invalid signatures before parsing JSON", async () => {
     const parse = vi.spyOn(JSON, "parse");
+    const invalidSignature = signedRequest({ events: [] });
+    invalidSignature.headers.set("x-line-signature", `${"A".repeat(43)}=`);
 
     await expect(POST(signedRequest("not json", false))).resolves.toMatchObject({ status: 401 });
+    await expect(POST(invalidSignature)).resolves.toMatchObject({ status: 401 });
     await expect(POST(signedRequest("not json", true))).resolves.toMatchObject({ status: 400 });
     expect(parse).toHaveBeenCalledTimes(1);
     expect(mocks.listClients).not.toHaveBeenCalled();
@@ -91,6 +94,13 @@ describe("POST /api/line/webhook", () => {
     ];
 
     await expect(POST(signedRequest({ events }))).resolves.toMatchObject({ status: 200 });
+    expect(mocks.listClients).not.toHaveBeenCalled();
+    expect(mocks.getLineChannelAccessToken).not.toHaveBeenCalled();
+    expect(mocks.fetchFn).not.toHaveBeenCalled();
+  });
+
+  it("ignores non-message events even when they mimic direct LINK messages", async () => {
+    await expect(POST(signedRequest({ events: [event({ type: "follow" })] }))).resolves.toMatchObject({ status: 200 });
     expect(mocks.listClients).not.toHaveBeenCalled();
     expect(mocks.getLineChannelAccessToken).not.toHaveBeenCalled();
     expect(mocks.fetchFn).not.toHaveBeenCalled();

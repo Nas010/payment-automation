@@ -57,6 +57,16 @@ describe("LINE linking domain service", () => {
     expect(deps.updateClient).toHaveBeenCalledWith(expect.objectContaining({ line_user_id: userA, line_display_name: "Nisa LINE", updated_at: now }));
   });
 
+  it("escapes formula-leading LINE display names before they reach Sheets", async () => {
+    const deps = dependencies([client({ line_user_id: userA, line_link_status: "LINKED", line_link_code: "", line_link_code_expires_at: "" })]);
+    const service = createLineLinkService(deps);
+
+    for (const displayName of ["=HYPERLINK(\"https://example.test\")", "+name", "-name", "@name"]) {
+      await expect(service.persistLineDisplayName({ lineUserId: userA, displayName, now })).resolves.toBe(true);
+    }
+    expect(deps.updateClient.mock.calls.map(([updated]) => updated.line_display_name)).toEqual(["'=HYPERLINK(\"https://example.test\")", "'+name", "'-name", "'@name"]);
+  });
+
   it("does not enrich a user mapping that is under trainer review", async () => {
     const deps = dependencies([client({ line_user_id: userA, line_link_status: "REVIEW" })]);
 
