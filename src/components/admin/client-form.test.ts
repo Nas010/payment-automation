@@ -14,6 +14,16 @@ afterEach(() => {
 });
 
 describe("ClientForm", () => {
+  it("does not allow manual LINE identity entry when creating a client", () => {
+    render(createElement(ClientForm, {
+      action: vi.fn(),
+      packages: [{ package_name: "Starter", total_price_thb: "1500", payment_type: "ONE_TIME", installment_count: "1", interval_months: "0" }],
+    }));
+
+    expect(screen.queryByLabelText("LINE user ID")).toBeNull();
+    expect(screen.queryByLabelText("LINE display name")).toBeNull();
+  });
+
   it("submits one-time plan defaults when installment controls are locked", async () => {
     const action = vi.fn();
     const { container } = render(createElement(ClientForm, {
