@@ -1,14 +1,15 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { get, update } = vi.hoisted(() => ({ get: vi.fn(), update: vi.fn() }));
+const { batchUpdate, get, spreadsheetGet, update } = vi.hoisted(() => ({ batchUpdate: vi.fn(), get: vi.fn(), spreadsheetGet: vi.fn(), update: vi.fn() }));
 
 vi.mock("./client", () => ({
-  getGoogleSheets: () => ({ spreadsheetId: "spreadsheet_1", sheets: { spreadsheets: { values: { get, update } } } }),
+  getGoogleSheets: () => ({ spreadsheetId: "spreadsheet_1", sheets: { spreadsheets: { get: spreadsheetGet, batchUpdate, values: { get, update } } } }),
 }));
 
 import { ensureClientSchema } from "./migration";
 import { CLIENT_HEADERS } from "./records";
 
+beforeEach(() => spreadsheetGet.mockResolvedValue({ data: { sheets: [{ properties: { sheetId: 9, title: "Clients", gridProperties: { columnCount: 23 } } }] } }));
 afterEach(() => vi.clearAllMocks());
 
 describe("ensureClientSchema", () => {
@@ -32,5 +33,17 @@ describe("ensureClientSchema", () => {
     await ensureClientSchema();
 
     expect(update).not.toHaveBeenCalled();
+  });
+
+  it("expands a legacy 17-column Clients grid before reading or writing through W", async () => {
+    spreadsheetGet.mockResolvedValueOnce({ data: { sheets: [{ properties: { sheetId: 9, title: "Clients", gridProperties: { columnCount: 17 } } }] } });
+    get.mockResolvedValueOnce({ data: { values: [[...CLIENT_HEADERS.slice(0, 17)]] } });
+    batchUpdate.mockResolvedValueOnce({});
+    update.mockResolvedValue({});
+
+    await ensureClientSchema();
+
+    expect(batchUpdate).toHaveBeenCalledWith({ spreadsheetId: "spreadsheet_1", requestBody: { requests: [{ appendDimension: { sheetId: 9, dimension: "COLUMNS", length: 6 } }] } });
+    expect(batchUpdate.mock.invocationCallOrder[0]).toBeLessThan(get.mock.invocationCallOrder[0] ?? Infinity);
   });
 });

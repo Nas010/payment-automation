@@ -15,6 +15,18 @@ function columnName(column: number): string {
 /** Adds blank client header cells without replacing any existing workbook values. */
 export async function ensureClientSchema(): Promise<void> {
   const { sheets, spreadsheetId } = getGoogleSheets();
+  const metadata = await sheets.spreadsheets.get({ spreadsheetId, fields: "sheets(properties(sheetId,title,gridProperties(columnCount)))" });
+  const clientSheet = metadata.data.sheets?.find((sheet) => sheet.properties?.title === "Clients");
+  const properties = clientSheet?.properties;
+  const sheetId = properties?.sheetId;
+  if (sheetId === undefined || sheetId === null) throw new Error("Clients sheet is required");
+  const columnCount = properties?.gridProperties?.columnCount ?? 0;
+  if (columnCount < CLIENT_HEADERS.length) {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: { requests: [{ appendDimension: { sheetId, dimension: "COLUMNS", length: CLIENT_HEADERS.length - columnCount } }] },
+    });
+  }
   const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: "Clients!A1:W1" });
   const headers = response.data.values?.[0] ?? [];
 

@@ -13,10 +13,16 @@ type Range = {
 
 const legacyClientHeaders = ["client_id", "active", "client_name", "line_user_id", "line_display_name", "package_name", "payment_type", "total_price_thb", "installment_count", "interval_months", "first_due_date", "default_amount_thb", "billing_frequency", "next_due_date", "notes", "created_at", "updated_at"];
 
-function loadScriptWithDashboard(values: Record<string, unknown>, clientHeaders = [...legacyClientHeaders]) {
+function loadScriptWithDashboard(values: Record<string, unknown>, clientHeaders: unknown[] = [...legacyClientHeaders], clientColumnCount = clientHeaders.length) {
   const clientWrites: Array<{ row: number; values: unknown[][] }> = [];
+  const columnExpansions: Array<{ after: number; count: number }> = [];
   const headerWrites: Array<{ column: number; value: unknown }> = [];
   const clientSheet = {
+    getMaxColumns: () => clientColumnCount,
+    insertColumnsAfter: (after: number, count: number) => {
+      columnExpansions.push({ after, count });
+      clientColumnCount += count;
+    },
     getLastRow: () => 1000,
     getRange(row: number, column?: number, numRows?: number, numColumns?: number): Range {
       return range({
@@ -67,7 +73,7 @@ function loadScriptWithDashboard(values: Record<string, unknown>, clientHeaders 
     Number,
   };
   vm.runInNewContext(readFileSync("apps-script/Code.gs", "utf8"), context);
-  return { context: context as { ensureClientSchema_: () => void; saveClientFromDashboard: () => void }, clientWrites, headerWrites };
+  return { context: context as { ensureClientSchema_: () => void; saveClientFromDashboard: () => void }, clientWrites, columnExpansions, headerWrites };
 }
 
 function range(overrides: Partial<Range>): Range {
@@ -94,6 +100,23 @@ describe("Apps Script client save", () => {
       { column: 22, value: "line_link_message" },
       { column: 23, value: "line_link_error" },
     ]);
+  });
+
+  it("expands legacy client grids before accessing LINE-link header columns", () => {
+    const { context, columnExpansions } = loadScriptWithDashboard({}, [...legacyClientHeaders], 17);
+
+    context.ensureClientSchema_();
+
+    expect(columnExpansions).toEqual([{ after: 17, count: 6 }]);
+  });
+
+  it("preserves false and zero client header cells", () => {
+    const { context, headerWrites } = loadScriptWithDashboard({}, [...legacyClientHeaders, false, 0], 23);
+
+    context.ensureClientSchema_();
+
+    expect(headerWrites).not.toContainEqual({ column: 18, value: "line_link_code" });
+    expect(headerWrites).not.toContainEqual({ column: 19, value: "line_link_code_expires_at" });
   });
 
   it("writes a new client into first blank client-ID row when unused rows contain FALSE", () => {

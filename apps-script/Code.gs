@@ -92,9 +92,11 @@ function clearDashboardForm() {
 
 function ensureClientSchema_() {
   const sheet = book_().getSheetByName(CP.clients);
+  const maxColumns = sheet.getMaxColumns();
+  if (maxColumns < CP.clientHeaders.length) sheet.insertColumnsAfter(maxColumns, CP.clientHeaders.length - maxColumns);
   const headers = sheet.getRange(1, 1, 1, CP.clientHeaders.length).getValues()[0] || [];
   CP.clientHeaders.forEach((header, index) => {
-    if (!String(headers[index] || '').trim()) sheet.getRange(1, index + 1).setValue(header);
+    if (!String(headers[index] ?? '').trim()) sheet.getRange(1, index + 1).setValue(header);
   });
 }
 
