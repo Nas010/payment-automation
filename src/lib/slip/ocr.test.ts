@@ -1,8 +1,38 @@
 import { describe, expect, it } from "vitest";
-import { receiverFromOcrText } from "./ocr";
+import { extractCommonThaiSlipFields, receiverFromOcrText } from "./ocr";
 
 describe("receiverFromOcrText", () => {
   it("finds configured aliases despite whitespace and punctuation", () => {
     expect(receiverFromOcrText("TO: Nasreddine  Ouchene", ["Nasreddine Ouchene", "N. Ouchene"])).toBe("Nasreddine Ouchene");
+  });
+
+  it("extracts the shared fields found in Thai bank transfer slips", () => {
+    const fields = extractCommonThaiSlipFields(`
+      Krungthai
+      โอนเงินสำเร็จ
+      รหัสอ้างอิง: REF-EXAMPLE-001
+      ไปยัง ผู้รับตัวอย่าง พร้อมเพย์ XXX-XXX-8717
+      จำนวนเงิน 4,000.00 บาท
+      28 ก.ค. 2569 - 18:29
+    `);
+
+    expect(fields).toMatchObject({
+      bank: "Krungthai",
+      success: true,
+      reference: "REF-EXAMPLE-001",
+      amountSatang: 400000,
+      recipientProxySuffix: "8717",
+      transactionDate: "2026-07-28T11:29:00.000Z",
+    });
+  });
+
+  it("supports Make, K+, and SCB wording plus short Buddhist Era years", () => {
+    const make = extractCommonThaiSlipFields("make by KBank โอนเงินสำเร็จ เลขที่รายการ: REF-MAKE-42 จำนวน 3,900.00 บาท XXX-XXX-8717 02 ส.ค. 2569 17:24");
+    const kplus = extractCommonThaiSlipFields("K+ โอนเงินสำเร็จ เลขที่รายการ: REF-KPLUS-77 จำนวน: 6,600.00 บาท XXX-XXX-8717 10 ส.ค. 69 10:41 น.");
+    const scb = extractCommonThaiSlipFields("SCB โอนเงินสำเร็จ รหัสอ้างอิง: REF-SCB-99 จำนวนเงิน 3,900.00 XXX-XXX-8717 20 ก.ค. 2569 - 16:23");
+
+    expect(make).toMatchObject({ bank: "KBank", amountSatang: 390000, recipientProxySuffix: "8717", transactionDate: "2026-08-02T10:24:00.000Z" });
+    expect(kplus).toMatchObject({ bank: "K+", amountSatang: 660000, recipientProxySuffix: "8717", transactionDate: "2026-08-10T03:41:00.000Z" });
+    expect(scb).toMatchObject({ bank: "SCB", amountSatang: 390000, recipientProxySuffix: "8717", transactionDate: "2026-07-20T09:23:00.000Z" });
   });
 });
