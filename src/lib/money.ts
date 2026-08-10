@@ -13,3 +13,7 @@ export function parseSatang(value: string): number | null {
 export function formatThb(satang: number): string {
   return new Intl.NumberFormat("th-TH", { style: "currency", currency: "THB" }).format(satang / 100);
 }
+
+export function formatRoundedThb(satang: number): string {
+  return new Intl.NumberFormat("th-TH", { style: "currency", currency: "THB", maximumFractionDigits: 0 }).format(Math.round(satang / 100));
+}

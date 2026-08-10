@@ -4,15 +4,12 @@ import { cleanup, render, screen } from "@testing-library/react";
 import * as React from "react";
 import { createElement, type ComponentType } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { TooltipProvider } from "@/components/ui/tooltip";
 
 vi.stubGlobal("React", React);
 
 type TrendProps = {
   comparison: { current: number; previous: number; delta: number } | null;
   label: string;
-  current: string;
-  previous: string;
   delta: string;
 };
 
@@ -24,7 +21,7 @@ async function loadMetricTrend(): Promise<ComponentType<TrendProps> | null> {
 }
 
 function renderTrend(MetricTrend: ComponentType<TrendProps>, props: TrendProps) {
-  render(createElement(TooltipProvider, null, createElement(MetricTrend, props)));
+  render(createElement(MetricTrend, props));
 }
 
 afterEach(cleanup);
@@ -35,9 +32,10 @@ describe("MetricTrend", () => {
     expect(MetricTrend).toBeTypeOf("function");
     if (!MetricTrend) return;
 
-    renderTrend(MetricTrend, { comparison: { current: 5, previous: 3, delta: 2 }, label: "Active clients", current: "5 clients", previous: "3 clients", delta: "2 clients" });
+    renderTrend(MetricTrend, { comparison: { current: 5, previous: 3, delta: 2 }, label: "Active clients", delta: "2" });
 
     expect(screen.getByLabelText("Active clients increased by 2 from last month")).toBeTruthy();
+    expect(screen.getByText("2")).toBeTruthy();
   });
 
   it("does not render a trend icon without comparison data", async () => {
@@ -45,7 +43,7 @@ describe("MetricTrend", () => {
     expect(MetricTrend).toBeTypeOf("function");
     if (!MetricTrend) return;
 
-    renderTrend(MetricTrend, { comparison: null, label: "Active clients", current: "3 clients", previous: "—", delta: "—" });
+    renderTrend(MetricTrend, { comparison: null, label: "Active clients", delta: "—" });
 
     expect(screen.queryByLabelText(/Active clients/)).toBeNull();
   });
@@ -55,8 +53,9 @@ describe("MetricTrend", () => {
     expect(MetricTrend).toBeTypeOf("function");
     if (!MetricTrend) return;
 
-    renderTrend(MetricTrend, { comparison: { current: 3, previous: 5, delta: -2 }, label: "Active clients", current: "3 clients", previous: "5 clients", delta: "2 clients" });
+    renderTrend(MetricTrend, { comparison: { current: 3, previous: 5, delta: -2 }, label: "Active clients", delta: "2" });
 
     expect(screen.getByLabelText("Active clients decreased by 2 from last month")).toBeTruthy();
+    expect(screen.getByText("2")).toBeTruthy();
   });
 });

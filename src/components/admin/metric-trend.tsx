@@ -1,8 +1,7 @@
 import { MinusIcon, TrendingDownIcon, TrendingUpIcon } from "lucide-react";
 import type { DashboardComparison } from "@/lib/admin/dashboard-metrics";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
-export function MetricTrend({ comparison, label, current, previous, delta }: { comparison: DashboardComparison | null; label: string; current: string; previous: string; delta: string }) {
+export function MetricTrend({ comparison, label, delta }: { comparison: DashboardComparison | null; label: string; delta: string }) {
   if (!comparison) return null;
 
   const presentation = comparison.delta > 0
@@ -14,6 +13,7 @@ export function MetricTrend({ comparison, label, current, previous, delta }: { c
   const ariaLabel = comparison.delta === 0
     ? `${label} was unchanged from last month`
     : `${label} ${presentation.verb} by ${change} from last month`;
+  const visibleDelta = delta;
 
-  return <Tooltip><TooltipTrigger render={<span aria-label={ariaLabel} className={`flex size-5 items-center justify-center rounded-sm [&>svg]:size-4 ${presentation.className}`} tabIndex={0} />}><presentation.Icon aria-hidden /></TooltipTrigger><TooltipContent>{label}: {current} now, {previous} last month. Change: {delta}.</TooltipContent></Tooltip>;
+  return <span aria-label={ariaLabel} className={`inline-flex items-center gap-1 text-xs font-medium ${presentation.className}`}><presentation.Icon aria-hidden className="size-4" /><span>{visibleDelta}</span></span>;
 }
