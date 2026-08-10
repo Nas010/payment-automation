@@ -1,6 +1,7 @@
 const CP = {
   spreadsheetId: '1I7N201rghJ77R2vEk6ZvqOD1kZB-dCZrDD5sD3aArjA',
   dashboard: 'Dashboard', clients: 'Clients', payments: 'Payments', settings: 'Settings', schedule: 'Installment Schedule', audit: 'Audit Log',
+  clientHeaders: ['client_id', 'active', 'client_name', 'line_user_id', 'line_display_name', 'package_name', 'payment_type', 'total_price_thb', 'installment_count', 'interval_months', 'first_due_date', 'default_amount_thb', 'billing_frequency', 'next_due_date', 'notes', 'created_at', 'updated_at', 'line_link_code', 'line_link_code_expires_at', 'line_link_status', 'line_linked_at', 'line_link_message', 'line_link_error'],
   dashboardForm: { clientName: 'B4', lineUserId: 'E4', lineDisplayName: 'B5', packageName: 'E5', paymentType: 'B6', firstDueDate: 'E6', totalPrice: 'B7', installmentCount: 'E7', intervalMonths: 'B8', notes: 'E8' },
   packageStartRow: 4,
 };
@@ -17,6 +18,7 @@ function onOpen() {
 
 function onEdit(event) {
   if (!event || event.range.getSheet().getName() !== CP.dashboard || event.range.getA1Notation() !== CP.dashboardForm.packageName) return;
+  ensureClientSchema_();
   const packageConfig = packageByName_(String(event.range.getValue() || '').trim());
   if (!packageConfig) return;
   const dashboard = event.range.getSheet();
@@ -27,6 +29,7 @@ function onEdit(event) {
 }
 
 function saveClientFromDashboard() {
+  ensureClientSchema_();
   const book = book_();
   const dashboard = book.getSheetByName(CP.dashboard);
   const value = (key) => dashboard.getRange(CP.dashboardForm[key]).getValue();
@@ -51,7 +54,7 @@ function saveClientFromDashboard() {
   }
   const clientId = `client_${Utilities.getUuid().replaceAll('-', '')}`;
   const now = new Date();
-  writeClient_([clientId, true, clientName, lineUserId, lineDisplayName, packageName, paymentType, totalPrice, count, interval, firstDueDate, totalPrice, 'MANUAL', firstDueDate, notes, now, now]);
+  writeClient_([clientId, true, clientName, lineUserId, lineDisplayName, packageName, paymentType, totalPrice, count, interval, firstDueDate, totalPrice, 'MANUAL', firstDueDate, notes, now, now, '', '', '', '', '', '']);
   const rows = buildScheduleRows_({ clientId, clientName, lineUserId, lineDisplayName, packageName, paymentType, totalPrice, count, interval, firstDueDate, notes, now });
   book.getSheetByName(CP.schedule).getRange(book.getSheetByName(CP.schedule).getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
   appendAudit_('', clientId, 'CLIENT_CREATED', '', 'SCHEDULED', `${paymentType} plan created from Dashboard`, 'DASHBOARD_SCRIPT', JSON.stringify({ packageName, count, interval }));
@@ -82,8 +85,17 @@ function writeClient_(values) {
 }
 
 function clearDashboardForm() {
+  ensureClientSchema_();
   const sheet = book_().getSheetByName(CP.dashboard);
   Object.values(CP.dashboardForm).forEach((cell) => sheet.getRange(cell).clearContent());
+}
+
+function ensureClientSchema_() {
+  const sheet = book_().getSheetByName(CP.clients);
+  const headers = sheet.getRange(1, 1, 1, CP.clientHeaders.length).getValues()[0] || [];
+  CP.clientHeaders.forEach((header, index) => {
+    if (!String(headers[index] || '').trim()) sheet.getRange(1, index + 1).setValue(header);
+  });
 }
 
 function generateDuePaymentLinks() {

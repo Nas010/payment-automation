@@ -18,6 +18,15 @@ describe("rowToRecord", () => {
     ]));
   });
 
+  it("preserves the established client columns and appends LINE linking columns in order", () => {
+    expect(CLIENT_HEADERS).toEqual([
+      "client_id", "active", "client_name", "line_user_id", "line_display_name", "package_name", "payment_type",
+      "total_price_thb", "installment_count", "interval_months", "first_due_date", "default_amount_thb",
+      "billing_frequency", "next_due_date", "notes", "created_at", "updated_at",
+      "line_link_code", "line_link_code_expires_at", "line_link_status", "line_linked_at", "line_link_message", "line_link_error",
+    ]);
+  });
+
   it("uses Apps Script Installment Schedule column order without adding a second schedule schema", () => {
     expect(SCHEDULE_HEADERS).toEqual([
       "schedule_id", "client_id", "client_name", "line_user_id", "line_display_name", "package_name", "payment_type",

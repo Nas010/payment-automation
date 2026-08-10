@@ -11,17 +11,28 @@ type Range = {
   setFontColor: (color: string) => Range;
 };
 
-function loadScriptWithDashboard(values: Record<string, unknown>) {
+const legacyClientHeaders = ["client_id", "active", "client_name", "line_user_id", "line_display_name", "package_name", "payment_type", "total_price_thb", "installment_count", "interval_months", "first_due_date", "default_amount_thb", "billing_frequency", "next_due_date", "notes", "created_at", "updated_at"];
+
+function loadScriptWithDashboard(values: Record<string, unknown>, clientHeaders = [...legacyClientHeaders]) {
   const clientWrites: Array<{ row: number; values: unknown[][] }> = [];
+  const headerWrites: Array<{ column: number; value: unknown }> = [];
   const clientSheet = {
     getLastRow: () => 1000,
     getRange(row: number, column?: number, numRows?: number, numColumns?: number): Range {
       return range({
-        getValues: () => row === 2 && column === 1 && numRows === 999 && numColumns === 1
-          ? Array.from({ length: 999 }, () => [""])
-          : [],
+        getValues: () => {
+          if (row === 1) return [Array.from({ length: numColumns ?? clientHeaders.length }, (_, index) => clientHeaders[index] ?? "")];
+          return row === 2 && column === 1 && numRows === 999 && numColumns === 1 ? Array.from({ length: 999 }, () => [""]) : [];
+        },
+        setValue: (value) => {
+          if (row === 1 && column) {
+            clientHeaders[column - 1] = String(value);
+            headerWrites.push({ column, value });
+          }
+          return range({});
+        },
         setValues: (written) => {
-          clientWrites.push({ row, values: written });
+          if (row > 1) clientWrites.push({ row, values: written });
           return range({});
         },
       });
@@ -56,7 +67,7 @@ function loadScriptWithDashboard(values: Record<string, unknown>) {
     Number,
   };
   vm.runInNewContext(readFileSync("apps-script/Code.gs", "utf8"), context);
-  return { context: context as { saveClientFromDashboard: () => void }, clientWrites };
+  return { context: context as { ensureClientSchema_: () => void; saveClientFromDashboard: () => void }, clientWrites, headerWrites };
 }
 
 function range(overrides: Partial<Range>): Range {
@@ -72,6 +83,19 @@ function range(overrides: Partial<Range>): Range {
 }
 
 describe("Apps Script client save", () => {
+  it("fills only blank LINE-link client headers", () => {
+    const { context, headerWrites } = loadScriptWithDashboard({}, [...legacyClientHeaders, "line_link_code", "", "legacy status"]);
+
+    context.ensureClientSchema_();
+
+    expect(headerWrites).toEqual([
+      { column: 19, value: "line_link_code_expires_at" },
+      { column: 21, value: "line_linked_at" },
+      { column: 22, value: "line_link_message" },
+      { column: 23, value: "line_link_error" },
+    ]);
+  });
+
   it("writes a new client into first blank client-ID row when unused rows contain FALSE", () => {
     const { context, clientWrites } = loadScriptWithDashboard({
       B4: "Nas", E4: "line_1", B5: "Nas", E5: "Test package", B6: "ONE_TIME",
@@ -83,5 +107,6 @@ describe("Apps Script client save", () => {
     expect(clientWrites).toHaveLength(1);
     expect(clientWrites[0]?.row).toBe(2);
     expect(clientWrites[0]?.values[0]?.slice(1, 3)).toEqual([true, "Nas"]);
+    expect(clientWrites[0]?.values[0]).toHaveLength(23);
   });
 });
