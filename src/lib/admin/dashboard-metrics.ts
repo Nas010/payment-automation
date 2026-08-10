@@ -1,9 +1,10 @@
 import { parseSatang } from "@/lib/money";
+import type { ScheduleRecord } from "@/lib/sheets/schedules";
 import { z } from "zod";
 
 type MetricClient = { active: string };
 type MetricPayment = { status: string; amount_thb: string; recorded_at: string; manual_confirmed_at: string; created_at: string };
-export type MetricSchedule = { schedule_id: string; status: string; due_date: string; amount_thb: string };
+export type MetricSchedule = Pick<ScheduleRecord, "schedule_id" | "client_id" | "client_name" | "package_name" | "installment_number" | "installment_count" | "amount_thb" | "due_date" | "status" | "payment_id">;
 type OperationalSetting = { key: string; value: string };
 
 export type DashboardComparison = { current: number; previous: number; delta: number };

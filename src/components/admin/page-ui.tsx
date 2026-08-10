@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardAction, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { TableCell, TableRow } from "@/components/ui/table";
 
@@ -13,12 +13,13 @@ export function PageHeader({ title, description, actions }: { title: string; des
   </div>;
 }
 
-export function MetricCard({ label, value, description }: { label: string; value: string; description?: string }) {
+export function MetricCard({ label, value, description, trend }: { label: string; value: string; description?: string; trend?: ReactNode }) {
   return <Card size="sm">
     <CardHeader>
       <CardDescription>{label}</CardDescription>
       <CardTitle className="text-2xl tracking-tight">{value}</CardTitle>
       {description ? <CardDescription>{description}</CardDescription> : null}
+      {trend ? <CardAction>{trend}</CardAction> : null}
     </CardHeader>
   </Card>;
 }

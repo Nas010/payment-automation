@@ -4,6 +4,7 @@ import { useEffect, useRef, useTransition } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { bangkokDateKey, formatDate } from "@/lib/date";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -30,7 +31,7 @@ export type AdminPackage = { package_name: string; total_price_thb: string; paym
 export function ClientForm({ packages, action }: { packages: AdminPackage[]; action: (formData: FormData) => void | Promise<void> }) {
   const formRef = useRef<HTMLFormElement>(null);
   const [pending, startTransition] = useTransition();
-  const form = useForm<Values>({ resolver: zodResolver(schema), defaultValues: { client_name: "", line_user_id: "", line_display_name: "", package_name: packages[0]?.package_name ?? "", payment_type: (packages[0]?.payment_type === "INSTALLMENTS" ? "INSTALLMENTS" : "ONE_TIME"), total_price_thb: Number(packages[0]?.total_price_thb ?? 0), installment_count: Number(packages[0]?.installment_count ?? 1), interval_months: Number(packages[0]?.interval_months ?? 0), first_due_date: new Date().toISOString().slice(0, 10), notes: "" } });
+  const form = useForm<Values>({ resolver: zodResolver(schema), defaultValues: { client_name: "", line_user_id: "", line_display_name: "", package_name: packages[0]?.package_name ?? "", payment_type: (packages[0]?.payment_type === "INSTALLMENTS" ? "INSTALLMENTS" : "ONE_TIME"), total_price_thb: Number(packages[0]?.total_price_thb ?? 0), installment_count: Number(packages[0]?.installment_count ?? 1), interval_months: Number(packages[0]?.interval_months ?? 0), first_due_date: bangkokDateKey(), notes: "" } });
   const selectedPackage = form.watch("package_name");
   const paymentType = form.watch("payment_type");
   const paymentTypeLabel = paymentType === "ONE_TIME" ? "One-time payment" : "Installments";
@@ -64,7 +65,7 @@ export function ClientForm({ packages, action }: { packages: AdminPackage[]; act
     </Card>
     <Card size="sm" className="h-fit xl:sticky xl:top-6">
       <CardHeader><CardTitle>Plan summary</CardTitle><CardDescription>Review before creating schedule rows.</CardDescription></CardHeader>
-      <CardContent><dl className="grid gap-4 text-sm"><Summary label="Payment type" value={paymentType === "ONE_TIME" ? "One payment" : installmentLabel(form.watch("installment_count"))} /><Summary label="First due" value={form.watch("first_due_date")} /><Summary label="Total" value={`฿${Number(form.watch("total_price_thb") || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}`} /></dl></CardContent>
+      <CardContent><dl className="grid gap-4 text-sm"><Summary label="Payment type" value={paymentType === "ONE_TIME" ? "One payment" : installmentLabel(form.watch("installment_count"))} /><Summary label="First due" value={formatDate(form.watch("first_due_date"))} /><Summary label="Total" value={`฿${Number(form.watch("total_price_thb") || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}`} /></dl></CardContent>
     </Card>
   </form>;
 }
