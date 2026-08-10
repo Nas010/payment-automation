@@ -51,7 +51,7 @@ function saveClientFromDashboard() {
   }
   const clientId = `client_${Utilities.getUuid().replaceAll('-', '')}`;
   const now = new Date();
-  book.getSheetByName(CP.clients).appendRow([clientId, true, clientName, lineUserId, lineDisplayName, packageName, paymentType, totalPrice, count, interval, firstDueDate, totalPrice, 'MANUAL', firstDueDate, notes, now, now]);
+  writeClient_([clientId, true, clientName, lineUserId, lineDisplayName, packageName, paymentType, totalPrice, count, interval, firstDueDate, totalPrice, 'MANUAL', firstDueDate, notes, now, now]);
   const rows = buildScheduleRows_({ clientId, clientName, lineUserId, lineDisplayName, packageName, paymentType, totalPrice, count, interval, firstDueDate, notes, now });
   book.getSheetByName(CP.schedule).getRange(book.getSheetByName(CP.schedule).getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
   appendAudit_('', clientId, 'CLIENT_CREATED', '', 'SCHEDULED', `${paymentType} plan created from Dashboard`, 'DASHBOARD_SCRIPT', JSON.stringify({ packageName, count, interval }));
@@ -69,6 +69,16 @@ function buildScheduleRows_(plan) {
     const amountSatang = base + (index === plan.count - 1 ? remainder : 0);
     return [`schedule_${Utilities.getUuid().replaceAll('-', '')}`, plan.clientId, plan.clientName, plan.lineUserId, plan.lineDisplayName, plan.packageName, plan.paymentType, index + 1, plan.count, amountSatang / 100, dueDate, 'SCHEDULED', '', '', '', plan.notes, plan.now, plan.now];
   });
+}
+
+function writeClient_(values) {
+  const sheet = book_().getSheetByName(CP.clients);
+  const firstDataRow = 2;
+  const lastRow = Math.max(sheet.getLastRow(), firstDataRow);
+  const clientIds = sheet.getRange(firstDataRow, 1, lastRow - firstDataRow + 1, 1).getValues();
+  const emptyIndex = clientIds.findIndex((row) => !String(row[0] || '').trim());
+  const targetRow = emptyIndex === -1 ? lastRow + 1 : firstDataRow + emptyIndex;
+  sheet.getRange(targetRow, 1, 1, values.length).setValues([values]);
 }
 
 function clearDashboardForm() {
