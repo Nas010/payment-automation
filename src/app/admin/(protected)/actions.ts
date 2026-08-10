@@ -13,7 +13,7 @@ import { parseSatang } from "@/lib/money";
 import { buildInstallmentPlan } from "@/lib/plans/schedule";
 import { generateDuePaymentLinks } from "@/lib/payments/generate";
 import { persistPaymentTransition } from "@/lib/payments/transition";
-import { listClients, releaseLineUserReservation, updateClient, writeClient } from "@/lib/sheets/clients";
+import { listClients, releaseLineUserReservation, updateClient, updateLineLinkClient, writeClient } from "@/lib/sheets/clients";
 import { getPaymentById, appendAudit } from "@/lib/sheets/payments";
 import { listSchedules, writeSchedule } from "@/lib/sheets/schedules";
 import { listPackages, savePackage, upsertOperationalSetting } from "@/lib/sheets/settings";
@@ -71,21 +71,21 @@ export async function createClientAction(formData: FormData): Promise<void> {
 
 export async function generateMissingLineLinkCodesAction(): Promise<GenerateMissingLineLinkCodesResult> {
   await requireAdmin();
-  const result = await generateMissingLineLinkCodes({ listClients, updateClient, appendAudit }, { now: new Date() });
+  const result = await generateMissingLineLinkCodes({ listClients, updateClient, updateLineLinkClient, appendAudit }, { now: new Date() });
   revalidateLinePages();
   return result;
 }
 
 export async function renewLineLinkCodeAction(clientId: string): Promise<RenewLineLinkCodeResult> {
   await requireAdmin();
-  const result = await renewLineLinkCode({ listClients, updateClient, appendAudit }, { clientId, now: new Date() });
+  const result = await renewLineLinkCode({ listClients, updateClient, updateLineLinkClient, appendAudit }, { clientId, now: new Date() });
   revalidateLinePages(clientId);
   return result;
 }
 
 export async function disconnectLineAction(clientId: string): Promise<boolean> {
   await requireAdmin();
-  const disconnected = await disconnectLineUser({ listClients, updateClient, releaseLineUserReservation, appendAudit }, { clientId, now: new Date() });
+  const disconnected = await disconnectLineUser({ listClients, updateClient, updateLineLinkClient, releaseLineUserReservation, appendAudit }, { clientId, now: new Date() });
   revalidateLinePages(clientId);
   return disconnected;
 }

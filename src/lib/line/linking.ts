@@ -7,13 +7,14 @@ type AuditRecord = { paymentId: string; clientId: string; action: string; previo
 export type LineLinkDependencies = {
   listClients: () => Promise<ClientRecord[]>;
   updateClient: (client: ClientRecord) => Promise<void>;
+  updateLineLinkClient: (input: { client: ClientRecord; expectedClient: ClientRecord }) => Promise<boolean>;
   appendAudit: (record: AuditRecord) => Promise<void>;
   releaseLineUserReservation?: (lineUserId: string) => Promise<void>;
   codeGenerator?: () => string;
 };
 
 export type LineLinkServiceDependencies = LineLinkDependencies & {
-  claimLineLink: (input: { client: ClientRecord; code: string; lineUserId: string }) => Promise<"CLAIMED" | "ALREADY_LINKED" | "CONFLICT">;
+  claimLineLink: (input: { client: ClientRecord; expectedClient: ClientRecord; code: string; lineUserId: string }) => Promise<"CLAIMED" | "ALREADY_LINKED" | "CONFLICT" | "STALE">;
 };
 
 type LineLinkInput = { code: string; lineUserId: string; now: Date | string; webhookEventId: string };
@@ -111,7 +112,7 @@ export function createLineLinkService(dependencies: LineLinkServiceDependencies)
 
       if (target.line_user_id || clients.some((client) => client.client_id !== target.client_id && client.line_user_id === lineUserId)) {
         const conflict = { ...target, line_link_status: "REVIEW", line_link_error: "LINE user conflict", updated_at: nowIso(now) };
-        await dependencies.updateClient(conflict);
+        if (!await dependencies.updateLineLinkClient({ client: conflict, expectedClient: target })) return "CONFLICT";
         await audit(dependencies, { client: target, action: "LINE_LINK_CONFLICT", previousStatus: target.line_link_status, newStatus: "REVIEW", reason: "LINE user conflict", webhookEventId, lineUserId });
         return "CONFLICT";
       }
@@ -127,17 +128,17 @@ export function createLineLinkService(dependencies: LineLinkServiceDependencies)
         line_link_error: "",
         updated_at: nowIso(now),
       };
-      const claimResult = await dependencies.claimLineLink({ client: linked, code: normalizedCode, lineUserId });
+      const claimResult = await dependencies.claimLineLink({ client: linked, expectedClient: target, code: normalizedCode, lineUserId });
       if (claimResult === "ALREADY_LINKED") return "ALREADY_LINKED";
       if (claimResult === "CONFLICT") return "CONFLICT";
+      if (claimResult === "STALE") return "INVALID_OR_EXPIRED";
       await audit(dependencies, { client: target, action: "LINE_LINK_LINKED", previousStatus: target.line_link_status, newStatus: "LINKED", reason: "LINE account linked", webhookEventId, lineUserId });
       return "LINKED";
     },
     async persistLineDisplayName({ lineUserId, displayName, now }: { lineUserId: string; displayName: string; now: Date | string }): Promise<boolean> {
       const client = (await dependencies.listClients()).find((item) => item.line_user_id === lineUserId && item.line_link_status === "LINKED");
       if (!client) return false;
-      await dependencies.updateClient({ ...client, line_display_name: sheetSafeLineDisplayName(displayName), updated_at: nowIso(now) });
-      return true;
+      return dependencies.updateLineLinkClient({ client: { ...client, line_display_name: sheetSafeLineDisplayName(displayName), updated_at: nowIso(now) }, expectedClient: client });
     },
   };
 }
@@ -164,7 +165,7 @@ export async function generateMissingLineLinkCodes(dependencies: LineLinkDepende
     }
     try {
       const updated = codeFields(client, nextUniqueCode(dependencies, codes), now);
-      await dependencies.updateClient(updated);
+      if (!await dependencies.updateLineLinkClient({ client: updated, expectedClient: client })) throw new Error("Client changed before LINE link code update");
       await audit(dependencies, { client, action: "LINE_LINK_CODE_CREATED", previousStatus: client.line_link_status, newStatus: "CODE_ACTIVE", reason: "LINE link code created" });
       result.created.push(client.client_id);
     } catch (error) {
@@ -181,7 +182,7 @@ export async function renewLineLinkCode(dependencies: LineLinkDependencies, { cl
   const client = clients.find((item) => item.client_id === clientId);
   if (!client || !isActiveClient(client) || client.line_user_id) return null;
   const updated = codeFields(client, nextUniqueCode(dependencies, usedCodes(clients)), now);
-  await dependencies.updateClient(updated);
+  if (!await dependencies.updateLineLinkClient({ client: updated, expectedClient: client })) return null;
   await audit(dependencies, { client, action: "LINE_LINK_CODE_RENEWED", previousStatus: client.line_link_status, newStatus: "CODE_ACTIVE", reason: "LINE link code renewed" });
   return { clientId, code: updated.line_link_code, status: "CODE_ACTIVE" };
 }
@@ -190,7 +191,7 @@ export async function disconnectLineUser(dependencies: LineLinkDependencies, { c
   const client = (await dependencies.listClients()).find((item) => item.client_id === clientId);
   if (!client) return false;
   const updated = { ...client, line_user_id: "", line_display_name: "", line_link_code: "", line_link_code_expires_at: "", line_link_status: "", line_linked_at: "", line_link_message: "", line_link_error: "", updated_at: nowIso(now) };
-  await dependencies.updateClient(updated);
+  if (!await dependencies.updateLineLinkClient({ client: updated, expectedClient: client })) return false;
   await dependencies.releaseLineUserReservation?.(client.line_user_id);
   await audit(dependencies, { client, action: "LINE_LINK_DISCONNECTED", previousStatus: client.line_link_status, newStatus: "", reason: "LINE account disconnected", lineUserId: client.line_user_id });
   return true;

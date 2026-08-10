@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import vm from "node:vm";
 import { describe, expect, it } from "vitest";
 
@@ -15,7 +16,7 @@ type Range = {
 
 const legacyClientHeaders = ["client_id", "active", "client_name", "line_user_id", "line_display_name", "package_name", "payment_type", "total_price_thb", "installment_count", "interval_months", "first_due_date", "default_amount_thb", "billing_frequency", "next_due_date", "notes", "created_at", "updated_at"];
 
-function loadScriptWithDashboard(values: Record<string, unknown>, clientHeaders: unknown[] = [...legacyClientHeaders], clientColumnCount = clientHeaders.length, clientRows: unknown[][] = [], uuidValues = ["11111111-1111-1111-1111-111111111111"]) {
+function loadScriptWithDashboard(values: Record<string, unknown>, clientHeaders: unknown[] = [...legacyClientHeaders], clientColumnCount = clientHeaders.length, clientRows: unknown[][] = [], uuidValues = ["11111111-1111-1111-1111-111111111111"], namedRangeNames: string[] = []) {
   const clientWrites: Array<{ row: number; values: unknown[][] }> = [];
   const clientCellWrites: Array<{ row: number; column: number; values: unknown[][] }> = [];
   const auditRows: unknown[][] = [];
@@ -24,6 +25,8 @@ function loadScriptWithDashboard(values: Record<string, unknown>, clientHeaders:
   const menuItems: Array<{ label: string; callback: string }> = [];
   const columnExpansions: Array<{ after: number; count: number }> = [];
   const headerWrites: Array<{ column: number; value: unknown }> = [];
+  const releasedReservationNames: string[] = [];
+  const namedRanges = new Set(namedRangeNames);
   const clientSheet = {
     getMaxColumns: () => clientColumnCount,
     insertColumnsAfter: (after: number, count: number) => {
@@ -71,6 +74,9 @@ function loadScriptWithDashboard(values: Record<string, unknown>, clientHeaders:
     getSheetByName(name: string) {
       return ({ Dashboard: dashboardSheet, Clients: clientSheet, Settings: settingsSheet, "Installment Schedule": scheduleSheet, "Audit Log": auditSheet } as Record<string, unknown>)[name];
     },
+    getNamedRanges() {
+      return [...namedRanges].map((name) => ({ getName: () => name, remove: () => { releasedReservationNames.push(name); namedRanges.delete(name); } }));
+    },
   };
   let selectedSheetName = "Dashboard";
   let selectedRow = 1;
@@ -83,7 +89,12 @@ function loadScriptWithDashboard(values: Record<string, unknown>, clientHeaders:
   let uuidIndex = 0;
   const context = {
     SpreadsheetApp: { openById: () => book, getActiveRange: () => selectedRange, getUi: () => ({ alert: (message: string) => alerts.push(message), createMenu: (name: string) => { menuNames.push(name); return menu; } }) },
-    Utilities: { getUuid: () => uuidValues[Math.min(uuidIndex++, uuidValues.length - 1)] },
+    Utilities: {
+      getUuid: () => uuidValues[Math.min(uuidIndex++, uuidValues.length - 1)],
+      DigestAlgorithm: { SHA_256: "SHA_256" },
+      Charset: { UTF_8: "UTF_8" },
+      computeDigest: (_algorithm: string, value: string) => Array.from(createHash("sha256").update(value).digest()).map((byte) => byte > 127 ? byte - 256 : byte),
+    },
     Date,
     JSON,
     Math,
@@ -93,7 +104,7 @@ function loadScriptWithDashboard(values: Record<string, unknown>, clientHeaders:
     Number,
   };
   vm.runInNewContext(readFileSync("apps-script/Code.gs", "utf8"), context);
-  return { context: context as { onOpen: () => void; ensureClientSchema_: () => void; clientDataRows_: () => unknown[]; saveClientFromDashboard: () => void; generateMissingLineLinkCodes: () => unknown; renewLineCodeForSelectedClient: () => unknown; disconnectSelectedClientLine: () => unknown; SpreadsheetApp: { getActiveRange: () => Range } }, select: (sheetName: string, row: number) => { selectedSheetName = sheetName; selectedRow = row; }, clientWrites, clientCellWrites, auditRows, alerts, menuNames, menuItems, columnExpansions, headerWrites };
+  return { context: context as { onOpen: () => void; ensureClientSchema_: () => void; clientDataRows_: () => unknown[]; saveClientFromDashboard: () => void; generateMissingLineLinkCodes: () => unknown; renewLineCodeForSelectedClient: () => unknown; disconnectSelectedClientLine: () => unknown; SpreadsheetApp: { getActiveRange: () => Range } }, select: (sheetName: string, row: number) => { selectedSheetName = sheetName; selectedRow = row; }, clientWrites, clientCellWrites, auditRows, alerts, menuNames, menuItems, columnExpansions, headerWrites, releasedReservationNames };
 }
 
 function range(overrides: Partial<Range>): Range {
@@ -245,13 +256,16 @@ describe("Apps Script client save", () => {
   });
 
   it("disconnects a selected client by clearing its mapping and auditing the event", () => {
-    const rows = [["client_1", true, "Nisa", "Uaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Nisa LINE", "PT", "ONE_TIME", 1000, 1, 0, new Date(), 1000, "MANUAL", new Date(), "", new Date(), new Date(), "", "", "LINKED", new Date(), "", ""]];
-    const { context, select, clientWrites, auditRows } = loadScriptWithDashboard({}, undefined, undefined, rows);
+    const userId = "Uaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const rows = [["client_1", true, "Nisa", userId, "Nisa LINE", "PT", "ONE_TIME", 1000, 1, 0, new Date(), 1000, "MANUAL", new Date(), "", new Date(), new Date(), "", "", "LINKED", new Date(), "", ""]];
+    const reservation = `line_link_user_${createHash("sha256").update(userId).digest("hex")}`;
+    const { context, select, clientWrites, auditRows, releasedReservationNames } = loadScriptWithDashboard({}, undefined, undefined, rows, undefined, [reservation]);
     select("Clients", 2);
 
     expect(context.disconnectSelectedClientLine()).toBe(true);
     expect(clientWrites).toContainEqual({ row: 2, values: [[expect.any(Date), "", "", "", "", "", ""]] });
     expect(clientWrites).toContainEqual({ row: 2, values: [["", ""]] });
+    expect(releasedReservationNames).toEqual([reservation]);
     expect(auditRows[0]?.[3]).toBe("LINE_LINK_DISCONNECTED");
   });
 });

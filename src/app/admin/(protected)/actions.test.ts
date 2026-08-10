@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   listClients: vi.fn(),
   writeClient: vi.fn(),
   updateClient: vi.fn(),
+  updateLineLinkClient: vi.fn(),
   releaseLineUserReservation: vi.fn(),
   appendAudit: vi.fn(),
   listPackages: vi.fn(),
@@ -28,7 +29,7 @@ vi.mock("@/lib/admin-auth", () => ({ requireAdmin: mocks.requireAdmin }));
 vi.mock("@/lib/config", () => ({ paymentLinkBaseUrl: vi.fn(() => "https://example.test") }));
 vi.mock("@/lib/payments/generate", () => ({ generateDuePaymentLinks: mocks.generateDuePaymentLinks }));
 vi.mock("@/lib/payments/transition", () => ({ persistPaymentTransition: mocks.persistPaymentTransition }));
-vi.mock("@/lib/sheets/clients", () => ({ listClients: mocks.listClients, writeClient: mocks.writeClient, updateClient: mocks.updateClient, releaseLineUserReservation: mocks.releaseLineUserReservation }));
+vi.mock("@/lib/sheets/clients", () => ({ listClients: mocks.listClients, writeClient: mocks.writeClient, updateClient: mocks.updateClient, updateLineLinkClient: mocks.updateLineLinkClient, releaseLineUserReservation: mocks.releaseLineUserReservation }));
 vi.mock("@/lib/sheets/payments", () => ({ appendAudit: mocks.appendAudit, getPaymentById: mocks.getPaymentById }));
 vi.mock("@/lib/sheets/schedules", () => ({ listSchedules: mocks.listSchedules, writeSchedule: mocks.writeSchedule }));
 vi.mock("@/lib/sheets/settings", () => ({ listPackages: mocks.listPackages, savePackage: mocks.savePackage, upsertOperationalSetting: mocks.upsertOperationalSetting }));
@@ -59,6 +60,7 @@ beforeEach(() => {
   mocks.listClients.mockResolvedValue([]);
   mocks.writeClient.mockResolvedValue(undefined);
   mocks.updateClient.mockResolvedValue(undefined);
+  mocks.updateLineLinkClient.mockResolvedValue(true);
   mocks.releaseLineUserReservation.mockResolvedValue(undefined);
   mocks.appendAudit.mockResolvedValue(undefined);
   mocks.listPackages.mockResolvedValue([{ package_name: "PT", active: "TRUE" }]);
@@ -85,7 +87,7 @@ describe("protected LINE trainer actions", () => {
       client({ rowNumber: 4, client_id: "linked", line_user_id: userId, line_link_status: "LINKED" }),
       client({ rowNumber: 5, client_id: "failed", client_name: "Broken" }),
     ]);
-    mocks.updateClient.mockImplementation(async (updated: ClientRecord) => { if (updated.client_id === "failed") throw new Error("sheet unavailable"); });
+    mocks.updateLineLinkClient.mockImplementation(async ({ client: updated }: { client: ClientRecord }) => { if (updated.client_id === "failed") throw new Error("sheet unavailable"); return true; });
 
     await expect(generateMissingLineLinkCodesAction()).resolves.toMatchObject({ created: ["created"], alreadyActive: ["active"], alreadyLinked: ["linked"], failed: [{ clientId: "failed", error: "sheet unavailable" }] });
     expect(mocks.requireAdmin).toHaveBeenCalledTimes(1);
@@ -100,7 +102,7 @@ describe("protected LINE trainer actions", () => {
     expect(result).toMatchObject({ clientId: "client_1", status: "CODE_ACTIVE" });
     expect(result?.code).toMatch(/^[A-F0-9]{10}$/);
     expect(result?.code).not.toBe("ABCDEF0123");
-    expect(mocks.updateClient).toHaveBeenCalledWith(expect.objectContaining({ line_user_id: "", line_link_status: "CODE_ACTIVE" }));
+    expect(mocks.updateLineLinkClient).toHaveBeenCalledWith(expect.objectContaining({ client: expect.objectContaining({ line_user_id: "", line_link_status: "CODE_ACTIVE" }) }));
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/admin/clients/client_1");
   });
 
@@ -109,7 +111,7 @@ describe("protected LINE trainer actions", () => {
 
     await expect(renewLineLinkCodeAction("client_1")).resolves.toBeNull();
 
-    expect(mocks.updateClient).not.toHaveBeenCalled();
+    expect(mocks.updateLineLinkClient).not.toHaveBeenCalled();
     expect(mocks.appendAudit).not.toHaveBeenCalled();
   });
 
@@ -118,7 +120,7 @@ describe("protected LINE trainer actions", () => {
 
     await expect(disconnectLineAction("client_1")).resolves.toBe(true);
 
-    expect(mocks.updateClient).toHaveBeenCalledWith(expect.objectContaining({ line_user_id: "", line_display_name: "", line_link_code: "", line_link_code_expires_at: "", line_link_status: "", line_linked_at: "", line_link_message: "", line_link_error: "" }));
+    expect(mocks.updateLineLinkClient).toHaveBeenCalledWith(expect.objectContaining({ client: expect.objectContaining({ line_user_id: "", line_display_name: "", line_link_code: "", line_link_code_expires_at: "", line_link_status: "", line_linked_at: "", line_link_message: "", line_link_error: "" }) }));
     expect(mocks.releaseLineUserReservation).toHaveBeenCalledWith(userId);
     expect(mocks.appendAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "LINE_LINK_DISCONNECTED", clientId: "client_1", source: "LINE_TRAINER" }));
   });

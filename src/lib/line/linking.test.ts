@@ -14,10 +14,10 @@ function client(overrides: Partial<ClientRecord> = {}): ClientRecord {
   };
 }
 
-function dependencies(rows: ClientRecord[], codeGenerator = vi.fn(() => "1234567890")): LineLinkDependencies & { updateClient: ReturnType<typeof vi.fn>; appendAudit: ReturnType<typeof vi.fn>; codeGenerator: ReturnType<typeof vi.fn>; claimLineLink: ReturnType<typeof vi.fn>; releaseLineUserReservation: ReturnType<typeof vi.fn> } {
+function dependencies(rows: ClientRecord[], codeGenerator = vi.fn(() => "1234567890")): LineLinkDependencies & { updateClient: ReturnType<typeof vi.fn>; updateLineLinkClient: ReturnType<typeof vi.fn>; appendAudit: ReturnType<typeof vi.fn>; codeGenerator: ReturnType<typeof vi.fn>; claimLineLink: ReturnType<typeof vi.fn>; releaseLineUserReservation: ReturnType<typeof vi.fn> } {
   return {
     listClients: vi.fn(async () => rows), updateClient: vi.fn(async () => undefined), appendAudit: vi.fn(async () => undefined), codeGenerator,
-    claimLineLink: vi.fn(async () => "CLAIMED"), releaseLineUserReservation: vi.fn(async () => undefined),
+    updateLineLinkClient: vi.fn(async () => true), claimLineLink: vi.fn(async () => "CLAIMED"), releaseLineUserReservation: vi.fn(async () => undefined),
   };
 }
 
@@ -55,7 +55,7 @@ describe("LINE linking domain service", () => {
 
     await expect(service.persistLineDisplayName({ lineUserId: userA, displayName: "Nisa LINE", now })).resolves.toBe(true);
     await expect(service.persistLineDisplayName({ lineUserId: userB, displayName: "Other", now })).resolves.toBe(false);
-    expect(deps.updateClient).toHaveBeenCalledWith(expect.objectContaining({ line_user_id: userA, line_display_name: "Nisa LINE", updated_at: now }));
+    expect(deps.updateLineLinkClient).toHaveBeenCalledWith(expect.objectContaining({ client: expect.objectContaining({ line_user_id: userA, line_display_name: "Nisa LINE", updated_at: now }) }));
   });
 
   it("escapes formula-leading LINE display names before they reach Sheets", async () => {
@@ -65,7 +65,7 @@ describe("LINE linking domain service", () => {
     for (const displayName of ["=HYPERLINK(\"https://example.test\")", "+name", "-name", "@name"]) {
       await expect(service.persistLineDisplayName({ lineUserId: userA, displayName, now })).resolves.toBe(true);
     }
-    expect(deps.updateClient.mock.calls.map(([updated]) => updated.line_display_name)).toEqual(["'=HYPERLINK(\"https://example.test\")", "'+name", "'-name", "'@name"]);
+    expect(deps.updateLineLinkClient.mock.calls.map(([input]) => input.client.line_display_name)).toEqual(["'=HYPERLINK(\"https://example.test\")", "'+name", "'-name", "'@name"]);
   });
 
   it("does not enrich a user mapping that is under trainer review", async () => {
@@ -73,6 +73,20 @@ describe("LINE linking domain service", () => {
 
     await expect(createLineLinkService(deps).persistLineDisplayName({ lineUserId: userA, displayName: "Nisa LINE", now })).resolves.toBe(false);
     expect(deps.updateClient).not.toHaveBeenCalled();
+  });
+
+  it("does not resurrect a link when disconnect wins before profile persistence", async () => {
+    const rows = [client({ line_user_id: userA, line_link_status: "LINKED", line_link_code: "", line_link_code_expires_at: "" })];
+    const deps = dependencies(rows);
+    deps.updateLineLinkClient.mockImplementation(async () => {
+      rows[0] = client({ line_user_id: "", line_display_name: "", line_link_status: "", line_link_code: "", line_link_code_expires_at: "" });
+      return false;
+    });
+
+    await expect(createLineLinkService(deps).persistLineDisplayName({ lineUserId: userA, displayName: "Nisa LINE", now })).resolves.toBe(false);
+    expect(deps.updateLineLinkClient).toHaveBeenCalledTimes(1);
+    expect(deps.updateClient).not.toHaveBeenCalled();
+    expect(rows[0]?.line_user_id).toBe("");
   });
 
   it("treats a same-user webhook retry as idempotently already linked", async () => {
@@ -88,7 +102,7 @@ describe("LINE linking domain service", () => {
     const deps = dependencies([target]);
 
     await expect(createLineLinkService(deps).linkLineUser({ code: "ABCDEF0123", lineUserId: userB, now, webhookEventId: "event_1" })).resolves.toBe("CONFLICT");
-    expect(deps.updateClient).toHaveBeenCalledWith(expect.objectContaining({ line_user_id: userA, line_link_status: "REVIEW", line_link_error: "LINE user conflict", updated_at: now }));
+    expect(deps.updateLineLinkClient).toHaveBeenCalledWith(expect.objectContaining({ client: expect.objectContaining({ line_user_id: userA, line_link_status: "REVIEW", line_link_error: "LINE user conflict", updated_at: now }) }));
     expect(deps.appendAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "LINE_LINK_CONFLICT", newStatus: "REVIEW" }));
   });
 
@@ -98,8 +112,8 @@ describe("LINE linking domain service", () => {
     const deps = dependencies([target, other]);
 
     await expect(createLineLinkService(deps).linkLineUser({ code: "ABCDEF0123", lineUserId: userA, now, webhookEventId: "event_1" })).resolves.toBe("CONFLICT");
-    expect(deps.updateClient).toHaveBeenCalledTimes(1);
-    expect(deps.updateClient).toHaveBeenCalledWith(expect.objectContaining({ client_id: "client_1", line_user_id: "", line_link_status: "REVIEW", line_link_error: "LINE user conflict" }));
+    expect(deps.updateLineLinkClient).toHaveBeenCalledTimes(1);
+    expect(deps.updateLineLinkClient).toHaveBeenCalledWith(expect.objectContaining({ client: expect.objectContaining({ client_id: "client_1", line_user_id: "", line_link_status: "REVIEW", line_link_error: "LINE user conflict" }) }));
   });
 
   it("allows only one competing user to consume the same code", async () => {
@@ -147,6 +161,49 @@ describe("LINE linking domain service", () => {
     expect(deps.claimLineLink).toHaveBeenCalledTimes(2);
     expect(deps.updateClient).not.toHaveBeenCalled();
   });
+
+  it("does not consume a code after a concurrent renewal wins its state claim", async () => {
+    const deps = dependencies([client()]);
+    deps.claimLineLink.mockResolvedValue("STALE");
+
+    await expect(createLineLinkService(deps).linkLineUser({ code: "ABCDEF0123", lineUserId: userA, now, webhookEventId: "event_renewal" })).resolves.toBe("INVALID_OR_EXPIRED");
+    expect(deps.appendAudit).not.toHaveBeenCalled();
+  });
+
+  it("keeps a renewed code unlinked when renewal wins an interleaved webhook claim", async () => {
+    let stored = client();
+    const deps = dependencies([stored]);
+    const claimedStates = new Set<string>();
+    const stateKey = (item: ClientRecord) => JSON.stringify([item.client_id, item.line_link_code, item.line_link_status, item.updated_at]);
+    let releaseClaim: () => void = () => undefined;
+    const claimGate = new Promise<void>((resolve) => { releaseClaim = resolve; });
+    deps.listClients.mockImplementation(async () => [stored]);
+    deps.updateLineLinkClient.mockImplementation(async ({ client: updated, expectedClient }: { client: ClientRecord; expectedClient: ClientRecord }) => {
+      const key = stateKey(expectedClient);
+      if (claimedStates.has(key)) return false;
+      claimedStates.add(key);
+      stored = updated;
+      return true;
+    });
+    deps.claimLineLink.mockImplementation(async ({ client: linked, expectedClient }: { client: ClientRecord; expectedClient: ClientRecord }) => {
+      await claimGate;
+      const key = stateKey(expectedClient);
+      if (claimedStates.has(key)) return "STALE";
+      claimedStates.add(key);
+      stored = linked;
+      return "CLAIMED";
+    });
+    const service = createLineLinkService(deps);
+    const linking = service.linkLineUser({ code: "ABCDEF0123", lineUserId: userA, now, webhookEventId: "event_interleaved" });
+    await Promise.resolve();
+    await Promise.resolve();
+    const renewed = await renewLineLinkCode(deps, { clientId: "client_1", now });
+    releaseClaim();
+
+    await expect(linking).resolves.toBe("INVALID_OR_EXPIRED");
+    expect(renewed).toMatchObject({ code: "1234567890", status: "CODE_ACTIVE" });
+    expect(stored).toMatchObject({ line_user_id: "", line_link_code: "1234567890", line_link_status: "CODE_ACTIVE" });
+  });
 });
 
 describe("LINE trainer link-code functions", () => {
@@ -162,7 +219,7 @@ describe("LINE trainer link-code functions", () => {
 
     expect(result).toMatchObject({ created: ["client_pending"], alreadyActive: ["client_active"], alreadyLinked: ["client_linked"], skippedInactive: ["client_inactive"], failed: [] });
     expect(codeGenerator).toHaveBeenCalledTimes(2);
-    expect(deps.updateClient).toHaveBeenCalledWith(expect.objectContaining({ client_id: "client_pending", line_link_code: "1234567890", line_link_code_expires_at: "2026-08-17T12:00:00.000Z", line_link_status: "CODE_ACTIVE", line_link_message: "Hi Nisa, reply with this exact message to link your LINE account:\nLINK 1234567890" }));
+    expect(deps.updateLineLinkClient).toHaveBeenCalledWith(expect.objectContaining({ client: expect.objectContaining({ client_id: "client_pending", line_link_code: "1234567890", line_link_code_expires_at: "2026-08-17T12:00:00.000Z", line_link_status: "CODE_ACTIVE", line_link_message: "Hi Nisa, reply with this exact message to link your LINE account:\nLINK 1234567890" }) }));
   });
 
   it("keeps a non-expired code even when its status needs review", async () => {
@@ -180,14 +237,14 @@ describe("LINE trainer link-code functions", () => {
     const deps = dependencies([current, other], vi.fn(() => "FEDCBA9876"));
 
     await expect(renewLineLinkCode(deps, { clientId: "client_1", now })).resolves.toMatchObject({ clientId: "client_1", code: "FEDCBA9876", status: "CODE_ACTIVE" });
-    expect(deps.updateClient).toHaveBeenCalledWith(expect.objectContaining({ line_link_code: "FEDCBA9876", line_link_code_expires_at: "2026-08-17T12:00:00.000Z", line_link_status: "CODE_ACTIVE", line_link_error: "" }));
+    expect(deps.updateLineLinkClient).toHaveBeenCalledWith(expect.objectContaining({ client: expect.objectContaining({ line_link_code: "FEDCBA9876", line_link_code_expires_at: "2026-08-17T12:00:00.000Z", line_link_status: "CODE_ACTIVE", line_link_error: "" }) }));
   });
 
   it("clears mapping and link state when trainer disconnects a client", async () => {
     const deps = dependencies([client({ line_user_id: userA, line_display_name: "Nisa LINE", line_link_status: "LINKED", line_linked_at: now, line_link_code: "", line_link_code_expires_at: "", line_link_message: "" })]);
 
     await expect(disconnectLineUser(deps, { clientId: "client_1", now })).resolves.toBe(true);
-    expect(deps.updateClient).toHaveBeenCalledWith(expect.objectContaining({ line_user_id: "", line_display_name: "", line_link_code: "", line_link_code_expires_at: "", line_link_status: "", line_linked_at: "", line_link_message: "", line_link_error: "", updated_at: now }));
+    expect(deps.updateLineLinkClient).toHaveBeenCalledWith(expect.objectContaining({ client: expect.objectContaining({ line_user_id: "", line_display_name: "", line_link_code: "", line_link_code_expires_at: "", line_link_status: "", line_linked_at: "", line_link_message: "", line_link_error: "", updated_at: now }) }));
     expect(deps.appendAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "LINE_LINK_DISCONNECTED", clientId: "client_1", newStatus: "" }));
   });
 });

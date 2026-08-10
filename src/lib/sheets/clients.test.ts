@@ -6,7 +6,7 @@ vi.mock("./client", () => ({
   getGoogleSheets: () => ({ spreadsheetId: "spreadsheet_1", sheets: { spreadsheets: { get: spreadsheetGet, batchUpdate, values: { get, update } } } }),
 }));
 
-import { claimLineLink, listClients, writeClient, type ClientRecord } from "./clients";
+import { claimLineLink, listClients, updateLineLinkClient, writeClient, type ClientRecord } from "./clients";
 
 const clientHeaders = [
   "client_id", "active", "client_name", "line_user_id", "line_display_name", "package_name", "payment_type",
@@ -56,13 +56,15 @@ describe("Clients repository", () => {
     get.mockResolvedValueOnce({ data: { values: [clientHeaders] } });
     batchUpdate.mockResolvedValueOnce({});
 
-    await expect(claimLineLink({ client: linkedClient(), code: "ABCDEF0123", lineUserId: "Uaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" })).resolves.toBe("CLAIMED");
+    const current = linkedClient();
+    await expect(claimLineLink({ client: current, expectedClient: current, code: "ABCDEF0123", lineUserId: "Uaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" })).resolves.toBe("CLAIMED");
 
     expect(batchUpdate).toHaveBeenCalledWith(expect.objectContaining({
       requestBody: {
         requests: expect.arrayContaining([
           expect.objectContaining({ addNamedRange: expect.objectContaining({ namedRange: expect.objectContaining({ name: expect.stringMatching(/^line_link_code_[a-f0-9]{64}$/) }) }) }),
           expect.objectContaining({ addNamedRange: expect.objectContaining({ namedRange: expect.objectContaining({ name: expect.stringMatching(/^line_link_user_[a-f0-9]{64}$/) }) }) }),
+          expect.objectContaining({ addNamedRange: expect.objectContaining({ namedRange: expect.objectContaining({ name: expect.stringMatching(/^line_link_state_[a-f0-9]{64}$/) }) }) }),
           expect.objectContaining({ updateCells: expect.any(Object) }),
         ]),
       },
@@ -79,6 +81,15 @@ describe("Clients repository", () => {
       .mockResolvedValueOnce({ data: { values: [clientHeaders, clientHeaders.map((header) => winner[header as keyof ClientRecord] ?? "")] } });
     batchUpdate.mockRejectedValueOnce(error);
 
-    await expect(claimLineLink({ client: winner, code: "ABCDEF0123", lineUserId: winner.line_user_id })).resolves.toBe("ALREADY_LINKED");
+    await expect(claimLineLink({ client: winner, expectedClient: winner, code: "ABCDEF0123", lineUserId: winner.line_user_id })).resolves.toBe("ALREADY_LINKED");
+  });
+
+  it("rejects a stale LINE field update when its expected-state reservation already exists", async () => {
+    const current = linkedClient();
+    get.mockResolvedValueOnce({ data: { values: [clientHeaders] } });
+    batchUpdate.mockRejectedValueOnce(Object.assign(new Error("Named range already exists"), { response: { status: 400 } }));
+
+    await expect(updateLineLinkClient({ expectedClient: current, client: { ...current, line_display_name: "Nisa LINE" } })).resolves.toBe(false);
+    expect(update).not.toHaveBeenCalled();
   });
 });

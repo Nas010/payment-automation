@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   getLineChannelAccessToken: vi.fn(),
   listClients: vi.fn(),
   updateClient: vi.fn(),
+  updateLineLinkClient: vi.fn(),
   claimLineLink: vi.fn(),
   appendAudit: vi.fn(),
   fetchFn: vi.fn(),
@@ -20,6 +21,7 @@ vi.mock("@/lib/secrets/service", () => ({
 vi.mock("@/lib/sheets/clients", () => ({
   listClients: mocks.listClients,
   updateClient: mocks.updateClient,
+  updateLineLinkClient: mocks.updateLineLinkClient,
   claimLineLink: mocks.claimLineLink,
 }));
 
@@ -60,6 +62,7 @@ beforeEach(() => {
   mocks.getLineChannelAccessToken.mockResolvedValue(accessToken);
   mocks.listClients.mockResolvedValue([client()]);
   mocks.updateClient.mockResolvedValue(undefined);
+  mocks.updateLineLinkClient.mockResolvedValue(true);
   mocks.claimLineLink.mockResolvedValue("CLAIMED");
   mocks.appendAudit.mockResolvedValue(undefined);
   mocks.fetchFn.mockResolvedValue(new Response(null, { status: 200 }));
@@ -134,7 +137,7 @@ describe("POST /api/line/webhook", () => {
 
     expect(res.status).toBe(200);
     expect(mocks.claimLineLink).toHaveBeenCalledWith(expect.objectContaining({ code: "ABCDEF0123", lineUserId: userId, client: expect.objectContaining({ line_user_id: userId, line_link_status: "LINKED" }) }));
-    expect(mocks.updateClient).toHaveBeenCalledWith(expect.objectContaining({ line_display_name: "Nisa LINE" }));
+    expect(mocks.updateLineLinkClient).toHaveBeenCalledWith(expect.objectContaining({ client: expect.objectContaining({ line_display_name: "Nisa LINE" }) }));
     expect(mocks.fetchFn).toHaveBeenCalledWith("https://api.line.me/v2/bot/message/reply", expect.objectContaining({ body: JSON.stringify({ replyToken: "reply-token", messages: [{ type: "text", text: "✓ Connected\n\nYour coaching account is now linked. Future payment links can be sent here automatically." }] }) }));
     expect(mocks.fetchFn).toHaveBeenCalledWith("https://api.line.me/v2/bot/message/reply", expect.objectContaining({ body: JSON.stringify({ replyToken: "reply-token-2", messages: [{ type: "text", text: "I couldn't connect this account. The code is invalid or expired. Please ask your trainer for a new code." }] }) }));
   });
@@ -146,7 +149,7 @@ describe("POST /api/line/webhook", () => {
 
     await expect(POST(signedRequest({ events: [event()] }))).resolves.toMatchObject({ status: 200 });
     expect(mocks.claimLineLink).toHaveBeenCalledWith(expect.objectContaining({ lineUserId: userId, client: expect.objectContaining({ line_link_status: "LINKED" }) }));
-    expect(mocks.updateClient).not.toHaveBeenCalled();
+    expect(mocks.updateLineLinkClient).not.toHaveBeenCalled();
   });
 
   it("uses mandated replies without disclosing inactive-client state", async () => {

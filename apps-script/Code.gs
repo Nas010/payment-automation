@@ -126,8 +126,11 @@ function disconnectSelectedClientLine() {
   ensureClientSchema_();
   const selected = selectedClientRow_(); if (!selected) return false;
   const clientId = String(selected.values[0]); const lineUserId = String(selected.values[3] || ''); const now = new Date();
-  writeLineFields_(selected.row, ['', '', '', '', '', ''], now); book_().getSheetByName(CP.clients).getRange(selected.row, 4, 1, 2).setValues([['', '']]); appendAudit_('', clientId, 'LINE_LINK_DISCONNECTED', String(selected.values[19] || ''), '', 'LINE account disconnected', 'LINE_TRAINER', JSON.stringify({ clientId, status: '', ...(lineUserId ? { lineUserSuffix: lineUserId.slice(-4) } : {}) })); notifyLine_(`Disconnected LINE for ${String(selected.values[2] || '').trim()}.`, false); return true;
+  writeLineFields_(selected.row, ['', '', '', '', '', ''], now); book_().getSheetByName(CP.clients).getRange(selected.row, 4, 1, 2).setValues([['', '']]); releaseLineUserReservation_(lineUserId); appendAudit_('', clientId, 'LINE_LINK_DISCONNECTED', String(selected.values[19] || ''), '', 'LINE account disconnected', 'LINE_TRAINER', JSON.stringify({ clientId, status: '', ...(lineUserId ? { lineUserSuffix: lineUserId.slice(-4) } : {}) })); notifyLine_(`Disconnected LINE for ${String(selected.values[2] || '').trim()}.`, false); return true;
 }
+
+function lineReservationName_(kind, value) { const digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, value, Utilities.Charset.UTF_8); const hex = digest.map((byte) => ((byte + 256) % 256).toString(16).padStart(2, '0')).join(''); return `line_link_${kind}_${hex}`; }
+function releaseLineUserReservation_(lineUserId) { if (!lineUserId) return; const name = lineReservationName_('user', lineUserId); book_().getNamedRanges().filter((namedRange) => namedRange.getName() === name).forEach((namedRange) => namedRange.remove()); }
 
 function clearDashboardForm() {
   ensureClientSchema_();
