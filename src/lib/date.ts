@@ -1,3 +1,29 @@
+export const APP_TIME_ZONE = "Asia/Bangkok";
+export type DateDisplayValue = string | Date | null | undefined;
+
+function toDisplayDate(value: DateDisplayValue): Date | null {
+  if (!value) return null;
+  const normalized = typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T12:00:00+07:00` : value;
+  const date = normalized instanceof Date ? normalized : new Date(normalized);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+export function formatDate(value: DateDisplayValue): string {
+  const date = toDisplayDate(value);
+  return date ? new Intl.DateTimeFormat("en-GB", { timeZone: APP_TIME_ZONE, day: "2-digit", month: "short", year: "numeric" }).format(date) : "—";
+}
+
+export function formatDateTime(value: DateDisplayValue): string {
+  const date = toDisplayDate(value);
+  return date ? new Intl.DateTimeFormat("en-GB", { timeZone: APP_TIME_ZONE, day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(date) : "—";
+}
+
+export function bangkokDateKey(value = new Date()): string {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: APP_TIME_ZONE, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(value);
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value;
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
 export function parseThaiSlipDate(value: string, timezone: string): Date | null {
   if (timezone !== "Asia/Bangkok") return null;
   const trimmed = value.trim();
