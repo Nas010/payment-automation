@@ -14,6 +14,25 @@ export function configuredSlipRetentionDays(environment: Record<string, string |
   return Number.isSafeInteger(value) && value >= 0 && value <= 365 ? value : 30;
 }
 
+export function paymentLinkBaseUrl(environment: Record<string, string | undefined> = process.env, requestOrigin: string | null): string {
+  const configuredUrl = environment.PRODUCTION_BASE_URL?.trim();
+  if (configuredUrl && configuredUrl !== "CONFIG_REQUIRED") return configuredUrl;
+  if (requestOrigin) {
+    try {
+      const url = new URL(requestOrigin);
+      if (url.protocol === "http:" || url.protocol === "https:") return url.origin;
+    } catch {}
+  }
+  throw new Error("PRODUCTION_BASE_URL is required before payment links can be generated");
+}
+
+/** Configuration needed by the private Google Sheets repository only. */
+export function sheetsConfig(environment: Record<string, string | undefined> = process.env) {
+  const missing = ["SPREADSHEET_ID", "GOOGLE_SERVICE_ACCOUNT_JSON"].filter((key) => !environment[key] || environment[key] === "CONFIG_REQUIRED");
+  if (missing.length) throw new Error(`Configuration required: ${missing.join(", ")}`);
+  return { spreadsheetId: environment.SPREADSHEET_ID!, serviceAccountJson: environment.GOOGLE_SERVICE_ACCOUNT_JSON! };
+}
+
 export function serverConfig() {
   const missing = requiredConfiguration();
   if (missing.length) throw new Error(`Configuration required: ${missing.join(", ")}`);

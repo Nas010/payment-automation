@@ -54,7 +54,13 @@ async function readOcr(bytes: Uint8Array, receiverAliases: string[]): Promise<{ 
   try {
     const { createWorker } = await import("tesseract.js");
     const worker = await createWorker(["eng", "tha"]);
-    const result = await worker.recognize(Buffer.from(bytes));
+    const ocrInput = await sharp(bytes)
+      .resize({ width: 2000, fit: "inside", withoutEnlargement: false })
+      .greyscale()
+      .normalize()
+      .sharpen()
+      .toBuffer();
+    const result = await worker.recognize(ocrInput);
     await worker.terminate();
     const text = result.data.text.replace(/\s+/g, " ");
     const fields = extractCommonThaiSlipFields(text);
@@ -73,7 +79,7 @@ export async function analyzeSlip(bytes: Uint8Array, declaredType: string, recei
   const parsed = extractReference(selection.payload);
   const ocr = await readOcr(normalized, receiverAliases);
   const transactionRef = selection.parsed?.transactionReference ?? parsed.reference ?? ocr.reference;
-  const originatingBank = parsed.bank ?? ocr.bank;
+  const originatingBank = selection.parsed?.sendingBankCode ?? parsed.bank ?? ocr.bank;
   const reasons = selection.qrValid
     ? ["Structurally valid EMV slip QR decoded locally; no bank confirmation"]
     : ["No structurally valid slip verification QR found; local OCR used as heuristic"];
