@@ -27,9 +27,9 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
       <SidebarContent>
         <AdminNavigation pathname={pathname} />
       </SidebarContent>
-      <SidebarFooter className="gap-3 p-3 text-xs text-sidebar-foreground/70"><Separator /><div className="flex flex-col gap-1"><p>Google Sheets · Connected</p><p>Admin session · Active</p></div><form action={logoutAction}><Button variant="ghost" size="sm" className="w-full justify-start">Sign out</Button></form></SidebarFooter>
+      <SidebarFooter className="gap-3 p-3 text-xs text-sidebar-foreground/70"><Separator /><form action={logoutAction}><Button variant="ghost" size="sm" className="w-full justify-start">Sign out</Button></form></SidebarFooter>
     </Sidebar>
-    <SidebarInset className="bg-muted/30"><header className="flex h-14 items-center gap-3 border-b bg-background px-4 md:px-6"><SidebarTrigger /><Separator orientation="vertical" className="h-4" /><span className="text-sm text-muted-foreground">Admin workspace</span></header><main className="mx-auto w-full max-w-[1440px] p-4 md:p-6">{children}</main></SidebarInset>
+    <SidebarInset className="bg-muted/30"><header className="flex h-14 items-center border-b bg-background px-4 md:px-6"><SidebarTrigger /></header><main className="mx-auto w-full max-w-[1440px] p-4 md:p-6">{children}</main></SidebarInset>
   </SidebarProvider>;
 }
 
