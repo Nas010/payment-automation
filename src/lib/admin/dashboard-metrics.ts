@@ -1,4 +1,5 @@
 import { parseSatang } from "@/lib/money";
+import { z } from "zod";
 
 type MetricClient = { active: string };
 type MetricPayment = { status: string; amount_thb: string; recorded_at: string; manual_confirmed_at: string; created_at: string };
@@ -20,6 +21,7 @@ export type DashboardReadModel = {
 };
 
 export const DASHBOARD_COLLECTED_DELTA_DISPLAY_KEY = "dashboard_collected_delta_display";
+export const dashboardCollectedDeltaDisplaySchema = z.enum(["absolute", "percentage"]);
 
 function satang(value: string): number { return parseSatang(value) ?? 0; }
 

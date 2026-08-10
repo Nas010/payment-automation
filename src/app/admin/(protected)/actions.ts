@@ -5,6 +5,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/admin-auth";
+import { DASHBOARD_COLLECTED_DELTA_DISPLAY_KEY, dashboardCollectedDeltaDisplaySchema } from "@/lib/admin/dashboard-metrics";
 import { paymentLinkBaseUrl } from "@/lib/config";
 import { parseSatang } from "@/lib/money";
 import { buildInstallmentPlan } from "@/lib/plans/schedule";
@@ -71,4 +72,12 @@ export async function savePackageAction(formData: FormData): Promise<void> {
 
 export async function saveOperationalSettingAction(formData: FormData): Promise<void> {
   await requireAdmin(); const data = values(formData); if (!data.key.trim()) throw new Error("Setting key is required"); await upsertOperationalSetting(data.key.trim(), data.value.trim()); revalidatePath("/admin/settings");
+}
+
+export async function saveDashboardDisplaySettingsAction(formData: FormData): Promise<void> {
+  await requireAdmin();
+  const display = dashboardCollectedDeltaDisplaySchema.parse(values(formData).collected_delta_display);
+  await upsertOperationalSetting(DASHBOARD_COLLECTED_DELTA_DISPLAY_KEY, display);
+  revalidatePath("/admin/settings");
+  revalidatePath("/admin/dashboard");
 }

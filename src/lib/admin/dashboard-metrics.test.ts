@@ -22,6 +22,19 @@ describe("dashboard metrics", () => {
     expect(metrics.parseDashboardCollectedDeltaDisplay([{ key: "dashboard_collected_delta_display", value: "percentage" }])).toBe("percentage");
   });
 
+  it("accepts only supported collected-delta display preferences", async () => {
+    const metrics = await loadDashboardMetrics();
+    expect(metrics).not.toBeNull();
+    if (!metrics) return;
+    const schema = (metrics as Record<string, unknown>).dashboardCollectedDeltaDisplaySchema as { parse?: (value: string) => string } | undefined;
+
+    expect(schema?.parse).toBeTypeOf("function");
+    if (!schema?.parse) return;
+    expect(schema.parse("absolute")).toBe("absolute");
+    expect(schema.parse("percentage")).toBe("percentage");
+    expect(() => schema.parse?.("currency")).toThrow();
+  });
+
   it("compares current metrics with prior-month data only when a baseline exists", async () => {
     const metrics = await loadDashboardMetrics();
     expect(metrics).not.toBeNull();
