@@ -100,9 +100,10 @@ function generateDuePaymentLinks() {
 }
 
 function installDailyScheduler() {
-  ScriptApp.getProjectTriggers().filter((trigger) => ['generateDuePaymentLinks', 'onOpen'].includes(trigger.getHandlerFunction())).forEach((trigger) => ScriptApp.deleteTrigger(trigger));
+  ScriptApp.getProjectTriggers().filter((trigger) => ['generateDuePaymentLinks', 'onOpen', 'onEdit'].includes(trigger.getHandlerFunction())).forEach((trigger) => ScriptApp.deleteTrigger(trigger));
   ScriptApp.newTrigger('generateDuePaymentLinks').timeBased().atHour(9).everyDays(1).inTimezone('Asia/Bangkok').create();
   ScriptApp.newTrigger('onOpen').forSpreadsheet(CP.spreadsheetId).onOpen().create();
+  ScriptApp.newTrigger('onEdit').forSpreadsheet(CP.spreadsheetId).onEdit().create();
   setDashboardStatus_('Automation installed: Dashboard menu loads on open; links generate daily at 09:00 Asia/Bangkok.');
 }
 
