@@ -18,3 +18,7 @@ PromptPay payment links and trusted-client slip recording for a single coach. Th
 Run `npm test` and `npm run build` before deployment.
 
 After secure configuration, run `npm run smoke` to check production health. Set `SMOKE_PAYMENT_TOKEN` only for a dedicated test payment: it submits a tiny valid PNG and intentionally creates an auditable `REVIEW`/`FLAGGED` result.
+
+## Coach workbook workflow
+
+Use the `Dashboard` tab to enter a client, choose an active package from `Settings`, and submit via the **Coaching Payments** spreadsheet menu. Packages set defaults for one-time or installment plans; the coach may override price, installment count, and interval. The bound Apps Script creates a private `Installment Schedule` and generates a public payment link at 09:00 Asia/Bangkok on each due date. Future LINE OA automation can send the generated `payment_url` to the stored `line_user_id`.
