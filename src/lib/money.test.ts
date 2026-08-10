@@ -6,4 +6,3 @@ describe("parseSatang", () => {
     expect(parseSatang(input)).toBe(expected);
   });
 });
-

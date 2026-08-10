@@ -1,21 +1,71 @@
+import { randomUUID } from "node:crypto";
+import { buildPaymentForSchedule, selectDueSchedules } from "@/lib/plans/schedule";
+import { appendAudit, appendPayment, listPayments, type NewPaymentRecord } from "@/lib/sheets/payments";
+import { listSchedules, updateSchedule, type ScheduleRecord } from "@/lib/sheets/schedules";
 import { createPublicToken } from "./token";
-import { appendPayment, listPayments, type PaymentRecord } from "@/lib/sheets/payments";
-import { listClients } from "@/lib/sheets/clients";
 
-export async function generateMonthlyPayments(period: string, baseUrl: string): Promise<PaymentRecord[]> {
-  const [clients, existing] = await Promise.all([listClients(), listPayments()]);
-  const created: PaymentRecord[] = [];
-  for (const client of clients) {
-    if (client.active !== "TRUE" || client.billing_frequency !== "MONTHLY" || existing.some((payment) => payment.client_id === client.client_id && payment.period === period)) continue;
-    const token = createPublicToken();
-    const paymentId = `pay_${crypto.randomUUID().replaceAll("-", "")}`;
-    const dueDate = client.next_due_date || `${period}-01`;
-    const amount = Number(client.default_amount_thb);
-    if (!Number.isFinite(amount) || amount <= 0) continue;
-    const paymentUrl = `${baseUrl.replace(/\/$/, "")}/p/${token}`;
-    const payment = { payment_id: paymentId, client_id: client.client_id, client_name: client.client_name, period, amount_thb: String(amount), due_date: dueDate, public_token: token, payment_url: paymentUrl, status: "PENDING", created_at: new Date().toISOString(), submitted_at: "", recorded_at: "", manual_confirmed_at: "", transaction_ref: "", originating_bank: "", slip_hash: "", qr_valid: "", ocr_amount: "", amount_match: "", ocr_receiver: "", receiver_match: "", ocr_transaction_date: "", date_match: "", check_score: "", review_reason: "", slip_url: "", admin_notes: "", line_message: `Hi ${client.line_display_name || client.client_name}, your ${period} coaching payment of ฿${amount.toLocaleString("en-US")} is due. You can pay here: ${paymentUrl}`, updated_at: new Date().toISOString() };
-    await appendPayment(payment);
-    created.push(payment);
+export type DuePaymentGenerationResult = {
+  created: NewPaymentRecord[];
+  existing: ScheduleRecord[];
+  failed: Array<{ scheduleId: string; error: string }>;
+};
+
+export type GenerateDuePaymentLinksOptions = {
+  baseUrl: string;
+  today?: string;
+  now?: string;
+  createPaymentId?: () => string;
+  createToken?: () => string;
+};
+
+function bangkokDate(): string {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Bangkok", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
+  const byType = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${byType.year}-${byType.month}-${byType.day}`;
+}
+
+/** Generates payment links only for due rows in canonical Installment Schedule. */
+export async function generateDuePaymentLinks(options: GenerateDuePaymentLinksOptions): Promise<DuePaymentGenerationResult> {
+  const today = options.today ?? bangkokDate();
+  const now = options.now ?? new Date().toISOString();
+  const [schedules, payments] = await Promise.all([listSchedules(), listPayments()]);
+  const candidates = selectDueSchedules(schedules, today);
+  const existing = schedules.filter((schedule) => schedule.due_date <= today && (schedule.status !== "SCHEDULED" || Boolean(schedule.payment_id)));
+  const result: DuePaymentGenerationResult = { created: [], existing, failed: [] };
+
+  for (const schedule of candidates) {
+    if (payments.some((payment) => payment.payment_id === schedule.payment_id)) {
+      result.existing.push(schedule);
+      continue;
+    }
+    try {
+      const payment = buildPaymentForSchedule(schedule, {
+        paymentId: options.createPaymentId?.() ?? `pay_${randomUUID().replaceAll("-", "")}`,
+        publicToken: options.createToken?.() ?? createPublicToken(),
+        baseUrl: options.baseUrl,
+        createdAt: now,
+      });
+      await appendPayment(payment);
+      await updateSchedule({ ...schedule, status: "GENERATED", generated_at: now, payment_id: payment.payment_id, payment_url: payment.payment_url, updated_at: now });
+      await appendAudit({
+        paymentId: payment.payment_id,
+        clientId: payment.client_id,
+        action: "PAYMENT_LINK_GENERATED",
+        previousStatus: "",
+        newStatus: "PENDING",
+        reason: `Due-date link created for installment ${schedule.installment_number} of ${schedule.installment_count}`,
+        source: "SCHEDULE_GENERATOR",
+        metadata: JSON.stringify({ scheduleId: schedule.schedule_id, paymentUrl: payment.payment_url }),
+      });
+      result.created.push(payment);
+    } catch (error) {
+      result.failed.push({ scheduleId: schedule.schedule_id, error: error instanceof Error ? error.message : "Payment link generation failed" });
+    }
   }
-  return created;
+  return result;
+}
+
+/** @deprecated Use generateDuePaymentLinks; kept for callers that still expect a payment array. */
+export async function generateMonthlyPayments(_period: string, baseUrl: string): Promise<NewPaymentRecord[]> {
+  return (await generateDuePaymentLinks({ baseUrl })).created;
 }

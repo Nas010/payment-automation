@@ -35,4 +35,27 @@ describe("receiverFromOcrText", () => {
     expect(kplus).toMatchObject({ bank: "K+", amountSatang: 660000, recipientProxySuffix: "8717", transactionDate: "2026-08-10T03:41:00.000Z" });
     expect(scb).toMatchObject({ bank: "SCB", amountSatang: 390000, recipientProxySuffix: "8717", transactionDate: "2026-07-20T09:23:00.000Z" });
   });
+
+  it("normalizes character-spaced Thai OCR without changing the monetary value", () => {
+    const text = `
+      โอ น เ ง ิ น ส ํ า เ ร ็ จ
+      10 ส . ค . 69 14:34 น . K+
+      ธ . ก ส ิ ก ร ไ ท ย
+      น า ง ส า ว พ ิ ม พ ์ ใ จ ท ด ส อ บ
+      ร ห ั ส พ ร ้ อ ม เ พ ย ์ XXX-XXX-8717
+      เ ล ข ท ี ่ ร า ย ก า ร : REF-ROBUST-001
+      จ ำ : OCR-NOISE น ว น : 1.00 บ า ท
+      ค ่ า ธร ร ม เน ี ย ม : 0.00 บ า ท
+    `;
+
+    expect(extractCommonThaiSlipFields(text)).toMatchObject({
+      bank: "K+",
+      success: true,
+      reference: "REF-ROBUST-001",
+      amountSatang: 100,
+      recipientProxySuffix: "8717",
+      transactionDate: "2026-08-10T07:34:00.000Z",
+    });
+    expect(receiverFromOcrText(text, ["นางสาว พิมพ์ใจ ทดสอบ"])).toBe("นางสาว พิมพ์ใจ ทดสอบ");
+  });
 });
