@@ -4,6 +4,7 @@ import { sha256 } from "./hash";
 import { validateImageUpload } from "./validate";
 import { parseSatang } from "@/lib/money";
 import { parseThaiSlipDate } from "@/lib/date";
+import { parseEmvQr } from "./qr";
 
 export interface SlipAnalysis {
   imageHash: string;
@@ -55,7 +56,8 @@ export async function analyzeSlip(bytes: Uint8Array, declaredType: string): Prom
   if (!metadata.width || !metadata.height || metadata.width > 4000 || metadata.height > 4000 || metadata.width * metadata.height > 16_000_000) throw new Error("Slip image dimensions exceed the allowed limit");
   const greyscale = await sharp(normalized).greyscale().raw().toBuffer();
   const payload = decodeQr(greyscale, metadata.width, metadata.height);
+  const emv = payload ? parseEmvQr(payload) : null;
   const parsed = extractReference(payload);
   const ocr = await readOcr(normalized);
-  return { imageHash: sha256(bytes), qrPayloadHash: payload ? sha256(new TextEncoder().encode(payload)) : null, qrValid: Boolean(payload), transactionRef: parsed.reference, originatingBank: parsed.bank, ocrAmountSatang: ocr.amount, ocrReceiver: ocr.receiver, ocrTransactionDate: ocr.date, reasons: payload ? ["Slip verification QR decoded locally; no bank confirmation"] : ["No usable slip verification QR found; local OCR used as heuristic"] };
+  return { imageHash: sha256(bytes), qrPayloadHash: payload ? sha256(new TextEncoder().encode(payload)) : null, qrValid: Boolean(emv), transactionRef: emv?.transactionReference ?? parsed.reference, originatingBank: parsed.bank, ocrAmountSatang: ocr.amount, ocrReceiver: ocr.receiver, ocrTransactionDate: ocr.date, reasons: emv ? ["Structurally valid EMV slip QR decoded locally; no bank confirmation"] : ["No structurally valid slip verification QR found; local OCR used as heuristic"] };
 }
