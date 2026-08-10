@@ -14,6 +14,15 @@ export function configuredSlipRetentionDays(environment: Record<string, string |
   return Number.isSafeInteger(value) && value >= 0 && value <= 365 ? value : 30;
 }
 
+/** Optional server-only LINE settings. Encrypted workbook records take precedence when present. */
+export function lineConfig(environment: Record<string, string | undefined> = process.env) {
+  return {
+    settingsEncryptionKey: environment.SETTINGS_ENCRYPTION_KEY ?? "",
+    channelAccessToken: environment.LINE_CHANNEL_ACCESS_TOKEN ?? "",
+    channelSecret: environment.LINE_CHANNEL_SECRET ?? "",
+  };
+}
+
 export function paymentLinkBaseUrl(environment: Record<string, string | undefined> = process.env, requestOrigin: string | null): string {
   const configuredUrl = environment.PRODUCTION_BASE_URL?.trim();
   if (configuredUrl && configuredUrl !== "CONFIG_REQUIRED") return configuredUrl;

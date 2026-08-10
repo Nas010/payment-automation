@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { configuredSlipRetentionDays, paymentLinkBaseUrl, requiredConfiguration, sheetsConfig } from "./config";
+import { configuredSlipRetentionDays, lineConfig, paymentLinkBaseUrl, requiredConfiguration, sheetsConfig } from "./config";
 
 describe("requiredConfiguration", () => {
   it("reports required values without exposing their values", () => {
@@ -20,6 +20,12 @@ describe("requiredConfiguration", () => {
   it("allows Sheets reads without payment receiver configuration", () => {
     expect(sheetsConfig({ SPREADSHEET_ID: "sheet", GOOGLE_SERVICE_ACCOUNT_JSON: "{}" })).toEqual({ spreadsheetId: "sheet", serviceAccountJson: "{}" });
     expect(() => sheetsConfig({ SPREADSHEET_ID: "sheet" })).toThrow("GOOGLE_SERVICE_ACCOUNT_JSON");
+  });
+
+  it("keeps LINE configuration optional while exposing only server-side values", () => {
+    expect(lineConfig({})).toEqual({ settingsEncryptionKey: "", channelAccessToken: "", channelSecret: "" });
+    expect(lineConfig({ SETTINGS_ENCRYPTION_KEY: "key", LINE_CHANNEL_ACCESS_TOKEN: "token", LINE_CHANNEL_SECRET: "secret" })).toEqual({ settingsEncryptionKey: "key", channelAccessToken: "token", channelSecret: "secret" });
+    expect(requiredConfiguration({})).not.toContain("LINE_CHANNEL_SECRET");
   });
 
   it("uses the current request origin for payment links when no canonical URL is configured", () => {
