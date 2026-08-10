@@ -24,9 +24,13 @@ function isActiveClient(client: ClientRecord): boolean {
   return client.active.toUpperCase() === "TRUE";
 }
 
-function hasActiveCode(client: ClientRecord, now: Date | string): boolean {
+function hasUnexpiredCode(client: ClientRecord, now: Date | string): boolean {
   const expiry = new Date(client.line_link_code_expires_at);
-  return client.line_link_status === "CODE_ACTIVE" && Boolean(normalizeLineLinkCode(client.line_link_code)) && !Number.isNaN(expiry.getTime()) && expiry.getTime() > new Date(now).getTime();
+  return Boolean(normalizeLineLinkCode(client.line_link_code)) && !Number.isNaN(expiry.getTime()) && expiry.getTime() > new Date(now).getTime();
+}
+
+function hasActiveCode(client: ClientRecord, now: Date | string): boolean {
+  return client.line_link_status === "CODE_ACTIVE" && hasUnexpiredCode(client, now);
 }
 
 function maskedLineUserSuffix(lineUserId: string): string {
@@ -136,7 +140,7 @@ export async function generateMissingLineLinkCodes(dependencies: LineLinkDepende
       result.alreadyLinked.push(client.client_id);
       continue;
     }
-    if (hasActiveCode(client, now)) {
+    if (hasUnexpiredCode(client, now)) {
       result.alreadyActive.push(client.client_id);
       continue;
     }

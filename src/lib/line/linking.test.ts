@@ -92,6 +92,15 @@ describe("LINE trainer link-code functions", () => {
     expect(deps.updateClient).toHaveBeenCalledWith(expect.objectContaining({ client_id: "client_pending", line_link_code: "1234567890", line_link_code_expires_at: "2026-08-17T12:00:00.000Z", line_link_status: "CODE_ACTIVE", line_link_message: "Hi Nisa, reply with this exact message to link your LINE account:\nLINK 1234567890" }));
   });
 
+  it("keeps a non-expired code even when its status needs review", async () => {
+    const review = client({ line_link_status: "REVIEW", line_link_error: "LINE user conflict" });
+    const deps = dependencies([review]);
+
+    await expect(generateMissingLineLinkCodes(deps, { now })).resolves.toMatchObject({ created: [], alreadyActive: ["client_1"], failed: [] });
+    expect(deps.updateClient).not.toHaveBeenCalled();
+    expect(deps.codeGenerator).not.toHaveBeenCalled();
+  });
+
   it("replaces an eligible client code with a new unique seven-day code", async () => {
     const current = client();
     const other = client({ rowNumber: 3, client_id: "client_2", line_link_code: "1234567890" });
