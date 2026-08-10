@@ -14,6 +14,11 @@ export function configuredSlipRetentionDays(environment: Record<string, string |
   return Number.isSafeInteger(value) && value >= 0 && value <= 365 ? value : 30;
 }
 
+/** LINE linking is off unless explicitly enabled in the server environment. */
+export function lineLinkingEnabled(environment: Record<string, string | undefined> = process.env): boolean {
+  return environment.LINE_LINKING_ENABLED?.trim().toLowerCase() === "true";
+}
+
 /** Optional server-only LINE settings. Encrypted workbook records take precedence when present. */
 export function lineConfig(environment: Record<string, string | undefined> = process.env) {
   return {

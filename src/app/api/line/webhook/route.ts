@@ -5,6 +5,7 @@ import { getLineProfile, replyLineMessage } from "@/lib/line/client";
 import { parseLineLinkCommand } from "@/lib/line/link-command";
 import { createLineLinkService, type LinkResult } from "@/lib/line/linking";
 import { verifyLineSignature } from "@/lib/line/signature";
+import { lineLinkingEnabled } from "@/lib/config";
 
 export const runtime = "nodejs";
 
@@ -89,6 +90,8 @@ async function processEvent(event: DirectLinkEvent): Promise<void> {
 }
 
 export async function POST(request: Request): Promise<Response> {
+  if (!lineLinkingEnabled()) return new Response("Not Found", { status: 404 });
+
   const rawBody = await request.text();
   let channelSecret: string;
   try {

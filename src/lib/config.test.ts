@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { configuredSlipRetentionDays, lineConfig, paymentLinkBaseUrl, requiredConfiguration, sheetsConfig } from "./config";
+import { configuredSlipRetentionDays, lineConfig, lineLinkingEnabled, paymentLinkBaseUrl, requiredConfiguration, sheetsConfig } from "./config";
 
 describe("requiredConfiguration", () => {
   it("reports required values without exposing their values", () => {
@@ -26,6 +26,13 @@ describe("requiredConfiguration", () => {
     expect(lineConfig({})).toEqual({ settingsEncryptionKey: "", channelAccessToken: "", channelSecret: "" });
     expect(lineConfig({ SETTINGS_ENCRYPTION_KEY: "key", LINE_CHANNEL_ACCESS_TOKEN: "token", LINE_CHANNEL_SECRET: "secret" })).toEqual({ settingsEncryptionKey: "key", channelAccessToken: "token", channelSecret: "secret" });
     expect(requiredConfiguration({})).not.toContain("LINE_CHANNEL_SECRET");
+  });
+
+  it("enables LINE linking only for an explicit true server setting", () => {
+    expect(lineLinkingEnabled({})).toBe(false);
+    expect(lineLinkingEnabled({ LINE_LINKING_ENABLED: "false" })).toBe(false);
+    expect(lineLinkingEnabled({ LINE_LINKING_ENABLED: " true " })).toBe(true);
+    expect(requiredConfiguration({ LINE_LINKING_ENABLED: "true" })).not.toContain("LINE_CHANNEL_ACCESS_TOKEN");
   });
 
   it("uses the current request origin for payment links when no canonical URL is configured", () => {

@@ -53,6 +53,7 @@ function event(overrides: Record<string, unknown> = {}): Record<string, unknown>
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.stubEnv("LINE_LINKING_ENABLED", "true");
   mocks.getLineChannelSecret.mockResolvedValue(secret);
   mocks.getLineChannelAccessToken.mockResolvedValue(accessToken);
   mocks.listClients.mockResolvedValue([client()]);
@@ -64,6 +65,18 @@ beforeEach(() => {
 describe("POST /api/line/webhook", () => {
   it("runs in Node runtime", () => {
     expect(runtime).toBe("nodejs");
+  });
+
+  it("returns 404 without reading or processing a webhook when LINE linking is disabled", async () => {
+    vi.stubEnv("LINE_LINKING_ENABLED", "false");
+    const request = signedRequest({ events: [event()] });
+    const text = vi.spyOn(request, "text");
+
+    await expect(POST(request)).resolves.toMatchObject({ status: 404 });
+    expect(text).not.toHaveBeenCalled();
+    expect(mocks.getLineChannelSecret).not.toHaveBeenCalled();
+    expect(mocks.listClients).not.toHaveBeenCalled();
+    expect(mocks.fetchFn).not.toHaveBeenCalled();
   });
 
   it("rejects missing or invalid signatures before parsing JSON", async () => {
@@ -80,6 +93,7 @@ describe("POST /api/line/webhook", () => {
 
   it("acknowledges a signed empty event list without resolving access credentials", async () => {
     await expect(POST(signedRequest({ events: [] }))).resolves.toMatchObject({ status: 200 });
+    expect(mocks.getLineChannelSecret).toHaveBeenCalledTimes(1);
     expect(mocks.getLineChannelAccessToken).not.toHaveBeenCalled();
     expect(mocks.fetchFn).not.toHaveBeenCalled();
   });
