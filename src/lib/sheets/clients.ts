@@ -8,7 +8,7 @@ export type ClientRecord = { rowNumber: number; client_id: string; active: strin
 export type NewClientRecord = Omit<ClientRecord, "rowNumber" | keyof LineLinkFields> & Partial<LineLinkFields>;
 export type LineLinkClaimInput = { client: ClientRecord; expectedClient: ClientRecord; code: string; lineUserId: string };
 export type LineLinkClaimResult = "CLAIMED" | "ALREADY_LINKED" | "CONFLICT" | "STALE";
-export type LineLinkUpdateInput = { client: ClientRecord; expectedClient: ClientRecord };
+export type LineLinkUpdateInput = { client: ClientRecord; expectedClient: ClientRecord; releaseLineUserId?: string };
 
 function lineReservationName(kind: "code" | "user", value: string): string {
   return `line_link_${kind}_${createHash("sha256").update(value).digest("hex")}`;
@@ -31,12 +31,16 @@ function isReservationConflict(error: unknown): boolean {
   return status === 400 && /named range.*already exists/i.test(message);
 }
 
-async function clientSheetId(): Promise<number> {
+async function clientSheetMetadata(): Promise<{ sheetId: number; namedRanges: Array<{ name?: string | null; namedRangeId?: string | null }> }> {
   const { sheets, spreadsheetId } = getGoogleSheets();
-  const response = await sheets.spreadsheets.get({ spreadsheetId, fields: "sheets(properties(sheetId,title))" });
+  const response = await sheets.spreadsheets.get({ spreadsheetId, fields: "sheets(properties(sheetId,title)),namedRanges(namedRangeId,name)" });
   const sheetId = response.data.sheets?.find((sheet) => sheet.properties?.title === "Clients")?.properties?.sheetId;
   if (sheetId === undefined || sheetId === null) throw new Error("Clients sheet is required");
-  return sheetId;
+  return { sheetId, namedRanges: response.data.namedRanges ?? [] };
+}
+
+async function clientSheetId(): Promise<number> {
+  return (await clientSheetMetadata()).sheetId;
 }
 
 function lineLinkCellUpdates(client: ClientRecord, sheetId: number) {
@@ -81,11 +85,11 @@ export async function updateClient(client: ClientRecord): Promise<void> {
 }
 
 /** Atomically updates LINE-link fields only when expected link state is still current. */
-export async function updateLineLinkClient({ client, expectedClient }: LineLinkUpdateInput): Promise<boolean> {
+export async function updateLineLinkClient({ client, expectedClient, releaseLineUserId }: LineLinkUpdateInput): Promise<boolean> {
   if (!Number.isInteger(client.rowNumber) || client.rowNumber < 2) throw new Error("Client physical row is required");
   await ensureClientSchema();
   const { sheets, spreadsheetId } = getGoogleSheets();
-  const sheetId = await clientSheetId();
+  const { sheetId, namedRanges } = await clientSheetMetadata();
   const rowStart = client.rowNumber - 1;
   const reservationRange = { sheetId, startRowIndex: rowStart, endRowIndex: rowStart + 1, startColumnIndex: 0, endColumnIndex: 1 };
   try {
@@ -94,6 +98,7 @@ export async function updateLineLinkClient({ client, expectedClient }: LineLinkU
       requestBody: { requests: [
         { addNamedRange: { namedRange: { name: lineStateReservationName(expectedClient), range: reservationRange } } },
         ...lineLinkCellUpdates(client, sheetId),
+        ...(releaseLineUserId ? namedRanges.filter((namedRange) => namedRange.name === lineReservationName("user", releaseLineUserId) && namedRange.namedRangeId !== undefined && namedRange.namedRangeId !== null).map((namedRange) => ({ deleteNamedRange: { namedRangeId: namedRange.namedRangeId } })) : []),
       ] },
     });
     return true;
@@ -136,14 +141,4 @@ export async function claimLineLink({ client, expectedClient, code, lineUserId }
     if (clients.some((item) => item.line_user_id === lineUserId)) return "CONFLICT";
     return "STALE";
   }
-}
-
-/** Releases user uniqueness reservation after an explicit trainer disconnect. */
-export async function releaseLineUserReservation(lineUserId: string): Promise<void> {
-  if (!lineUserId) return;
-  const { sheets, spreadsheetId } = getGoogleSheets();
-  const response = await sheets.spreadsheets.get({ spreadsheetId, fields: "namedRanges(namedRangeId,name)" });
-  const reservation = response.data.namedRanges?.find((namedRange) => namedRange.name === lineReservationName("user", lineUserId));
-  if (reservation?.namedRangeId === undefined || reservation.namedRangeId === null) return;
-  await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests: [{ deleteNamedRange: { namedRangeId: reservation.namedRangeId } }] } });
 }

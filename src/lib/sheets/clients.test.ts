@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createHash } from "node:crypto";
 
 const { batchUpdate, get, spreadsheetGet, update } = vi.hoisted(() => ({ batchUpdate: vi.fn(), get: vi.fn(), spreadsheetGet: vi.fn(), update: vi.fn() }));
 
@@ -89,7 +90,18 @@ describe("Clients repository", () => {
     get.mockResolvedValueOnce({ data: { values: [clientHeaders] } });
     batchUpdate.mockRejectedValueOnce(Object.assign(new Error("Named range already exists"), { response: { status: 400 } }));
 
-    await expect(updateLineLinkClient({ expectedClient: current, client: { ...current, line_display_name: "Nisa LINE" } })).resolves.toBe(false);
+    await expect(updateLineLinkClient({ expectedClient: current, client: { ...current, line_display_name: "Nisa LINE" }, releaseLineUserId: current.line_user_id } as never)).resolves.toBe(false);
     expect(update).not.toHaveBeenCalled();
+  });
+
+  it("clears the user reservation in the same successful state-CAS batch as disconnect fields", async () => {
+    const current = linkedClient();
+    const reservation = `line_link_user_${createHash("sha256").update(current.line_user_id).digest("hex")}`;
+    spreadsheetGet.mockResolvedValue({ data: { sheets: [{ properties: { sheetId: 9, title: "Clients" } }], namedRanges: [{ name: reservation, namedRangeId: "reservation_1" }] } });
+    get.mockResolvedValueOnce({ data: { values: [clientHeaders] } });
+    batchUpdate.mockResolvedValueOnce({});
+
+    await expect(updateLineLinkClient({ expectedClient: current, client: { ...current, line_user_id: "", line_display_name: "", line_link_status: "" }, releaseLineUserId: current.line_user_id })).resolves.toBe(true);
+    expect(batchUpdate).toHaveBeenCalledWith(expect.objectContaining({ requestBody: { requests: expect.arrayContaining([{ deleteNamedRange: { namedRangeId: "reservation_1" } }]) } }));
   });
 });

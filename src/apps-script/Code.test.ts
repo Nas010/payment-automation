@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 type Range = {
   getValue: () => unknown;
   getValues: () => unknown[][];
+  getDisplayValues: () => string[][];
   setValue: (value: unknown) => Range;
   setValues: (values: unknown[][]) => Range;
   clearContent: () => Range;
@@ -27,7 +28,9 @@ function loadScriptWithDashboard(values: Record<string, unknown>, clientHeaders:
   const headerWrites: Array<{ column: number; value: unknown }> = [];
   const releasedReservationNames: string[] = [];
   const namedRanges = new Set(namedRangeNames);
+  const lineBatchRequests: Array<{ url: string; options: { payload?: string } }> = [];
   const clientSheet = {
+    getSheetId: () => 9,
     getMaxColumns: () => clientColumnCount,
     insertColumnsAfter: (after: number, count: number) => {
       columnExpansions.push({ after, count });
@@ -41,6 +44,10 @@ function loadScriptWithDashboard(values: Record<string, unknown>, clientHeaders:
           if (row === 2 && column === 1 && numRows === 999 && numColumns === 1) return Array.from({ length: 999 }, (_, index) => [clientRows[index]?.[0] ?? ""]);
           if (row === 2 && column === 1 && numColumns === clientHeaders.length && (numRows ?? 1) > 1) return Array.from({ length: numRows ?? 0 }, (_, index) => clientRows[index] ?? []);
           if (row >= 2 && column === 1 && numColumns === clientHeaders.length) return [clientRows[row - 2] ?? []];
+          return [];
+        },
+        getDisplayValues: () => {
+          if (row >= 2 && column === 1 && numColumns === clientHeaders.length) return Array.from({ length: numRows ?? 1 }, (_, index) => clientRows[row - 2 + index]?.map((value) => String(value ?? "")) ?? []);
           return [];
         },
         setValue: (value) => {
@@ -95,6 +102,14 @@ function loadScriptWithDashboard(values: Record<string, unknown>, clientHeaders:
       Charset: { UTF_8: "UTF_8" },
       computeDigest: (_algorithm: string, value: string) => Array.from(createHash("sha256").update(value).digest()).map((byte) => byte > 127 ? byte - 256 : byte),
     },
+    ScriptApp: { getOAuthToken: () => "script-token" },
+    UrlFetchApp: {
+      fetch: (url: string, options: { payload?: string }) => {
+        lineBatchRequests.push({ url, options });
+        if (url.includes("fields=namedRanges")) return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ namedRanges: [...namedRanges].map((name, index) => ({ name, namedRangeId: `range_${index + 1}` })) }) };
+        return { getResponseCode: () => 200, getContentText: () => JSON.stringify({}) };
+      },
+    },
     Date,
     JSON,
     Math,
@@ -104,13 +119,14 @@ function loadScriptWithDashboard(values: Record<string, unknown>, clientHeaders:
     Number,
   };
   vm.runInNewContext(readFileSync("apps-script/Code.gs", "utf8"), context);
-  return { context: context as { onOpen: () => void; ensureClientSchema_: () => void; clientDataRows_: () => unknown[]; saveClientFromDashboard: () => void; generateMissingLineLinkCodes: () => unknown; renewLineCodeForSelectedClient: () => unknown; disconnectSelectedClientLine: () => unknown; SpreadsheetApp: { getActiveRange: () => Range } }, select: (sheetName: string, row: number) => { selectedSheetName = sheetName; selectedRow = row; }, clientWrites, clientCellWrites, auditRows, alerts, menuNames, menuItems, columnExpansions, headerWrites, releasedReservationNames };
+  return { context: context as { onOpen: () => void; ensureClientSchema_: () => void; clientDataRows_: () => unknown[]; saveClientFromDashboard: () => void; generateMissingLineLinkCodes: () => unknown; renewLineCodeForSelectedClient: () => unknown; disconnectSelectedClientLine: () => unknown; SpreadsheetApp: { getActiveRange: () => Range } }, select: (sheetName: string, row: number) => { selectedSheetName = sheetName; selectedRow = row; }, clientWrites, clientCellWrites, auditRows, alerts, menuNames, menuItems, columnExpansions, headerWrites, releasedReservationNames, lineBatchRequests };
 }
 
 function range(overrides: Partial<Range>): Range {
   const defaultRange: Range = {
     getValue: () => undefined,
     getValues: () => [],
+    getDisplayValues: () => [],
     setValue: () => defaultRange,
     setValues: () => defaultRange,
     clearContent: () => defaultRange,
@@ -214,13 +230,17 @@ describe("Apps Script client save", () => {
       ["active", true, "Active", "", "", "PT", "ONE_TIME", 1000, 1, 0, new Date(), 1000, "MANUAL", new Date(), "", new Date(), new Date(), "ABCDEF0123", new Date("2099-01-01"), "CODE_ACTIVE", "", "", ""],
       ["linked", true, "Linked", "Uexisting", "Existing", "PT", "ONE_TIME", 1000, 1, 0, new Date(), 1000, "MANUAL", new Date(), "", new Date(), new Date(), "", "", "LINKED", new Date(), "", ""],
     ];
-    const { context, clientCellWrites, auditRows } = loadScriptWithDashboard({}, undefined, undefined, rows);
+    const { context, clientCellWrites, auditRows, lineBatchRequests } = loadScriptWithDashboard({}, undefined, undefined, rows);
 
     context.ensureClientSchema_();
     expect(context.clientDataRows_()).toHaveLength(3);
     expect(context.generateMissingLineLinkCodes()).toMatchObject({ created: ["created"], alreadyActive: ["active"], alreadyLinked: ["linked"], failed: [] });
-    expect(clientCellWrites).toHaveLength(1);
-    expect(clientCellWrites[0]).toMatchObject({ row: 2, column: 17, values: [[expect.any(Date), expect.any(String), expect.any(Date), "CODE_ACTIVE", "", expect.any(String), ""]] });
+    expect(clientCellWrites).toEqual([]);
+    const batch = JSON.parse(lineBatchRequests[0]?.options.payload ?? "{}");
+    expect(batch.requests).toEqual(expect.arrayContaining([
+      expect.objectContaining({ addNamedRange: expect.objectContaining({ namedRange: expect.objectContaining({ name: expect.stringMatching(/^line_link_state_[a-f0-9]{64}$/) }) }) }),
+      expect.objectContaining({ updateCells: expect.objectContaining({ range: expect.objectContaining({ startColumnIndex: 16, endColumnIndex: 23 }) }) }),
+    ]));
     expect(auditRows[0]?.[3]).toBe("LINE_LINK_CODE_CREATED");
   });
 
@@ -236,12 +256,30 @@ describe("Apps Script client save", () => {
 
   it("renews an unlinked selected client without replacing its mapping fields", () => {
     const rows = [["client_1", true, "Nisa", "", "", "PT", "ONE_TIME", 1000, 1, 0, new Date(), 1000, "MANUAL", new Date(), "", new Date(), new Date(), "ABCDEF0123", new Date("2099-01-01"), "CODE_ACTIVE", "", "old message", ""]];
-    const { context, select, clientCellWrites, auditRows } = loadScriptWithDashboard({}, undefined, undefined, rows);
+    const { context, select, clientCellWrites, auditRows, lineBatchRequests } = loadScriptWithDashboard({}, undefined, undefined, rows);
     select("Clients", 2);
 
     expect(context.renewLineCodeForSelectedClient()).toMatchObject({ clientId: "client_1", code: "1111111111", status: "CODE_ACTIVE" });
-    expect(clientCellWrites[0]).toMatchObject({ row: 2, column: 17, values: [[expect.any(Date), "1111111111", expect.any(Date), "CODE_ACTIVE", "", expect.stringContaining("LINK 1111111111"), ""]] });
+    expect(clientCellWrites).toEqual([]);
     expect(auditRows[0]?.[3]).toBe("LINE_LINK_CODE_RENEWED");
+    const batch = JSON.parse(lineBatchRequests.at(-1)?.options.payload ?? "{}");
+    expect(batch.requests).toEqual(expect.arrayContaining([
+      expect.objectContaining({ addNamedRange: expect.objectContaining({ namedRange: expect.objectContaining({ name: expect.stringMatching(/^line_link_state_[a-f0-9]{64}$/) }) }) }),
+      expect.objectContaining({ updateCells: expect.any(Object) }),
+    ]));
+  });
+
+  it("uses the server-identical state hash over ordered string fields before renewal", () => {
+    const rows = [["client_1", "TRUE", "Nisa", "", "", "PT", "ONE_TIME", "1000", "1", "0", "2026-08-10", "1000", "MANUAL", "2026-08-10", "", "2026-08-10T00:00:00.000Z", "2026-08-10T12:00:00.000Z", "ABCDEF0123", "2099-01-01T00:00:00.000Z", "CODE_ACTIVE", "", "old message", ""]];
+    const { context, select, lineBatchRequests } = loadScriptWithDashboard({}, undefined, undefined, rows);
+    const state = ["client_1", "TRUE", "", "", "ABCDEF0123", "2099-01-01T00:00:00.000Z", "CODE_ACTIVE", "", "old message", "", "2026-08-10T12:00:00.000Z"];
+    const expected = `line_link_state_${createHash("sha256").update(JSON.stringify(state)).digest("hex")}`;
+    select("Clients", 2);
+
+    context.renewLineCodeForSelectedClient();
+
+    const batch = JSON.parse(lineBatchRequests.at(-1)?.options.payload ?? "{}");
+    expect(batch.requests[0]?.addNamedRange?.namedRange?.name).toBe(expected);
   });
 
   it("refuses selected renewal when a different LINE user is already mapped", () => {
@@ -259,13 +297,18 @@ describe("Apps Script client save", () => {
     const userId = "Uaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     const rows = [["client_1", true, "Nisa", userId, "Nisa LINE", "PT", "ONE_TIME", 1000, 1, 0, new Date(), 1000, "MANUAL", new Date(), "", new Date(), new Date(), "", "", "LINKED", new Date(), "", ""]];
     const reservation = `line_link_user_${createHash("sha256").update(userId).digest("hex")}`;
-    const { context, select, clientWrites, auditRows, releasedReservationNames } = loadScriptWithDashboard({}, undefined, undefined, rows, undefined, [reservation]);
+    const { context, select, clientWrites, auditRows, releasedReservationNames, lineBatchRequests } = loadScriptWithDashboard({}, undefined, undefined, rows, undefined, [reservation]);
     select("Clients", 2);
 
     expect(context.disconnectSelectedClientLine()).toBe(true);
-    expect(clientWrites).toContainEqual({ row: 2, values: [[expect.any(Date), "", "", "", "", "", ""]] });
-    expect(clientWrites).toContainEqual({ row: 2, values: [["", ""]] });
-    expect(releasedReservationNames).toEqual([reservation]);
+    expect(clientWrites).toEqual([]);
+    expect(releasedReservationNames).toEqual([]);
+    const batch = JSON.parse(lineBatchRequests.at(-1)?.options.payload ?? "{}");
+    expect(batch.requests).toEqual(expect.arrayContaining([
+      expect.objectContaining({ addNamedRange: expect.objectContaining({ namedRange: expect.objectContaining({ name: expect.stringMatching(/^line_link_state_[a-f0-9]{64}$/) }) }) }),
+      expect.objectContaining({ updateCells: expect.objectContaining({ range: expect.objectContaining({ startColumnIndex: 3, endColumnIndex: 5 }) }) }),
+      { deleteNamedRange: { namedRangeId: "range_1" } },
+    ]));
     expect(auditRows[0]?.[3]).toBe("LINE_LINK_DISCONNECTED");
   });
 });

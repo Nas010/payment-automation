@@ -7,9 +7,8 @@ type AuditRecord = { paymentId: string; clientId: string; action: string; previo
 export type LineLinkDependencies = {
   listClients: () => Promise<ClientRecord[]>;
   updateClient: (client: ClientRecord) => Promise<void>;
-  updateLineLinkClient: (input: { client: ClientRecord; expectedClient: ClientRecord }) => Promise<boolean>;
+  updateLineLinkClient: (input: { client: ClientRecord; expectedClient: ClientRecord; releaseLineUserId?: string }) => Promise<boolean>;
   appendAudit: (record: AuditRecord) => Promise<void>;
-  releaseLineUserReservation?: (lineUserId: string) => Promise<void>;
   codeGenerator?: () => string;
 };
 
@@ -191,8 +190,7 @@ export async function disconnectLineUser(dependencies: LineLinkDependencies, { c
   const client = (await dependencies.listClients()).find((item) => item.client_id === clientId);
   if (!client) return false;
   const updated = { ...client, line_user_id: "", line_display_name: "", line_link_code: "", line_link_code_expires_at: "", line_link_status: "", line_linked_at: "", line_link_message: "", line_link_error: "", updated_at: nowIso(now) };
-  if (!await dependencies.updateLineLinkClient({ client: updated, expectedClient: client })) return false;
-  await dependencies.releaseLineUserReservation?.(client.line_user_id);
+  if (!await dependencies.updateLineLinkClient({ client: updated, expectedClient: client, releaseLineUserId: client.line_user_id })) return false;
   await audit(dependencies, { client, action: "LINE_LINK_DISCONNECTED", previousStatus: client.line_link_status, newStatus: "", reason: "LINE account disconnected", lineUserId: client.line_user_id });
   return true;
 }
