@@ -1,11 +1,11 @@
 import { getGoogleSheets } from "./client";
 import { PAYMENT_HEADERS, recordToRow, rowToRecord, type RowRecord } from "./records";
 
-export type PaymentRecord = RowRecord & { payment_id: string; public_token: string; status: string; amount_thb: string };
+export type PaymentRecord = RowRecord & { payment_id: string; client_id: string; public_token: string; status: string; amount_thb: string; transaction_ref: string; originating_bank: string; slip_hash: string; created_at: string; recorded_at: string };
 
 export async function listPayments(): Promise<PaymentRecord[]> {
   const { sheets, spreadsheetId } = getGoogleSheets();
-  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: "Payments!A:AC" });
+  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: "Payments!A:AD" });
   return (response.data.values ?? []).slice(1).filter((row) => row[0]).map((row) => rowToRecord(PAYMENT_HEADERS, row) as PaymentRecord);
 }
 
@@ -19,7 +19,7 @@ export async function getPaymentById(paymentId: string): Promise<PaymentRecord |
 
 export async function appendPayment(payment: PaymentRecord): Promise<void> {
   const { sheets, spreadsheetId } = getGoogleSheets();
-  await sheets.spreadsheets.values.append({ spreadsheetId, range: "Payments!A:AC", valueInputOption: "USER_ENTERED", requestBody: { values: [recordToRow(PAYMENT_HEADERS, payment)] } });
+  await sheets.spreadsheets.values.append({ spreadsheetId, range: "Payments!A:AD", valueInputOption: "USER_ENTERED", requestBody: { values: [recordToRow(PAYMENT_HEADERS, payment)] } });
 }
 
 export async function updatePayment(payment: PaymentRecord): Promise<void> {
@@ -27,7 +27,7 @@ export async function updatePayment(payment: PaymentRecord): Promise<void> {
   const rows = await listPayments();
   const index = rows.findIndex((row) => row.payment_id === payment.payment_id);
   if (index === -1) throw new Error("Payment not found");
-  await sheets.spreadsheets.values.update({ spreadsheetId, range: `Payments!A${index + 2}:AC${index + 2}`, valueInputOption: "USER_ENTERED", requestBody: { values: [recordToRow(PAYMENT_HEADERS, payment)] } });
+  await sheets.spreadsheets.values.update({ spreadsheetId, range: `Payments!A${index + 2}:AD${index + 2}`, valueInputOption: "USER_ENTERED", requestBody: { values: [recordToRow(PAYMENT_HEADERS, payment)] } });
 }
 
 export async function appendAudit(record: { paymentId: string; clientId: string; action: string; previousStatus: string; newStatus: string; reason: string; source: string; metadata?: string }): Promise<void> {

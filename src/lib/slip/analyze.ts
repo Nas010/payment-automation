@@ -7,6 +7,7 @@ import { parseThaiSlipDate } from "@/lib/date";
 
 export interface SlipAnalysis {
   imageHash: string;
+  qrPayloadHash: string | null;
   qrValid: boolean;
   transactionRef: string | null;
   originatingBank: string | null;
@@ -56,5 +57,5 @@ export async function analyzeSlip(bytes: Uint8Array, declaredType: string): Prom
   const payload = decodeQr(greyscale, metadata.width, metadata.height);
   const parsed = extractReference(payload);
   const ocr = await readOcr(normalized);
-  return { imageHash: sha256(bytes), qrValid: Boolean(payload), transactionRef: parsed.reference, originatingBank: parsed.bank, ocrAmountSatang: ocr.amount, ocrReceiver: ocr.receiver, ocrTransactionDate: ocr.date, reasons: payload ? ["Slip verification QR decoded locally; no bank confirmation"] : ["No usable slip verification QR found; local OCR used as heuristic"] };
+  return { imageHash: sha256(bytes), qrPayloadHash: payload ? sha256(new TextEncoder().encode(payload)) : null, qrValid: Boolean(payload), transactionRef: parsed.reference, originatingBank: parsed.bank, ocrAmountSatang: ocr.amount, ocrReceiver: ocr.receiver, ocrTransactionDate: ocr.date, reasons: payload ? ["Slip verification QR decoded locally; no bank confirmation"] : ["No usable slip verification QR found; local OCR used as heuristic"] };
 }
