@@ -14,7 +14,7 @@ export type LineLinkDependencies = {
 type LineLinkInput = { code: string; lineUserId: string; now: Date | string; webhookEventId: string };
 type TrainerInput = { now: Date | string };
 type ClientTrainerInput = TrainerInput & { clientId: string };
-type LinkResult = "LINKED" | "ALREADY_LINKED" | "INVALID_OR_EXPIRED" | "CLIENT_INACTIVE" | "CONFLICT";
+export type LinkResult = "LINKED" | "ALREADY_LINKED" | "INVALID_OR_EXPIRED" | "CLIENT_INACTIVE" | "CONFLICT";
 
 function nowIso(now: Date | string): string {
   return new Date(now).toISOString();
@@ -88,7 +88,7 @@ function codeFields(client: ClientRecord, code: string, now: Date | string): Cli
   };
 }
 
-export function createLineLinkService(dependencies: LineLinkDependencies): { linkLineUser(input: LineLinkInput): Promise<LinkResult> } {
+export function createLineLinkService(dependencies: LineLinkDependencies): { linkLineUser(input: LineLinkInput): Promise<LinkResult>; persistLineDisplayName(input: { lineUserId: string; displayName: string; now: Date | string }): Promise<boolean> } {
   return {
     async linkLineUser({ code, lineUserId, now, webhookEventId }: LineLinkInput): Promise<LinkResult> {
       const clients = await dependencies.listClients();
@@ -120,6 +120,12 @@ export function createLineLinkService(dependencies: LineLinkDependencies): { lin
       await dependencies.updateClient(linked);
       await audit(dependencies, { client: target, action: "LINE_LINK_LINKED", previousStatus: target.line_link_status, newStatus: "LINKED", reason: "LINE account linked", webhookEventId, lineUserId });
       return "LINKED";
+    },
+    async persistLineDisplayName({ lineUserId, displayName, now }: { lineUserId: string; displayName: string; now: Date | string }): Promise<boolean> {
+      const client = (await dependencies.listClients()).find((item) => item.line_user_id === lineUserId && item.line_link_status === "LINKED");
+      if (!client) return false;
+      await dependencies.updateClient({ ...client, line_display_name: displayName, updated_at: nowIso(now) });
+      return true;
     },
   };
 }

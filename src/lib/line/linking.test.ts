@@ -48,6 +48,22 @@ describe("LINE linking domain service", () => {
     expect(deps.appendAudit.mock.calls[0][0].metadata).not.toContain("ABCDEF0123");
   });
 
+  it("persists a profile display name only for the currently linked user", async () => {
+    const deps = dependencies([client({ line_user_id: userA, line_link_status: "LINKED", line_link_code: "", line_link_code_expires_at: "" })]);
+    const service = createLineLinkService(deps);
+
+    await expect(service.persistLineDisplayName({ lineUserId: userA, displayName: "Nisa LINE", now })).resolves.toBe(true);
+    await expect(service.persistLineDisplayName({ lineUserId: userB, displayName: "Other", now })).resolves.toBe(false);
+    expect(deps.updateClient).toHaveBeenCalledWith(expect.objectContaining({ line_user_id: userA, line_display_name: "Nisa LINE", updated_at: now }));
+  });
+
+  it("does not enrich a user mapping that is under trainer review", async () => {
+    const deps = dependencies([client({ line_user_id: userA, line_link_status: "REVIEW" })]);
+
+    await expect(createLineLinkService(deps).persistLineDisplayName({ lineUserId: userA, displayName: "Nisa LINE", now })).resolves.toBe(false);
+    expect(deps.updateClient).not.toHaveBeenCalled();
+  });
+
   it("treats a same-user webhook retry as idempotently already linked", async () => {
     const deps = dependencies([client({ line_user_id: userA, line_link_status: "LINKED", line_link_code: "", line_link_code_expires_at: "" })]);
 
