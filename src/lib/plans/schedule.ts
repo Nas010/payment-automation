@@ -1,0 +1,115 @@
+import { parseSatang } from "@/lib/money";
+import type { NewPaymentRecord } from "@/lib/sheets/payments";
+
+export type InstallmentPlanInput = {
+  totalSatang: number;
+  installmentCount: number;
+  intervalMonths: number;
+  firstDueDate: string;
+};
+
+export type PlannedInstallment = {
+  installmentNumber: number;
+  amountSatang: number;
+  dueDate: string;
+};
+
+type DueSchedule = {
+  schedule_id: string;
+  due_date: string;
+  status: string;
+  payment_id: string;
+};
+
+type PaymentSchedule = Partial<DueSchedule> & {
+  schedule_id: string;
+  client_id: string;
+  client_name: string;
+  line_display_name: string;
+  package_name: string;
+  installment_number: string;
+  installment_count: string;
+  amount_thb: string;
+  due_date: string;
+};
+
+function parseDateOnly(value: string): Date {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new Error("firstDueDate must be YYYY-MM-DD");
+  const date = new Date(`${value}T00:00:00.000Z`);
+  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value) throw new Error("firstDueDate must be a valid date");
+  return date;
+}
+
+function formatDateOnly(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+function addMonthsClamped(date: Date, months: number): Date {
+  const year = date.getUTCFullYear();
+  const month = date.getUTCMonth() + months;
+  const targetYear = year + Math.floor(month / 12);
+  const targetMonth = ((month % 12) + 12) % 12;
+  const lastDay = new Date(Date.UTC(targetYear, targetMonth + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(targetYear, targetMonth, Math.min(date.getUTCDate(), lastDay)));
+}
+
+export function buildInstallmentPlan(input: InstallmentPlanInput): PlannedInstallment[] {
+  if (!Number.isSafeInteger(input.totalSatang) || input.totalSatang <= 0) throw new Error("totalSatang must be a positive integer");
+  if (!Number.isInteger(input.installmentCount) || input.installmentCount < 1) throw new Error("installmentCount must be a positive integer");
+  if (!Number.isInteger(input.intervalMonths) || input.intervalMonths < 0 || (input.installmentCount > 1 && input.intervalMonths < 1)) throw new Error("intervalMonths must be valid for the installment count");
+
+  const firstDueDate = parseDateOnly(input.firstDueDate);
+  const baseAmount = Math.floor(input.totalSatang / input.installmentCount);
+  const remainder = input.totalSatang - baseAmount * input.installmentCount;
+  return Array.from({ length: input.installmentCount }, (_, index) => ({
+    installmentNumber: index + 1,
+    amountSatang: baseAmount + (index === input.installmentCount - 1 ? remainder : 0),
+    dueDate: formatDateOnly(addMonthsClamped(firstDueDate, index * input.intervalMonths)),
+  }));
+}
+
+export function selectDueSchedules<T extends DueSchedule>(schedules: readonly T[], today: string): T[] {
+  parseDateOnly(today);
+  return schedules.filter((schedule) => schedule.status === "SCHEDULED" && !schedule.payment_id && schedule.due_date <= today);
+}
+
+export function buildPaymentForSchedule(schedule: PaymentSchedule, input: { paymentId: string; publicToken: string; baseUrl: string; createdAt: string }): NewPaymentRecord {
+  const amountSatang = parseSatang(schedule.amount_thb);
+  if (amountSatang === null || amountSatang <= 0) throw new Error(`Schedule ${schedule.schedule_id} has an invalid amount`);
+  parseDateOnly(schedule.due_date);
+  const paymentUrl = `${input.baseUrl.replace(/\/$/, "")}/p/${input.publicToken}`;
+  const displayName = schedule.line_display_name || schedule.client_name;
+  const installmentDescription = `Payment ${schedule.installment_number} of ${schedule.installment_count} for ${schedule.package_name}`;
+  return {
+    payment_id: input.paymentId,
+    client_id: schedule.client_id,
+    client_name: schedule.client_name,
+    period: schedule.due_date.slice(0, 7),
+    amount_thb: schedule.amount_thb,
+    due_date: schedule.due_date,
+    public_token: input.publicToken,
+    payment_url: paymentUrl,
+    status: "PENDING",
+    created_at: input.createdAt,
+    submitted_at: "",
+    recorded_at: "",
+    manual_confirmed_at: "",
+    transaction_ref: "",
+    originating_bank: "",
+    slip_hash: "",
+    qr_valid: "",
+    ocr_amount: "",
+    amount_match: "",
+    ocr_receiver: "",
+    receiver_match: "",
+    ocr_transaction_date: "",
+    date_match: "",
+    check_score: "",
+    review_reason: "",
+    slip_url: "",
+    admin_notes: "",
+    line_message: `Hi ${displayName}, ${installmentDescription}. Your coaching payment of ฿${(amountSatang / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} is due on ${schedule.due_date}. You can pay here: ${paymentUrl}`,
+    updated_at: input.createdAt,
+    qr_payload_hash: "",
+  };
+}
