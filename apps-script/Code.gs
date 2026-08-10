@@ -1,4 +1,5 @@
 const CP = {
+  spreadsheetId: '1I7N201rghJ77R2vEk6ZvqOD1kZB-dCZrDD5sD3aArjA',
   dashboard: 'Dashboard', clients: 'Clients', payments: 'Payments', settings: 'Settings', schedule: 'Installment Schedule', audit: 'Audit Log',
   dashboardForm: { clientName: 'B4', lineUserId: 'E4', lineDisplayName: 'B5', packageName: 'E5', paymentType: 'B6', firstDueDate: 'E6', totalPrice: 'B7', installmentCount: 'E7', intervalMonths: 'B8', notes: 'E8' },
   packageStartRow: 4,
@@ -26,7 +27,7 @@ function onEdit(event) {
 }
 
 function saveClientFromDashboard() {
-  const book = SpreadsheetApp.getActive();
+  const book = book_();
   const dashboard = book.getSheetByName(CP.dashboard);
   const value = (key) => dashboard.getRange(CP.dashboardForm[key]).getValue();
   const clientName = String(value('clientName') || '').trim();
@@ -39,15 +40,14 @@ function saveClientFromDashboard() {
   const installmentCount = Number(value('installmentCount'));
   const intervalMonths = Number(value('intervalMonths'));
   const notes = String(value('notes') || '').trim();
-  const ui = SpreadsheetApp.getUi();
   const packageConfig = packageByName_(packageName);
   if (!clientName || !packageConfig || !packageConfig.active || !['ONE_TIME', 'INSTALLMENTS'].includes(paymentType) || !(firstDueDate instanceof Date) || !Number.isFinite(totalPrice) || totalPrice <= 0) {
-    ui.alert('Enter client name, package, payment type, first due date, and a positive total price.'); return;
+    setDashboardStatus_('Fix required fields: client name, active package, type, due date, and positive total price.', true); return;
   }
   const count = paymentType === 'ONE_TIME' ? 1 : installmentCount;
   const interval = paymentType === 'ONE_TIME' ? 0 : intervalMonths;
   if (!Number.isInteger(count) || count < 1 || !Number.isInteger(interval) || interval < 1) {
-    ui.alert('Installment plans need a whole installment count and an interval of at least one month.'); return;
+    setDashboardStatus_('Installment plans need whole installment count and interval of at least one month.', true); return;
   }
   const clientId = `client_${Utilities.getUuid().replaceAll('-', '')}`;
   const now = new Date();
@@ -56,7 +56,7 @@ function saveClientFromDashboard() {
   book.getSheetByName(CP.schedule).getRange(book.getSheetByName(CP.schedule).getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
   appendAudit_('', clientId, 'CLIENT_CREATED', '', 'SCHEDULED', `${paymentType} plan created from Dashboard`, 'DASHBOARD_SCRIPT', JSON.stringify({ packageName, count, interval }));
   clearDashboardForm();
-  ui.alert(`Saved ${clientName}. ${count} payment ${count === 1 ? 'link will' : 'links will'} be created on ${count === 1 ? 'its due date.' : 'their due dates.'}`);
+  setDashboardStatus_(`Saved ${clientName}. ${count} payment ${count === 1 ? 'link will' : 'links will'} be created on ${count === 1 ? 'its due date.' : 'their due dates.'}`);
 }
 
 function buildScheduleRows_(plan) {
@@ -72,12 +72,12 @@ function buildScheduleRows_(plan) {
 }
 
 function clearDashboardForm() {
-  const sheet = SpreadsheetApp.getActive().getSheetByName(CP.dashboard);
+  const sheet = book_().getSheetByName(CP.dashboard);
   Object.values(CP.dashboardForm).forEach((cell) => sheet.getRange(cell).clearContent());
 }
 
 function generateDuePaymentLinks() {
-  const book = SpreadsheetApp.getActive();
+  const book = book_();
   const schedule = book.getSheetByName(CP.schedule);
   const values = schedule.getDataRange().getValues();
   const today = startOfDay_(new Date());
@@ -100,27 +100,30 @@ function generateDuePaymentLinks() {
 }
 
 function installDailyScheduler() {
-  ScriptApp.getProjectTriggers().filter((trigger) => trigger.getHandlerFunction() === 'generateDuePaymentLinks').forEach((trigger) => ScriptApp.deleteTrigger(trigger));
+  ScriptApp.getProjectTriggers().filter((trigger) => ['generateDuePaymentLinks', 'onOpen'].includes(trigger.getHandlerFunction())).forEach((trigger) => ScriptApp.deleteTrigger(trigger));
   ScriptApp.newTrigger('generateDuePaymentLinks').timeBased().atHour(9).everyDays(1).inTimezone('Asia/Bangkok').create();
-  SpreadsheetApp.getUi().alert('Daily payment-link scheduler installed for 09:00 Asia/Bangkok.');
+  ScriptApp.newTrigger('onOpen').forSpreadsheet(CP.spreadsheetId).onOpen().create();
+  setDashboardStatus_('Automation installed: Dashboard menu loads on open; links generate daily at 09:00 Asia/Bangkok.');
 }
 
 function setting_(key) {
-  const values = SpreadsheetApp.getActive().getSheetByName(CP.settings).getRange('A2:B').getValues();
+  const values = book_().getSheetByName(CP.settings).getRange('A2:B').getValues();
   const found = values.find((row) => row[0] === key);
   if (!found || !found[1] || found[1] === 'CONFIG_REQUIRED') throw new Error(`Settings value required: ${key}`);
   return String(found[1]);
 }
 
 function packageByName_(packageName) {
-  const rows = SpreadsheetApp.getActive().getSheetByName(CP.settings).getRange('D4:I').getValues();
+  const rows = book_().getSheetByName(CP.settings).getRange('D4:I').getValues();
   const row = rows.find((value) => String(value[0] || '').trim() === packageName);
   if (!row) return null;
   return { totalPrice: Number(row[1]), paymentType: String(row[2]), installmentCount: Number(row[3]), intervalMonths: Number(row[4]), active: row[5] === true || String(row[5]).toUpperCase() === 'TRUE' };
 }
 
 function appendAudit_(paymentId, clientId, action, previousStatus, newStatus, reason, source, metadata) {
-  SpreadsheetApp.getActive().getSheetByName(CP.audit).appendRow([new Date(), paymentId, clientId, action, previousStatus, newStatus, reason, source, metadata]);
+  book_().getSheetByName(CP.audit).appendRow([new Date(), paymentId, clientId, action, previousStatus, newStatus, reason, source, metadata]);
 }
 
 function startOfDay_(value) { const date = new Date(value); date.setHours(0, 0, 0, 0); return date; }
+function book_() { return SpreadsheetApp.openById(CP.spreadsheetId); }
+function setDashboardStatus_(message, isError) { const cell = book_().getSheetByName(CP.dashboard).getRange('A10'); cell.setValue(message); cell.setFontColor(isError ? '#B91C1C' : '#FFFFFF'); }
