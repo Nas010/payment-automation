@@ -9,12 +9,17 @@ type Range = {
   setValues: (values: unknown[][]) => Range;
   clearContent: () => Range;
   setFontColor: (color: string) => Range;
+  getSheet: () => { getName: () => string };
+  getRow: () => number;
 };
 
 const legacyClientHeaders = ["client_id", "active", "client_name", "line_user_id", "line_display_name", "package_name", "payment_type", "total_price_thb", "installment_count", "interval_months", "first_due_date", "default_amount_thb", "billing_frequency", "next_due_date", "notes", "created_at", "updated_at"];
 
-function loadScriptWithDashboard(values: Record<string, unknown>, clientHeaders: unknown[] = [...legacyClientHeaders], clientColumnCount = clientHeaders.length) {
+function loadScriptWithDashboard(values: Record<string, unknown>, clientHeaders: unknown[] = [...legacyClientHeaders], clientColumnCount = clientHeaders.length, clientRows: unknown[][] = []) {
   const clientWrites: Array<{ row: number; values: unknown[][] }> = [];
+  const clientCellWrites: Array<{ row: number; column: number; values: unknown[][] }> = [];
+  const auditRows: unknown[][] = [];
+  const alerts: string[] = [];
   const columnExpansions: Array<{ after: number; count: number }> = [];
   const headerWrites: Array<{ column: number; value: unknown }> = [];
   const clientSheet = {
@@ -28,7 +33,10 @@ function loadScriptWithDashboard(values: Record<string, unknown>, clientHeaders:
       return range({
         getValues: () => {
           if (row === 1) return [Array.from({ length: numColumns ?? clientHeaders.length }, (_, index) => clientHeaders[index] ?? "")];
-          return row === 2 && column === 1 && numRows === 999 && numColumns === 1 ? Array.from({ length: 999 }, () => [""]) : [];
+          if (row === 2 && column === 1 && numRows === 999 && numColumns === 1) return Array.from({ length: 999 }, (_, index) => [clientRows[index]?.[0] ?? ""]);
+          if (row === 2 && column === 1 && numColumns === clientHeaders.length && (numRows ?? 1) > 1) return Array.from({ length: numRows ?? 0 }, (_, index) => clientRows[index] ?? []);
+          if (row >= 2 && column === 1 && numColumns === clientHeaders.length) return [clientRows[row - 2] ?? []];
+          return [];
         },
         setValue: (value) => {
           if (row === 1 && column) {
@@ -39,13 +47,14 @@ function loadScriptWithDashboard(values: Record<string, unknown>, clientHeaders:
         },
         setValues: (written) => {
           if (row > 1) clientWrites.push({ row, values: written });
+          if (row > 1 && column && column >= 18) clientCellWrites.push({ row, column, values: written });
           return range({});
         },
       });
     },
   };
   const scheduleSheet = { getLastRow: () => 1, getRange: () => range({}) };
-  const auditSheet = { appendRow: () => undefined };
+  const auditSheet = { appendRow: (row: unknown[]) => { auditRows.push(row); } };
   const settingsSheet = {
     getRange: () => range({
       getValues: () => [["Test package", 100000, "ONE_TIME", 1, 0, true]],
@@ -61,8 +70,11 @@ function loadScriptWithDashboard(values: Record<string, unknown>, clientHeaders:
       return ({ Dashboard: dashboardSheet, Clients: clientSheet, Settings: settingsSheet, "Installment Schedule": scheduleSheet, "Audit Log": auditSheet } as Record<string, unknown>)[name];
     },
   };
+  let selectedSheetName = "Dashboard";
+  let selectedRow = 1;
+  const selectedRange = range({ getSheet: () => ({ getName: () => selectedSheetName }), getRow: () => selectedRow });
   const context = {
-    SpreadsheetApp: { openById: () => book },
+    SpreadsheetApp: { openById: () => book, getActiveRange: () => selectedRange, getUi: () => ({ alert: (message: string) => alerts.push(message) }) },
     Utilities: { getUuid: () => "11111111-1111-1111-1111-111111111111" },
     Date,
     JSON,
@@ -73,7 +85,7 @@ function loadScriptWithDashboard(values: Record<string, unknown>, clientHeaders:
     Number,
   };
   vm.runInNewContext(readFileSync("apps-script/Code.gs", "utf8"), context);
-  return { context: context as { ensureClientSchema_: () => void; saveClientFromDashboard: () => void }, clientWrites, columnExpansions, headerWrites };
+  return { context: context as { ensureClientSchema_: () => void; clientDataRows_: () => unknown[]; saveClientFromDashboard: () => void; generateMissingLineLinkCodes: () => unknown; renewLineCodeForSelectedClient: () => unknown; disconnectSelectedClientLine: () => unknown; SpreadsheetApp: { getActiveRange: () => Range } }, select: (sheetName: string, row: number) => { selectedSheetName = sheetName; selectedRow = row; }, clientWrites, clientCellWrites, auditRows, alerts, columnExpansions, headerWrites };
 }
 
 function range(overrides: Partial<Range>): Range {
@@ -84,6 +96,8 @@ function range(overrides: Partial<Range>): Range {
     setValues: () => defaultRange,
     clearContent: () => defaultRange,
     setFontColor: () => defaultRange,
+    getSheet: () => ({ getName: () => "" }),
+    getRow: () => 0,
   };
   return { ...defaultRange, ...overrides };
 }
@@ -131,5 +145,69 @@ describe("Apps Script client save", () => {
     expect(clientWrites[0]?.row).toBe(2);
     expect(clientWrites[0]?.values[0]?.slice(1, 3)).toEqual([true, "Nas"]);
     expect(clientWrites[0]?.values[0]).toHaveLength(23);
+  });
+
+  it("creates Dashboard clients with blank mappings and an active seven-day code instruction", () => {
+    const { context, clientWrites } = loadScriptWithDashboard({
+      B4: "Nas", E4: "Umanual", B5: "Manual name", E5: "Test package", B6: "ONE_TIME",
+      E6: new Date("2026-08-11T00:00:00"), B7: 100000, E7: 1, B8: 0, E8: "",
+    });
+
+    context.saveClientFromDashboard();
+
+    const saved = clientWrites[0]?.values[0] ?? [];
+    expect(saved.slice(3, 5)).toEqual(["", ""]);
+    expect(saved[17]).toMatch(/^[A-F0-9]{10}$/);
+    expect(saved[19]).toBe("CODE_ACTIVE");
+    expect(String(saved[21])).toContain(`LINK ${saved[17]}`);
+    const duration = new Date(String(saved[18])).getTime() - new Date(saved[15] as Date).getTime();
+    expect(duration).toBeGreaterThanOrEqual(7 * 24 * 60 * 60 * 1000 - 1000);
+    expect(duration).toBeLessThanOrEqual(7 * 24 * 60 * 60 * 1000);
+  });
+
+  it("reports generated, active, linked, and failed client codes", () => {
+    const rows = [
+      ["created", true, "Created", "", "", "PT", "ONE_TIME", 1000, 1, 0, new Date(), 1000, "MANUAL", new Date(), "", new Date(), new Date(), "", "", "", "", "", ""],
+      ["active", true, "Active", "", "", "PT", "ONE_TIME", 1000, 1, 0, new Date(), 1000, "MANUAL", new Date(), "", new Date(), new Date(), "ABCDEF0123", new Date("2099-01-01"), "CODE_ACTIVE", "", "", ""],
+      ["linked", true, "Linked", "Uexisting", "Existing", "PT", "ONE_TIME", 1000, 1, 0, new Date(), 1000, "MANUAL", new Date(), "", new Date(), new Date(), "", "", "LINKED", new Date(), "", ""],
+    ];
+    const { context, clientCellWrites, auditRows } = loadScriptWithDashboard({}, undefined, undefined, rows);
+
+    context.ensureClientSchema_();
+    expect(context.clientDataRows_()).toHaveLength(3);
+    expect(context.generateMissingLineLinkCodes()).toMatchObject({ created: ["created"], alreadyActive: ["active"], alreadyLinked: ["linked"], failed: [] });
+    expect(clientCellWrites).toHaveLength(1);
+    expect(auditRows[0]?.[3]).toBe("LINE_LINK_CODE_CREATED");
+  });
+
+  it("rejects header and non-Clients selections before selected-client operations", () => {
+    const { context, select, alerts } = loadScriptWithDashboard({});
+
+    context.renewLineCodeForSelectedClient();
+    select("Clients", 1);
+    context.disconnectSelectedClientLine();
+
+    expect(alerts).toEqual(["Select a client data row in Clients (row 2 or later).", "Select a client data row in Clients (row 2 or later)."]);
+  });
+
+  it("renews an unlinked selected client without replacing its mapping fields", () => {
+    const rows = [["client_1", true, "Nisa", "", "", "PT", "ONE_TIME", 1000, 1, 0, new Date(), 1000, "MANUAL", new Date(), "", new Date(), new Date(), "ABCDEF0123", new Date("2099-01-01"), "CODE_ACTIVE", "", "old message", ""]];
+    const { context, select, clientCellWrites, auditRows } = loadScriptWithDashboard({}, undefined, undefined, rows);
+    select("Clients", 2);
+
+    expect(context.renewLineCodeForSelectedClient()).toMatchObject({ clientId: "client_1", code: "1111111111", status: "CODE_ACTIVE" });
+    expect(clientCellWrites[0]).toMatchObject({ row: 2, column: 18, values: [["1111111111", expect.any(Date), "CODE_ACTIVE", "", expect.stringContaining("LINK 1111111111"), ""]] });
+    expect(auditRows[0]?.[3]).toBe("LINE_LINK_CODE_RENEWED");
+  });
+
+  it("disconnects a selected client by clearing its mapping and auditing the event", () => {
+    const rows = [["client_1", true, "Nisa", "Uaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Nisa LINE", "PT", "ONE_TIME", 1000, 1, 0, new Date(), 1000, "MANUAL", new Date(), "", new Date(), new Date(), "", "", "LINKED", new Date(), "", ""]];
+    const { context, select, clientWrites, auditRows } = loadScriptWithDashboard({}, undefined, undefined, rows);
+    select("Clients", 2);
+
+    expect(context.disconnectSelectedClientLine()).toBe(true);
+    expect(clientWrites).toContainEqual({ row: 2, values: [["", "", "", "", "", ""]] });
+    expect(clientWrites).toContainEqual({ row: 2, values: [["", ""]] });
+    expect(auditRows[0]?.[3]).toBe("LINE_LINK_DISCONNECTED");
   });
 });
