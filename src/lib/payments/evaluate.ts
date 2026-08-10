@@ -72,3 +72,11 @@ export function evaluatePayment(payment: EvaluationPayment, signals: SlipSignals
   if (!dateMatch) reasons.push("Transaction date unavailable or unusual");
   return { decision: "REVIEW", score: [signals.qrValid, amountMatch, receiverMatch, dateMatch].filter(Boolean).length * 20, reasons, amountMatch, receiverMatch, dateMatch };
 }
+
+export function sendToReviewForStorageFailure(evaluation: Evaluation): Evaluation {
+  return {
+    ...evaluation,
+    decision: "REVIEW",
+    reasons: [...evaluation.reasons, "Private slip storage failed; manual review is required"],
+  };
+}

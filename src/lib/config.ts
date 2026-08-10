@@ -9,6 +9,11 @@ export function configuredReceiverAliases(environment: Record<string, string | u
     .filter((value): value is string => Boolean(value) && value !== "CONFIG_REQUIRED");
 }
 
+export function configuredSlipRetentionDays(environment: Record<string, string | undefined> = process.env): number {
+  const value = Number(environment.SLIP_RETENTION_DAYS ?? "30");
+  return Number.isSafeInteger(value) && value >= 0 && value <= 365 ? value : 30;
+}
+
 export function serverConfig() {
   const missing = requiredConfiguration();
   if (missing.length) throw new Error(`Configuration required: ${missing.join(", ")}`);
@@ -23,6 +28,7 @@ export function serverConfig() {
     baseUrl: process.env.PRODUCTION_BASE_URL ?? "",
     adminSecret: process.env.ADMIN_SECRET ?? "",
     cronSecret: process.env.CRON_SECRET ?? "",
+    slipRetentionDays: configuredSlipRetentionDays(),
     slipStorageFolderId: process.env.SLIP_STORAGE_FOLDER_ID!,
     serviceAccountJson: process.env.GOOGLE_SERVICE_ACCOUNT_JSON!
   };
