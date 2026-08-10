@@ -56,7 +56,7 @@ function saveClientFromDashboard() {
   }
   const clientId = `client_${Utilities.getUuid().replaceAll('-', '')}`;
   const now = new Date();
-  const lineCode = createLineLinkCode_();
+  const lineCode = lineCodeForRows_(clientDataRows_());
   const lineFields = lineLinkFields_(clientName, lineCode, now);
   writeClient_([clientId, true, clientName, '', '', packageName, paymentType, totalPrice, count, interval, firstDueDate, totalPrice, 'MANUAL', firstDueDate, notes, now, now].concat(lineFields));
   const rows = buildScheduleRows_({ clientId, clientName, lineUserId: '', lineDisplayName: '', packageName, paymentType, totalPrice, count, interval, firstDueDate, notes, now });

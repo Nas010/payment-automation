@@ -14,9 +14,10 @@ function client(overrides: Partial<ClientRecord> = {}): ClientRecord {
   };
 }
 
-function dependencies(rows: ClientRecord[], codeGenerator = vi.fn(() => "1234567890")): LineLinkDependencies & { updateClient: ReturnType<typeof vi.fn>; appendAudit: ReturnType<typeof vi.fn>; codeGenerator: ReturnType<typeof vi.fn> } {
+function dependencies(rows: ClientRecord[], codeGenerator = vi.fn(() => "1234567890")): LineLinkDependencies & { updateClient: ReturnType<typeof vi.fn>; appendAudit: ReturnType<typeof vi.fn>; codeGenerator: ReturnType<typeof vi.fn>; claimLineLink: ReturnType<typeof vi.fn>; releaseLineUserReservation: ReturnType<typeof vi.fn> } {
   return {
     listClients: vi.fn(async () => rows), updateClient: vi.fn(async () => undefined), appendAudit: vi.fn(async () => undefined), codeGenerator,
+    claimLineLink: vi.fn(async () => "CLAIMED"), releaseLineUserReservation: vi.fn(async () => undefined),
   };
 }
 
@@ -42,7 +43,7 @@ describe("LINE linking domain service", () => {
     const deps = dependencies([client()]);
 
     await expect(createLineLinkService(deps).linkLineUser({ code: "abcdef0123", lineUserId: userA, now, webhookEventId: "event_1" })).resolves.toBe("LINKED");
-    expect(deps.updateClient).toHaveBeenCalledWith(expect.objectContaining({ line_user_id: userA, line_link_status: "LINKED", line_linked_at: now, line_link_code: "", line_link_code_expires_at: "", line_link_message: "", line_link_error: "", updated_at: now }));
+    expect(deps.claimLineLink).toHaveBeenCalledWith(expect.objectContaining({ code: "ABCDEF0123", lineUserId: userA, client: expect.objectContaining({ line_user_id: userA, line_link_status: "LINKED", line_linked_at: now, line_link_code: "", line_link_code_expires_at: "", line_link_message: "", line_link_error: "", updated_at: now }) }));
     expect(deps.appendAudit).toHaveBeenCalledWith(expect.objectContaining({ clientId: "client_1", action: "LINE_LINK_LINKED", newStatus: "LINKED", metadata: JSON.stringify({ clientId: "client_1", status: "LINKED", webhookEventId: "event_1", lineUserSuffix: "aaaa" }) }));
     expect(deps.appendAudit.mock.calls[0][0].metadata).not.toContain(userA);
     expect(deps.appendAudit.mock.calls[0][0].metadata).not.toContain("ABCDEF0123");
@@ -99,6 +100,52 @@ describe("LINE linking domain service", () => {
     await expect(createLineLinkService(deps).linkLineUser({ code: "ABCDEF0123", lineUserId: userA, now, webhookEventId: "event_1" })).resolves.toBe("CONFLICT");
     expect(deps.updateClient).toHaveBeenCalledTimes(1);
     expect(deps.updateClient).toHaveBeenCalledWith(expect.objectContaining({ client_id: "client_1", line_user_id: "", line_link_status: "REVIEW", line_link_error: "LINE user conflict" }));
+  });
+
+  it("allows only one competing user to consume the same code", async () => {
+    const deps = dependencies([client()]);
+    const claimedCodes = new Set<string>();
+    const claimedUsers = new Set<string>();
+    deps.claimLineLink.mockImplementation(async ({ code, lineUserId }: { code: string; lineUserId: string }) => {
+      if (claimedCodes.has(code) || claimedUsers.has(lineUserId)) return "CONFLICT";
+      claimedCodes.add(code);
+      claimedUsers.add(lineUserId);
+      return "CLAIMED";
+    });
+    const service = createLineLinkService(deps);
+
+    const results = await Promise.all([
+      service.linkLineUser({ code: "ABCDEF0123", lineUserId: userA, now, webhookEventId: "event_a" }),
+      service.linkLineUser({ code: "ABCDEF0123", lineUserId: userB, now, webhookEventId: "event_b" }),
+    ]);
+
+    expect(results.sort()).toEqual(["CONFLICT", "LINKED"]);
+    expect(deps.claimLineLink).toHaveBeenCalledTimes(2);
+    expect(deps.updateClient).not.toHaveBeenCalled();
+  });
+
+  it("allows only one competing code to link the same user", async () => {
+    const first = client();
+    const second = client({ rowNumber: 3, client_id: "client_2", line_link_code: "1234567890" });
+    const deps = dependencies([first, second]);
+    const claimedCodes = new Set<string>();
+    const claimedUsers = new Set<string>();
+    deps.claimLineLink.mockImplementation(async ({ code, lineUserId }: { code: string; lineUserId: string }) => {
+      if (claimedCodes.has(code) || claimedUsers.has(lineUserId)) return "CONFLICT";
+      claimedCodes.add(code);
+      claimedUsers.add(lineUserId);
+      return "CLAIMED";
+    });
+    const service = createLineLinkService(deps);
+
+    const results = await Promise.all([
+      service.linkLineUser({ code: "ABCDEF0123", lineUserId: userA, now, webhookEventId: "event_a" }),
+      service.linkLineUser({ code: "1234567890", lineUserId: userA, now, webhookEventId: "event_b" }),
+    ]);
+
+    expect(results.sort()).toEqual(["CONFLICT", "LINKED"]);
+    expect(deps.claimLineLink).toHaveBeenCalledTimes(2);
+    expect(deps.updateClient).not.toHaveBeenCalled();
   });
 });
 

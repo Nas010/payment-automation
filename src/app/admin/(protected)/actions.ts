@@ -13,7 +13,7 @@ import { parseSatang } from "@/lib/money";
 import { buildInstallmentPlan } from "@/lib/plans/schedule";
 import { generateDuePaymentLinks } from "@/lib/payments/generate";
 import { persistPaymentTransition } from "@/lib/payments/transition";
-import { listClients, updateClient, writeClient } from "@/lib/sheets/clients";
+import { listClients, releaseLineUserReservation, updateClient, writeClient } from "@/lib/sheets/clients";
 import { getPaymentById, appendAudit } from "@/lib/sheets/payments";
 import { listSchedules, writeSchedule } from "@/lib/sheets/schedules";
 import { listPackages, savePackage, upsertOperationalSetting } from "@/lib/sheets/settings";
@@ -85,7 +85,7 @@ export async function renewLineLinkCodeAction(clientId: string): Promise<RenewLi
 
 export async function disconnectLineAction(clientId: string): Promise<boolean> {
   await requireAdmin();
-  const disconnected = await disconnectLineUser({ listClients, updateClient, appendAudit }, { clientId, now: new Date() });
+  const disconnected = await disconnectLineUser({ listClients, updateClient, releaseLineUserReservation, appendAudit }, { clientId, now: new Date() });
   revalidateLinePages(clientId);
   return disconnected;
 }

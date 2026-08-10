@@ -15,7 +15,7 @@ type Range = {
 
 const legacyClientHeaders = ["client_id", "active", "client_name", "line_user_id", "line_display_name", "package_name", "payment_type", "total_price_thb", "installment_count", "interval_months", "first_due_date", "default_amount_thb", "billing_frequency", "next_due_date", "notes", "created_at", "updated_at"];
 
-function loadScriptWithDashboard(values: Record<string, unknown>, clientHeaders: unknown[] = [...legacyClientHeaders], clientColumnCount = clientHeaders.length, clientRows: unknown[][] = []) {
+function loadScriptWithDashboard(values: Record<string, unknown>, clientHeaders: unknown[] = [...legacyClientHeaders], clientColumnCount = clientHeaders.length, clientRows: unknown[][] = [], uuidValues = ["11111111-1111-1111-1111-111111111111"]) {
   const clientWrites: Array<{ row: number; values: unknown[][] }> = [];
   const clientCellWrites: Array<{ row: number; column: number; values: unknown[][] }> = [];
   const auditRows: unknown[][] = [];
@@ -80,9 +80,10 @@ function loadScriptWithDashboard(values: Record<string, unknown>, clientHeaders:
     addSeparator() { return menu; },
     addToUi() { return undefined; },
   };
+  let uuidIndex = 0;
   const context = {
     SpreadsheetApp: { openById: () => book, getActiveRange: () => selectedRange, getUi: () => ({ alert: (message: string) => alerts.push(message), createMenu: (name: string) => { menuNames.push(name); return menu; } }) },
-    Utilities: { getUuid: () => "11111111-1111-1111-1111-111111111111" },
+    Utilities: { getUuid: () => uuidValues[Math.min(uuidIndex++, uuidValues.length - 1)] },
     Date,
     JSON,
     Math,
@@ -183,6 +184,17 @@ describe("Apps Script client save", () => {
     const duration = new Date(String(saved[18])).getTime() - new Date(saved[15] as Date).getTime();
     expect(duration).toBeGreaterThanOrEqual(7 * 24 * 60 * 60 * 1000 - 1000);
     expect(duration).toBeLessThanOrEqual(7 * 24 * 60 * 60 * 1000);
+  });
+
+  it("retries Dashboard code generation when a current Clients row already uses the deterministic candidate", () => {
+    const rows = [["client_existing", true, "Existing", "", "", "PT", "ONE_TIME", 1000, 1, 0, new Date(), 1000, "MANUAL", new Date(), "", new Date(), new Date(), "1111111111", new Date("2099-01-01"), "CODE_ACTIVE", "", "", ""]];
+    const { context, clientWrites } = loadScriptWithDashboard({
+      B4: "Nas", E5: "Test package", B6: "ONE_TIME", E6: new Date("2026-08-11T00:00:00"), B7: 100000, E7: 1, B8: 0, E8: "",
+    }, undefined, undefined, rows, ["aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222"]);
+
+    context.saveClientFromDashboard();
+
+    expect(clientWrites[0]?.values[0]?.[17]).toBe("2222222222");
   });
 
   it("reports generated, active, linked, and failed client codes", () => {

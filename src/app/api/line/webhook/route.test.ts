@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   getLineChannelAccessToken: vi.fn(),
   listClients: vi.fn(),
   updateClient: vi.fn(),
+  claimLineLink: vi.fn(),
   appendAudit: vi.fn(),
   fetchFn: vi.fn(),
 }));
@@ -19,6 +20,7 @@ vi.mock("@/lib/secrets/service", () => ({
 vi.mock("@/lib/sheets/clients", () => ({
   listClients: mocks.listClients,
   updateClient: mocks.updateClient,
+  claimLineLink: mocks.claimLineLink,
 }));
 
 vi.mock("@/lib/sheets/payments", () => ({ appendAudit: mocks.appendAudit }));
@@ -58,6 +60,7 @@ beforeEach(() => {
   mocks.getLineChannelAccessToken.mockResolvedValue(accessToken);
   mocks.listClients.mockResolvedValue([client()]);
   mocks.updateClient.mockResolvedValue(undefined);
+  mocks.claimLineLink.mockResolvedValue("CLAIMED");
   mocks.appendAudit.mockResolvedValue(undefined);
   mocks.fetchFn.mockResolvedValue(new Response(null, { status: 200 }));
 });
@@ -130,7 +133,7 @@ describe("POST /api/line/webhook", () => {
     const res = await POST(signedRequest({ events: [event(), event({ webhookEventId: "event_2", replyToken: "reply-token-2", source: { type: "user", userId: "Ubbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" }, message: { type: "text", text: "LINK 1234567890" } })] }));
 
     expect(res.status).toBe(200);
-    expect(mocks.updateClient).toHaveBeenCalledWith(expect.objectContaining({ line_user_id: userId, line_link_status: "LINKED" }));
+    expect(mocks.claimLineLink).toHaveBeenCalledWith(expect.objectContaining({ code: "ABCDEF0123", lineUserId: userId, client: expect.objectContaining({ line_user_id: userId, line_link_status: "LINKED" }) }));
     expect(mocks.updateClient).toHaveBeenCalledWith(expect.objectContaining({ line_display_name: "Nisa LINE" }));
     expect(mocks.fetchFn).toHaveBeenCalledWith("https://api.line.me/v2/bot/message/reply", expect.objectContaining({ body: JSON.stringify({ replyToken: "reply-token", messages: [{ type: "text", text: "✓ Connected\n\nYour coaching account is now linked. Future payment links can be sent here automatically." }] }) }));
     expect(mocks.fetchFn).toHaveBeenCalledWith("https://api.line.me/v2/bot/message/reply", expect.objectContaining({ body: JSON.stringify({ replyToken: "reply-token-2", messages: [{ type: "text", text: "I couldn't connect this account. The code is invalid or expired. Please ask your trainer for a new code." }] }) }));
@@ -142,8 +145,8 @@ describe("POST /api/line/webhook", () => {
       .mockResolvedValueOnce(new Response(null, { status: 200 }));
 
     await expect(POST(signedRequest({ events: [event()] }))).resolves.toMatchObject({ status: 200 });
-    expect(mocks.updateClient).toHaveBeenCalledTimes(1);
-    expect(mocks.updateClient).toHaveBeenCalledWith(expect.objectContaining({ line_user_id: userId, line_link_status: "LINKED" }));
+    expect(mocks.claimLineLink).toHaveBeenCalledWith(expect.objectContaining({ lineUserId: userId, client: expect.objectContaining({ line_link_status: "LINKED" }) }));
+    expect(mocks.updateClient).not.toHaveBeenCalled();
   });
 
   it("uses mandated replies without disclosing inactive-client state", async () => {
@@ -169,7 +172,7 @@ describe("POST /api/line/webhook", () => {
       .mockResolvedValueOnce(new Response(JSON.stringify({ message: "private reply error" }), { status: 500 }));
 
     await expect(POST(signedRequest({ events: [event()] }))).resolves.toMatchObject({ status: 200 });
-    expect(mocks.updateClient).toHaveBeenCalledWith(expect.objectContaining({ line_user_id: userId, line_link_status: "LINKED" }));
+    expect(mocks.claimLineLink).toHaveBeenCalledWith(expect.objectContaining({ lineUserId: userId, client: expect.objectContaining({ line_link_status: "LINKED" }) }));
     expect(mocks.appendAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "LINE_LINK_REPLY_FAILED", source: "LINE_WEBHOOK", metadata: JSON.stringify({ webhookEventId: "event_1", lineUserSuffix: "aaaa" }) }));
     expect(mocks.appendAudit.mock.calls.at(-1)?.[0].metadata).not.toContain(userId);
   });

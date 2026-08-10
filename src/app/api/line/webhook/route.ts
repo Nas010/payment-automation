@@ -1,6 +1,6 @@
 import { getLineChannelAccessToken, getLineChannelSecret } from "@/lib/secrets/service";
 import { appendAudit } from "@/lib/sheets/payments";
-import { listClients, updateClient } from "@/lib/sheets/clients";
+import { claimLineLink, listClients, updateClient } from "@/lib/sheets/clients";
 import { getLineProfile, replyLineMessage } from "@/lib/line/client";
 import { parseLineLinkCommand } from "@/lib/line/link-command";
 import { createLineLinkService, type LinkResult } from "@/lib/line/linking";
@@ -57,7 +57,7 @@ async function auditReplyFailure(event: DirectLinkEvent): Promise<void> {
 }
 
 async function processEvent(event: DirectLinkEvent): Promise<void> {
-  const service = createLineLinkService({ listClients, updateClient, appendAudit });
+  const service = createLineLinkService({ listClients, updateClient, claimLineLink, appendAudit });
   let result: LinkResult;
   try {
     result = await service.linkLineUser({ code: event.code, lineUserId: event.lineUserId, now: new Date(), webhookEventId: event.webhookEventId });
