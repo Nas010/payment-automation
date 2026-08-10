@@ -20,6 +20,8 @@ const encryptedRecord = {
   lastFour: "alue",
 };
 
+const otherEncryptedRecord = { ...encryptedRecord, keyName: "line_channel_secret" as const, ciphertext: "other-ciphertext", iv: "other-iv", authTag: "other-tag", lastFour: "cret" };
+
 beforeEach(() => {
   vi.clearAllMocks();
   spreadsheetGet.mockResolvedValue({ data: { sheets: [{ properties: { sheetId: 17, title: "Integration Secrets", gridProperties: { columnCount: 11 } } }] } });
@@ -43,6 +45,35 @@ describe("Integration Secrets repository", () => {
 
   it("returns only the selected encrypted record", async () => {
     await expect(getSecretRecord("line_channel_access_token")).resolves.toMatchObject(encryptedRecord);
+  });
+
+  it("updates one secret row without overwriting another encrypted secret", async () => {
+    get.mockResolvedValue({ data: { values: [["key_name", "ciphertext", "iv", "auth_tag", "algorithm", "key_version", "created_at", "updated_at", "last_four", "status", "notes"], [encryptedRecord.keyName, encryptedRecord.ciphertext, encryptedRecord.iv, encryptedRecord.authTag, encryptedRecord.algorithm, encryptedRecord.keyVersion, encryptedRecord.createdAt, encryptedRecord.updatedAt, encryptedRecord.lastFour, "ACTIVE", ""], [otherEncryptedRecord.keyName, otherEncryptedRecord.ciphertext, otherEncryptedRecord.iv, otherEncryptedRecord.authTag, otherEncryptedRecord.algorithm, otherEncryptedRecord.keyVersion, otherEncryptedRecord.createdAt, otherEncryptedRecord.updatedAt, otherEncryptedRecord.lastFour, "ACTIVE", ""]] } });
+
+    await upsertSecretRecord({ ...encryptedRecord, ciphertext: "replacement-ciphertext" });
+
+    const write = update.mock.calls.at(-1)?.[0];
+    expect(write).toMatchObject({ range: "Integration Secrets!A2:K2" });
+    expect(JSON.stringify(write)).not.toContain(otherEncryptedRecord.ciphertext);
+  });
+
+  it("coalesces concurrent first-time schema setup", async () => {
+    let releaseMetadata: (() => void) | undefined;
+    const metadataReady = new Promise<void>((resolve) => { releaseMetadata = resolve; });
+    spreadsheetGet.mockImplementationOnce(async () => {
+      await metadataReady;
+      return { data: { sheets: [] } };
+    });
+    get.mockResolvedValue({ data: { values: [["key_name", "ciphertext", "iv", "auth_tag", "algorithm", "key_version", "created_at", "updated_at", "last_four", "status", "notes"]] } });
+
+    const first = listSecretMetadata();
+    const second = listSecretMetadata();
+    await Promise.resolve();
+
+    expect(spreadsheetGet).toHaveBeenCalledTimes(1);
+    releaseMetadata?.();
+    await expect(Promise.all([first, second])).resolves.toEqual([[], []]);
+    expect(batchUpdate).toHaveBeenCalledTimes(1);
   });
 
   it("creates the Integration Secrets tab and writes missing A:K headers", async () => {

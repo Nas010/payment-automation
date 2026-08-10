@@ -13,6 +13,7 @@ describe("integration secret encryption", () => {
 
     expect(decryptSecret({ keyName: input.keyName, record: first })).toBe(input.plaintext);
     expect(first.iv).not.toBe(second.iv);
+    expect(Buffer.from(first.iv, "base64")).toHaveLength(12);
     expect(first).toMatchObject({ algorithm: "aes-256-gcm", keyVersion: "1" });
   });
 

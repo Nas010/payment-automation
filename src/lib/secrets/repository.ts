@@ -21,7 +21,9 @@ function isSecretKeyName(value: string): value is SecretKeyName {
   return (SECRET_KEY_NAMES as readonly string[]).includes(value);
 }
 
-async function ensureIntegrationSecretsSchema(): Promise<void> {
+let schemaSetupInFlight: Promise<void> | null = null;
+
+async function provisionIntegrationSecretsSchema(): Promise<void> {
   const { sheets, spreadsheetId } = getGoogleSheets();
   const metadata = await sheets.spreadsheets.get({ spreadsheetId, fields: "sheets(properties(sheetId,title,gridProperties(columnCount)))" });
   const integrationSheet = metadata.data.sheets?.find((sheet) => sheet.properties?.title === SHEET_TITLE);
@@ -41,6 +43,17 @@ async function ensureIntegrationSecretsSchema(): Promise<void> {
     if (String(headers[index] ?? "").trim()) return;
     await sheets.spreadsheets.values.update({ spreadsheetId, range: `${SHEET_TITLE}!${columnName(index + 1)}1`, valueInputOption: "USER_ENTERED", requestBody: { values: [[header]] } });
   }));
+}
+
+async function ensureIntegrationSecretsSchema(): Promise<void> {
+  if (schemaSetupInFlight) return schemaSetupInFlight;
+  const setup = provisionIntegrationSecretsSchema();
+  schemaSetupInFlight = setup;
+  try {
+    await setup;
+  } finally {
+    if (schemaSetupInFlight === setup) schemaSetupInFlight = null;
+  }
 }
 
 async function listEncryptedSecretRecords(): Promise<EncryptedSecretRecord[]> {

@@ -1,3 +1,4 @@
+import "./server-only";
 import { lineConfig } from "@/lib/config";
 import { appendAudit } from "@/lib/sheets/payments";
 import { decryptSecret, encryptSecret } from "./crypto";
@@ -5,8 +6,21 @@ import { getSecretRecord, listSecretMetadata, upsertSecretRecord } from "./repos
 import type { SecretKeyName, SecretMetadata } from "./types";
 
 function configuredValue(value: string | undefined): string | null {
-  const trimmed = value?.trim();
-  return trimmed && trimmed !== "CONFIG_REQUIRED" ? trimmed : null;
+  return value && value !== "CONFIG_REQUIRED" ? value : null;
+}
+
+function credentialLabel(keyName: SecretKeyName): string {
+  return keyName === "line_channel_access_token" ? "LINE channel access token" : "LINE channel secret";
+}
+
+/** LINE access tokens must be non-blank, at least 20 characters, and contain no whitespace/control characters. Channel secrets are exactly 32 ASCII alphanumeric characters. */
+function validateCredential(keyName: SecretKeyName, value: string): string {
+  const hasWhitespaceOrControl = /[\s\x00-\x1F\x7F]/.test(value);
+  const valid = keyName === "line_channel_access_token"
+    ? value.length >= 20 && !hasWhitespaceOrControl
+    : /^[A-Za-z0-9]{32}$/.test(value) && !hasWhitespaceOrControl;
+  if (!valid) throw new Error(`${credentialLabel(keyName)} is malformed`);
+  return value;
 }
 
 export async function getSecret(keyName: SecretKeyName): Promise<string | null> {
@@ -15,7 +29,7 @@ export async function getSecret(keyName: SecretKeyName): Promise<string | null> 
 }
 
 export async function setSecret({ keyName, plaintext }: { keyName: SecretKeyName; plaintext: string }): Promise<void> {
-  if (!plaintext.trim()) throw new Error("Secret value is required");
+  validateCredential(keyName, plaintext);
   await upsertSecretRecord({ keyName, ...encryptSecret({ keyName, plaintext }) });
   await appendAudit({
     paymentId: "",
@@ -37,17 +51,18 @@ export async function getLineChannelAccessToken(environment: Record<string, stri
   const encrypted = await getSecret("line_channel_access_token");
   const value = encrypted ?? configuredValue(lineConfig(environment).channelAccessToken);
   if (!value) throw new Error("LINE channel access token is not configured");
-  return value;
+  return validateCredential("line_channel_access_token", value);
 }
 
 export async function getLineChannelSecret(environment: Record<string, string | undefined> = process.env): Promise<string> {
   const encrypted = await getSecret("line_channel_secret");
   const value = encrypted ?? configuredValue(lineConfig(environment).channelSecret);
   if (!value) throw new Error("LINE channel secret is not configured");
-  return value;
+  return validateCredential("line_channel_secret", value);
 }
 
 export async function getLineCredentials(environment: Record<string, string | undefined> = process.env): Promise<{ channelAccessToken: string; channelSecret: string }> {
-  const [channelAccessToken, channelSecret] = await Promise.all([getLineChannelAccessToken(environment), getLineChannelSecret(environment)]);
+  const channelAccessToken = await getLineChannelAccessToken(environment);
+  const channelSecret = await getLineChannelSecret(environment);
   return { channelAccessToken, channelSecret };
 }
