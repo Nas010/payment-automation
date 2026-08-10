@@ -46,7 +46,7 @@ function saveClientFromDashboard() {
   }
   const count = paymentType === 'ONE_TIME' ? 1 : installmentCount;
   const interval = paymentType === 'ONE_TIME' ? 0 : intervalMonths;
-  if (!Number.isInteger(count) || count < 1 || !Number.isInteger(interval) || interval < 1) {
+  if (!Number.isInteger(count) || count < 1 || (paymentType === 'INSTALLMENTS' && (!Number.isInteger(interval) || interval < 1))) {
     setDashboardStatus_('Installment plans need whole installment count and interval of at least one month.', true); return;
   }
   const clientId = `client_${Utilities.getUuid().replaceAll('-', '')}`;
