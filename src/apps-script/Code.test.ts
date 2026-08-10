@@ -20,6 +20,8 @@ function loadScriptWithDashboard(values: Record<string, unknown>, clientHeaders:
   const clientCellWrites: Array<{ row: number; column: number; values: unknown[][] }> = [];
   const auditRows: unknown[][] = [];
   const alerts: string[] = [];
+  const menuNames: string[] = [];
+  const menuItems: Array<{ label: string; callback: string }> = [];
   const columnExpansions: Array<{ after: number; count: number }> = [];
   const headerWrites: Array<{ column: number; value: unknown }> = [];
   const clientSheet = {
@@ -47,7 +49,7 @@ function loadScriptWithDashboard(values: Record<string, unknown>, clientHeaders:
         },
         setValues: (written) => {
           if (row > 1) clientWrites.push({ row, values: written });
-          if (row > 1 && column && column >= 18) clientCellWrites.push({ row, column, values: written });
+          if (row > 1 && column && column >= 17) clientCellWrites.push({ row, column, values: written });
           return range({});
         },
       });
@@ -73,8 +75,13 @@ function loadScriptWithDashboard(values: Record<string, unknown>, clientHeaders:
   let selectedSheetName = "Dashboard";
   let selectedRow = 1;
   const selectedRange = range({ getSheet: () => ({ getName: () => selectedSheetName }), getRow: () => selectedRow });
+  const menu = {
+    addItem(label: string, callback: string) { menuItems.push({ label, callback }); return menu; },
+    addSeparator() { return menu; },
+    addToUi() { return undefined; },
+  };
   const context = {
-    SpreadsheetApp: { openById: () => book, getActiveRange: () => selectedRange, getUi: () => ({ alert: (message: string) => alerts.push(message) }) },
+    SpreadsheetApp: { openById: () => book, getActiveRange: () => selectedRange, getUi: () => ({ alert: (message: string) => alerts.push(message), createMenu: (name: string) => { menuNames.push(name); return menu; } }) },
     Utilities: { getUuid: () => "11111111-1111-1111-1111-111111111111" },
     Date,
     JSON,
@@ -85,7 +92,7 @@ function loadScriptWithDashboard(values: Record<string, unknown>, clientHeaders:
     Number,
   };
   vm.runInNewContext(readFileSync("apps-script/Code.gs", "utf8"), context);
-  return { context: context as { ensureClientSchema_: () => void; clientDataRows_: () => unknown[]; saveClientFromDashboard: () => void; generateMissingLineLinkCodes: () => unknown; renewLineCodeForSelectedClient: () => unknown; disconnectSelectedClientLine: () => unknown; SpreadsheetApp: { getActiveRange: () => Range } }, select: (sheetName: string, row: number) => { selectedSheetName = sheetName; selectedRow = row; }, clientWrites, clientCellWrites, auditRows, alerts, columnExpansions, headerWrites };
+  return { context: context as { onOpen: () => void; ensureClientSchema_: () => void; clientDataRows_: () => unknown[]; saveClientFromDashboard: () => void; generateMissingLineLinkCodes: () => unknown; renewLineCodeForSelectedClient: () => unknown; disconnectSelectedClientLine: () => unknown; SpreadsheetApp: { getActiveRange: () => Range } }, select: (sheetName: string, row: number) => { selectedSheetName = sheetName; selectedRow = row; }, clientWrites, clientCellWrites, auditRows, alerts, menuNames, menuItems, columnExpansions, headerWrites };
 }
 
 function range(overrides: Partial<Range>): Range {
@@ -103,6 +110,19 @@ function range(overrides: Partial<Range>): Range {
 }
 
 describe("Apps Script client save", () => {
+  it("wires all LINE trainer callbacks into Coaching Payments menu", () => {
+    const { context, menuNames, menuItems } = loadScriptWithDashboard({});
+
+    context.onOpen();
+
+    expect(menuNames).toEqual(["Coaching Payments"]);
+    expect(menuItems).toEqual(expect.arrayContaining([
+      { label: "Generate missing LINE link codes", callback: "generateMissingLineLinkCodes" },
+      { label: "Renew LINE code for selected client", callback: "renewLineCodeForSelectedClient" },
+      { label: "Disconnect selected client's LINE", callback: "disconnectSelectedClientLine" },
+    ]));
+  });
+
   it("fills only blank LINE-link client headers", () => {
     const { context, headerWrites } = loadScriptWithDashboard({}, [...legacyClientHeaders, "line_link_code", "", "legacy status"]);
 
@@ -177,6 +197,7 @@ describe("Apps Script client save", () => {
     expect(context.clientDataRows_()).toHaveLength(3);
     expect(context.generateMissingLineLinkCodes()).toMatchObject({ created: ["created"], alreadyActive: ["active"], alreadyLinked: ["linked"], failed: [] });
     expect(clientCellWrites).toHaveLength(1);
+    expect(clientCellWrites[0]).toMatchObject({ row: 2, column: 17, values: [[expect.any(Date), expect.any(String), expect.any(Date), "CODE_ACTIVE", "", expect.any(String), ""]] });
     expect(auditRows[0]?.[3]).toBe("LINE_LINK_CODE_CREATED");
   });
 
@@ -196,8 +217,19 @@ describe("Apps Script client save", () => {
     select("Clients", 2);
 
     expect(context.renewLineCodeForSelectedClient()).toMatchObject({ clientId: "client_1", code: "1111111111", status: "CODE_ACTIVE" });
-    expect(clientCellWrites[0]).toMatchObject({ row: 2, column: 18, values: [["1111111111", expect.any(Date), "CODE_ACTIVE", "", expect.stringContaining("LINK 1111111111"), ""]] });
+    expect(clientCellWrites[0]).toMatchObject({ row: 2, column: 17, values: [[expect.any(Date), "1111111111", expect.any(Date), "CODE_ACTIVE", "", expect.stringContaining("LINK 1111111111"), ""]] });
     expect(auditRows[0]?.[3]).toBe("LINE_LINK_CODE_RENEWED");
+  });
+
+  it("refuses selected renewal when a different LINE user is already mapped", () => {
+    const rows = [["client_1", true, "Nisa", "Uaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Nisa LINE", "PT", "ONE_TIME", 1000, 1, 0, new Date(), 1000, "MANUAL", new Date(), "", new Date(), new Date(), "ABCDEF0123", new Date("2099-01-01"), "LINKED", new Date(), "", ""]];
+    const { context, select, clientWrites, auditRows, alerts } = loadScriptWithDashboard({}, undefined, undefined, rows);
+    select("Clients", 2);
+
+    expect(context.renewLineCodeForSelectedClient()).toBeNull();
+    expect(clientWrites).toEqual([]);
+    expect(auditRows).toEqual([]);
+    expect(alerts).toContain("Cannot renew while selected client has a linked LINE user. Disconnect first.");
   });
 
   it("disconnects a selected client by clearing its mapping and auditing the event", () => {
@@ -206,7 +238,7 @@ describe("Apps Script client save", () => {
     select("Clients", 2);
 
     expect(context.disconnectSelectedClientLine()).toBe(true);
-    expect(clientWrites).toContainEqual({ row: 2, values: [["", "", "", "", "", ""]] });
+    expect(clientWrites).toContainEqual({ row: 2, values: [[expect.any(Date), "", "", "", "", "", ""]] });
     expect(clientWrites).toContainEqual({ row: 2, values: [["", ""]] });
     expect(auditRows[0]?.[3]).toBe("LINE_LINK_DISCONNECTED");
   });

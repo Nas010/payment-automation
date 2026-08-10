@@ -102,6 +102,15 @@ describe("protected LINE trainer actions", () => {
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/admin/clients/client_1");
   });
 
+  it("rejects renewal for a client that already has a different LINE user ID", async () => {
+    mocks.listClients.mockResolvedValue([client({ line_user_id: userId, line_display_name: "Nisa LINE", line_link_code: "ABCDEF0123", line_link_status: "LINKED" })]);
+
+    await expect(renewLineLinkCodeAction("client_1")).resolves.toBeNull();
+
+    expect(mocks.updateClient).not.toHaveBeenCalled();
+    expect(mocks.appendAudit).not.toHaveBeenCalled();
+  });
+
   it("disconnects an existing mapping, clears link fields, and preserves its audit event", async () => {
     mocks.listClients.mockResolvedValue([client({ line_user_id: userId, line_display_name: "Nisa LINE", line_link_status: "LINKED", line_linked_at: now })]);
 

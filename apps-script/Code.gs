@@ -12,8 +12,8 @@ function onOpen() {
     .addItem('Clear Dashboard form', 'clearDashboardForm')
     .addSeparator()
     .addItem('Generate missing LINE link codes', 'generateMissingLineLinkCodes')
-    .addItem('Renew selected client LINE code', 'renewLineCodeForSelectedClient')
-    .addItem('Disconnect selected client LINE', 'disconnectSelectedClientLine')
+    .addItem('Renew LINE code for selected client', 'renewLineCodeForSelectedClient')
+    .addItem("Disconnect selected client's LINE", 'disconnectSelectedClientLine')
     .addSeparator()
     .addItem('Generate links due today', 'generateDuePaymentLinks')
     .addItem('Install 09:00 daily scheduler', 'installDailyScheduler')
@@ -95,7 +95,7 @@ function normalizedLineCode_(value) { const code = String(value || '').toUpperCa
 function hasUnexpiredLineCode_(row, now) { const expiry = new Date(row[18]); return Boolean(normalizedLineCode_(row[17])) && !Number.isNaN(expiry.getTime()) && expiry.getTime() > now.getTime(); }
 function clientDataRows_() { const sheet = book_().getSheetByName(CP.clients); const count = Math.max(0, sheet.getLastRow() - 1); return count ? sheet.getRange(2, 1, count, CP.clientHeaders.length).getValues().map((values, index) => ({ row: index + 2, values })).filter((item) => String(item.values[0] || '').trim()) : []; }
 function lineCodeForRows_(rows, usedCodes) { const used = usedCodes || new Set(rows.map((item) => normalizedLineCode_(item.values[17])).filter(Boolean)); for (let attempt = 0; attempt < 100; attempt += 1) { const code = createLineLinkCode_(); if (!used.has(code)) { used.add(code); return code; } } throw new Error('Unable to generate a unique LINE link code'); }
-function writeLineFields_(row, fields) { book_().getSheetByName(CP.clients).getRange(row, 18, 1, 6).setValues([fields]); }
+function writeLineFields_(row, fields, updatedAt) { book_().getSheetByName(CP.clients).getRange(row, 17, 1, 7).setValues([[updatedAt].concat(fields)]); }
 function selectedClientRow_() { const range = SpreadsheetApp.getActiveRange(); if (!range || range.getSheet().getName() !== CP.clients || range.getRow() < 2) { notifyLine_('Select a client data row in Clients (row 2 or later).', true); return null; } const values = book_().getSheetByName(CP.clients).getRange(range.getRow(), 1, 1, CP.clientHeaders.length).getValues()[0] || []; if (!String(values[0] || '').trim()) { notifyLine_('Selected row has no client record.', true); return null; } return { row: range.getRow(), values }; }
 function notifyLine_(message, isError) { setDashboardStatus_(message, isError); SpreadsheetApp.getUi().alert(message); }
 
@@ -107,7 +107,7 @@ function generateMissingLineLinkCodes() {
     if (!activeClient_(item.values)) { result.skippedInactive.push(clientId); return; }
     if (String(item.values[3] || '').trim()) { result.alreadyLinked.push(clientId); return; }
     if (hasUnexpiredLineCode_(item.values, now)) { result.alreadyActive.push(clientId); return; }
-    try { const code = lineCodeForRows_(rows, usedCodes); writeLineFields_(item.row, lineLinkFields_(String(item.values[2] || '').trim(), code, now)); appendAudit_('', clientId, 'LINE_LINK_CODE_CREATED', String(item.values[19] || ''), 'CODE_ACTIVE', 'LINE link code created', 'LINE_TRAINER', JSON.stringify({ clientId, status: 'CODE_ACTIVE' })); result.created.push(clientId); } catch (error) { result.failed.push({ clientId, error: error instanceof Error ? error.message : 'LINE link code generation failed' }); }
+    try { const code = lineCodeForRows_(rows, usedCodes); writeLineFields_(item.row, lineLinkFields_(String(item.values[2] || '').trim(), code, now), now); appendAudit_('', clientId, 'LINE_LINK_CODE_CREATED', String(item.values[19] || ''), 'CODE_ACTIVE', 'LINE link code created', 'LINE_TRAINER', JSON.stringify({ clientId, status: 'CODE_ACTIVE' })); result.created.push(clientId); } catch (error) { result.failed.push({ clientId, error: error instanceof Error ? error.message : 'LINE link code generation failed' }); }
   });
   notifyLine_(`LINE codes: created ${result.created.length}; already active ${result.alreadyActive.length}; already linked ${result.alreadyLinked.length}; failed ${result.failed.length}.`, result.failed.length > 0);
   return result;
@@ -119,14 +119,14 @@ function renewLineCodeForSelectedClient() {
   const clientId = String(selected.values[0]);
   if (!activeClient_(selected.values)) { notifyLine_('Cannot renew LINE code for an inactive client.', true); return null; }
   if (String(selected.values[3] || '').trim()) { notifyLine_('Cannot renew while selected client has a linked LINE user. Disconnect first.', true); return null; }
-  const code = lineCodeForRows_(clientDataRows_()); writeLineFields_(selected.row, lineLinkFields_(String(selected.values[2] || '').trim(), code, new Date())); appendAudit_('', clientId, 'LINE_LINK_CODE_RENEWED', String(selected.values[19] || ''), 'CODE_ACTIVE', 'LINE link code renewed', 'LINE_TRAINER', JSON.stringify({ clientId, status: 'CODE_ACTIVE' })); notifyLine_(`Renewed LINE code for ${String(selected.values[2] || '').trim()}.`, false); return { clientId, code, status: 'CODE_ACTIVE' };
+  const now = new Date(); const code = lineCodeForRows_(clientDataRows_()); writeLineFields_(selected.row, lineLinkFields_(String(selected.values[2] || '').trim(), code, now), now); appendAudit_('', clientId, 'LINE_LINK_CODE_RENEWED', String(selected.values[19] || ''), 'CODE_ACTIVE', 'LINE link code renewed', 'LINE_TRAINER', JSON.stringify({ clientId, status: 'CODE_ACTIVE' })); notifyLine_(`Renewed LINE code for ${String(selected.values[2] || '').trim()}.`, false); return { clientId, code, status: 'CODE_ACTIVE' };
 }
 
 function disconnectSelectedClientLine() {
   ensureClientSchema_();
   const selected = selectedClientRow_(); if (!selected) return false;
-  const clientId = String(selected.values[0]); const lineUserId = String(selected.values[3] || '');
-  writeLineFields_(selected.row, ['', '', '', '', '', '']); book_().getSheetByName(CP.clients).getRange(selected.row, 4, 1, 2).setValues([['', '']]); appendAudit_('', clientId, 'LINE_LINK_DISCONNECTED', String(selected.values[19] || ''), '', 'LINE account disconnected', 'LINE_TRAINER', JSON.stringify({ clientId, status: '', ...(lineUserId ? { lineUserSuffix: lineUserId.slice(-4) } : {}) })); notifyLine_(`Disconnected LINE for ${String(selected.values[2] || '').trim()}.`, false); return true;
+  const clientId = String(selected.values[0]); const lineUserId = String(selected.values[3] || ''); const now = new Date();
+  writeLineFields_(selected.row, ['', '', '', '', '', ''], now); book_().getSheetByName(CP.clients).getRange(selected.row, 4, 1, 2).setValues([['', '']]); appendAudit_('', clientId, 'LINE_LINK_DISCONNECTED', String(selected.values[19] || ''), '', 'LINE account disconnected', 'LINE_TRAINER', JSON.stringify({ clientId, status: '', ...(lineUserId ? { lineUserSuffix: lineUserId.slice(-4) } : {}) })); notifyLine_(`Disconnected LINE for ${String(selected.values[2] || '').trim()}.`, false); return true;
 }
 
 function clearDashboardForm() {
