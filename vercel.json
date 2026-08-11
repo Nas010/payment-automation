@@ -1,6 +1,6 @@
 {
   "crons": [
-    { "path": "/api/cron/generate", "schedule": "5 0 1 * *" },
+    { "path": "/api/cron/generate", "schedule": "5 2 * * *" },
     { "path": "/api/cron/dashboard-metrics", "schedule": "5 17 28-31 * *" }
   ]
 }

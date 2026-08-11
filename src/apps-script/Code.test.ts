@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import vm from "node:vm";
 import { describe, expect, it } from "vitest";
+import { PAYMENT_HEADERS, SCHEDULE_HEADERS } from "@/lib/sheets/records";
 
 type Range = {
   getValue: () => unknown;
@@ -17,7 +18,7 @@ type Range = {
 
 const legacyClientHeaders = ["client_id", "active", "client_name", "line_user_id", "line_display_name", "package_name", "payment_type", "total_price_thb", "installment_count", "interval_months", "first_due_date", "default_amount_thb", "billing_frequency", "next_due_date", "notes", "created_at", "updated_at"];
 
-function loadScriptWithDashboard(values: Record<string, unknown>, clientHeaders: unknown[] = [...legacyClientHeaders], clientColumnCount = clientHeaders.length, clientRows: unknown[][] = [], uuidValues = ["11111111-1111-1111-1111-111111111111"], namedRangeNames: string[] = []) {
+function loadScriptWithDashboard(values: Record<string, unknown>, clientHeaders: unknown[] = [...legacyClientHeaders], clientColumnCount = clientHeaders.length, clientRows: unknown[][] = [], uuidValues = ["11111111-1111-1111-1111-111111111111"], namedRangeNames: string[] = [], triggerHandlers: string[] = [], automation: { scheduleRows?: unknown[][] } = {}) {
   const clientWrites: Array<{ row: number; values: unknown[][] }> = [];
   const clientCellWrites: Array<{ row: number; column: number; values: unknown[][] }> = [];
   const auditRows: unknown[][] = [];
@@ -29,6 +30,9 @@ function loadScriptWithDashboard(values: Record<string, unknown>, clientHeaders:
   const releasedReservationNames: string[] = [];
   const namedRanges = new Set(namedRangeNames);
   const lineBatchRequests: Array<{ url: string; options: { payload?: string } }> = [];
+  const deletedTriggerHandlers: string[] = [];
+  const paymentRows: unknown[][] = [];
+  const scheduleWrites: Array<{ row: number; column: number; values: unknown[][] }> = [];
   const clientSheet = {
     getSheetId: () => 9,
     getMaxColumns: () => clientColumnCount,
@@ -65,11 +69,22 @@ function loadScriptWithDashboard(values: Record<string, unknown>, clientHeaders:
       });
     },
   };
-  const scheduleSheet = { getLastRow: () => 1, getRange: () => range({}) };
+  const scheduleRows = automation.scheduleRows ?? [];
+  const scheduleSheet = {
+    getLastRow: () => Math.max(1, scheduleRows.length),
+    getDataRange: () => range({ getValues: () => scheduleRows }),
+    getRange: (row: number, column = 1) => range({
+      setValues: (written) => { scheduleWrites.push({ row, column, values: written }); return range({}); },
+      setValue: (value) => { scheduleWrites.push({ row, column, values: [[value]] }); return range({}); },
+    }),
+  };
+  const paymentsSheet = { appendRow: (row: unknown[]) => { paymentRows.push(row); } };
   const auditSheet = { appendRow: (row: unknown[]) => { auditRows.push(row); } };
   const settingsSheet = {
-    getRange: () => range({
-      getValues: () => [["Test package", 100000, "ONE_TIME", 1, 0, true]],
+    getRange: (address: string) => range({
+      getValues: () => address === "A2:B"
+        ? [["production_base_url", "https://pay.example"]]
+        : [["Test package", 100000, "ONE_TIME", 1, 0, true]],
     }),
   };
   const dashboardSheet = {
@@ -79,7 +94,7 @@ function loadScriptWithDashboard(values: Record<string, unknown>, clientHeaders:
   };
   const book = {
     getSheetByName(name: string) {
-      return ({ Dashboard: dashboardSheet, Clients: clientSheet, Settings: settingsSheet, "Installment Schedule": scheduleSheet, "Audit Log": auditSheet } as Record<string, unknown>)[name];
+      return ({ Dashboard: dashboardSheet, Clients: clientSheet, Payments: paymentsSheet, Settings: settingsSheet, "Installment Schedule": scheduleSheet, "Audit Log": auditSheet } as Record<string, unknown>)[name];
     },
     getNamedRanges() {
       return [...namedRanges].map((name) => ({ getName: () => name, remove: () => { releasedReservationNames.push(name); namedRanges.delete(name); } }));
@@ -98,11 +113,18 @@ function loadScriptWithDashboard(values: Record<string, unknown>, clientHeaders:
     SpreadsheetApp: { openById: () => book, getActiveRange: () => selectedRange, getUi: () => ({ alert: (message: string) => alerts.push(message), createMenu: (name: string) => { menuNames.push(name); return menu; } }) },
     Utilities: {
       getUuid: () => uuidValues[Math.min(uuidIndex++, uuidValues.length - 1)],
+      formatDate: (date: Date, _timezone: string, format: string) => format === "yyyy-MM-dd"
+        ? `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`
+        : `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`,
       DigestAlgorithm: { SHA_256: "SHA_256" },
       Charset: { UTF_8: "UTF_8" },
       computeDigest: (_algorithm: string, value: string) => Array.from(createHash("sha256").update(value).digest()).map((byte) => byte > 127 ? byte - 256 : byte),
     },
-    ScriptApp: { getOAuthToken: () => "script-token" },
+    ScriptApp: {
+      getOAuthToken: () => "script-token",
+      getProjectTriggers: () => triggerHandlers.map((handler) => ({ getHandlerFunction: () => handler })),
+      deleteTrigger: (trigger: { getHandlerFunction: () => string }) => deletedTriggerHandlers.push(trigger.getHandlerFunction()),
+    },
     UrlFetchApp: {
       fetch: (url: string, options: { payload?: string }) => {
         lineBatchRequests.push({ url, options });
@@ -117,9 +139,10 @@ function loadScriptWithDashboard(values: Record<string, unknown>, clientHeaders:
     Object,
     String,
     Number,
+    Session: { getScriptTimeZone: () => "Asia/Bangkok" },
   };
   vm.runInNewContext(readFileSync("apps-script/Code.gs", "utf8"), context);
-  return { context: context as { onOpen: () => void; ensureClientSchema_: () => void; clientDataRows_: () => unknown[]; saveClientFromDashboard: () => void; generateMissingLineLinkCodes: () => unknown; renewLineCodeForSelectedClient: () => unknown; disconnectSelectedClientLine: () => unknown; SpreadsheetApp: { getActiveRange: () => Range } }, select: (sheetName: string, row: number) => { selectedSheetName = sheetName; selectedRow = row; }, clientWrites, clientCellWrites, auditRows, alerts, menuNames, menuItems, columnExpansions, headerWrites, releasedReservationNames, lineBatchRequests };
+  return { context: context as { onOpen: () => void; ensureClientSchema_: () => void; clientDataRows_: () => unknown[]; saveClientFromDashboard: () => void; generateDuePaymentLinks: () => number; generateMissingLineLinkCodes: () => unknown; renewLineCodeForSelectedClient: () => unknown; disconnectSelectedClientLine: () => unknown; removeLegacyDailyPaymentScheduler: () => unknown; SpreadsheetApp: { getActiveRange: () => Range } }, select: (sheetName: string, row: number) => { selectedSheetName = sheetName; selectedRow = row; }, clientWrites, clientCellWrites, paymentRows, scheduleWrites, auditRows, alerts, menuNames, menuItems, columnExpansions, headerWrites, releasedReservationNames, lineBatchRequests, deletedTriggerHandlers };
 }
 
 function range(overrides: Partial<Range>): Range {
@@ -138,6 +161,59 @@ function range(overrides: Partial<Range>): Range {
 }
 
 describe("Apps Script client save", () => {
+  it("manually generates a legacy 30-cell Payments row aligned to the TypeScript header prefix", () => {
+    const dueDate = new Date("2020-08-11T00:00:00.000Z");
+    const scheduleRow = ["schedule_1", "client_1", "Nisa", "", "", "PT", "INSTALLMENTS", 1, 3, 1500, dueDate, "SCHEDULED", "", "", "", "notes", dueDate, dueDate];
+    const { context, paymentRows, scheduleWrites } = loadScriptWithDashboard({}, undefined, undefined, undefined, [
+      "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+      "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+      "cccccccc-cccc-cccc-cccc-cccccccccccc",
+    ], undefined, undefined, { scheduleRows: [SCHEDULE_HEADERS, scheduleRow] });
+
+    expect(context.generateDuePaymentLinks()).toBe(1);
+    expect(paymentRows).toHaveLength(1);
+    const row = paymentRows[0] ?? [];
+    const legacyHeaders = PAYMENT_HEADERS.slice(0, 30);
+    expect(PAYMENT_HEADERS.slice(0, row.length)).toEqual(legacyHeaders);
+    expect(row).toHaveLength(legacyHeaders.length);
+    expect(Object.fromEntries(legacyHeaders.map((header, index) => [header, row[index]]))).toMatchObject({
+      payment_id: "pay_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      client_id: "client_1",
+      client_name: "Nisa",
+      period: "2020-08",
+      amount_thb: 1500,
+      due_date: "2020-08-11",
+      public_token: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbcccccccccccccccccccccccccccccccc",
+      payment_url: "https://pay.example/p/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbcccccccccccccccccccccccccccccccc",
+      status: "PENDING",
+      line_message: "",
+      qr_payload_hash: "",
+    });
+    expect(row[legacyHeaders.indexOf("updated_at")]).toBeInstanceOf(Date);
+    expect(scheduleWrites).toEqual(expect.arrayContaining([
+      { row: 2, column: 12, values: [["GENERATED", expect.any(Date), "pay_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "https://pay.example/p/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbcccccccccccccccccccccccccccccccc"]] },
+      { row: 2, column: 18, values: [[expect.any(Date)]] },
+    ]));
+  });
+
+  it("keeps manual generation while replacing scheduler installation with targeted legacy removal", () => {
+    const { context, menuItems } = loadScriptWithDashboard({});
+
+    context.onOpen();
+
+    expect(menuItems).toContainEqual({ label: "Generate links due today", callback: "generateDuePaymentLinks" });
+    expect(menuItems).toContainEqual({ label: "Remove legacy daily payment scheduler", callback: "removeLegacyDailyPaymentScheduler" });
+    expect(menuItems).not.toContainEqual({ label: "Install 09:00 daily scheduler", callback: "installDailyScheduler" });
+  });
+
+  it("deletes only legacy payment-generation triggers", () => {
+    const { context, deletedTriggerHandlers } = loadScriptWithDashboard({}, undefined, undefined, undefined, undefined, undefined, ["generateDuePaymentLinks", "onOpen", "onEdit", "otherAutomation"]);
+
+    context.removeLegacyDailyPaymentScheduler();
+
+    expect(deletedTriggerHandlers).toEqual(["generateDuePaymentLinks"]);
+  });
+
   it("wires all LINE trainer callbacks into Coaching Payments menu", () => {
     const { context, menuNames, menuItems } = loadScriptWithDashboard({});
 

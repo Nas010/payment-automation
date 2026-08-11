@@ -34,6 +34,45 @@ Production rollout:
 6. Create one active test client, copy that client's complete LINE instruction, and have the test account add the Official Account and send its exact `LINK <code>` message. Confirm the LINE success reply and `LINKED` state/display name in the protected client view before rolling out further.
 7. In the coach workbook, use **Coaching Payments** → **Generate missing LINE link codes** for the remaining active roster. Give each client only that client's complete generated instruction. Codes expire after seven days; renew an expired code from the protected client view or the workbook's selected-client menu.
 
+## LINE payment automation rollout
+
+Vercel runs `/api/cron/generate` daily at **02:05 UTC** (`5 2 * * *`). The job generates due payment links, reconciles manual confirmations, then sends eligible LINE due-payment requests in that order. It catches up any still-pending payment whose due date is on or before its Bangkok business date; it does not send another QR request for a terminal payment or a payment already accepted by LINE.
+
+The `Payments` migration is append-only. On its first payment read or write, the app expands the sheet from the legacy 30 columns to 44 and fills only blank appended LINE header cells (`AE:AR`). It never replaces existing headers or payment values. Back up the workbook through your normal Google Sheets process before rollout, then let the application perform this non-destructive migration; do not paste a replacement header row.
+
+The old Apps Script daily `generateDuePaymentLinks` trigger must be removed manually. In the workbook choose **Coaching Payments** → **Remove legacy daily payment scheduler**. That action deletes only triggers whose handler is `generateDuePaymentLinks`; it leaves other workbook automation alone. **Generate links due today** remains a manual menu item, but Apps Script no longer installs or owns a daily scheduler.
+
+Keep both payment flags disabled for the first deployment:
+
+- `LINE_MESSAGING_ENABLED=false` prevents automated LINE due-payment pushes.
+- `LINE_CHAT_PAYMENTS_ENABLED=false` prevents LINE chat-slip payment intake.
+
+Enable them separately, only after LINE linking is working. The protected Settings page stores the `line_due_message_template`: it starts from the documented default, supports a server-rendered preview and a validated custom template, and can reset to that default. Invalid saves keep the last valid template. No template value or LINE credential belongs in client-side configuration.
+
+Default due-message template:
+
+```text
+Hi {{client_name}} 👋
+
+Your {{payment_label}} payment is due.
+
+Amount: {{amount}}
+Due date: {{due_date}}
+
+Please scan the PromptPay QR below. After paying, send the bank payment slip back in this chat.
+
+If you have trouble with the QR, use your payment page:
+{{payment_url}}
+```
+
+Safe staged rollout:
+
+1. Deploy with LINE linking, messaging, and chat payments disabled; confirm workbook access and append-only migration with normal admin reads.
+2. Configure encrypted LINE credentials in protected Settings, enable `LINE_LINKING_ENABLED`, and link one authorized test client.
+3. `LINE_MESSAGING_ENABLED` is global; it cannot be enabled for one client only. Before setting it to `true`, verify there are no other linked, eligible pending due rows. Then use the protected single-payment **Send LINE payment request** action for the authorized test payment, and turn the global flag back off after reviewing the accepted result. The due request freezes its rendered text and retry key before sending, includes an exact-payment PromptPay QR, and records LINE acceptance—not delivery or payment.
+4. Enable `LINE_CHAT_PAYMENTS_ENABLED` separately. Only a linked direct user with an awaiting payment can have an image downloaded or evaluated. Eligible chat slips and website uploads use the same local evaluator; normal coaching images are ignored.
+5. Keep `/p/[token]` available throughout rollout as the website payment and slip-upload fallback. Any low-value production payment, message, or slip test requires explicit coach and participating-user authorization; use a dedicated low-value test payment and review its recorded outcome before wider enablement.
+
 ## Safety model
 
 - `AUTO_RECORDED` = strong local heuristic match, operationally paid only.
@@ -47,4 +86,4 @@ After secure configuration, run `npm run smoke` to check production health. Set 
 
 ## Coach workbook workflow
 
-Use the `Dashboard` tab to enter a client, choose an active package from `Settings`, and submit via the **Coaching Payments** spreadsheet menu. Packages set defaults for one-time or installment plans; the coach may override price, installment count, and interval. The bound Apps Script creates a private `Installment Schedule` and generates a public payment link at 09:00 Asia/Bangkok on each due date. Future LINE OA automation can send the generated `payment_url` to the stored `line_user_id`.
+Use the `Dashboard` tab to enter a client, choose an active package from `Settings`, and submit via the **Coaching Payments** spreadsheet menu. Packages set defaults for one-time or installment plans; the coach may override price, installment count, and interval. The bound Apps Script creates a private `Installment Schedule`; Vercel now owns daily payment-link generation at 02:05 UTC. For linked, eligible clients, LINE can send the due request and exact-payment QR first, then accept a chat slip for local evaluation. Clients can always use their `/p/[token]` payment page instead.

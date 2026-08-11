@@ -1,4 +1,5 @@
 import { getGoogleSheets } from "./client";
+import { DEFAULT_LINE_DUE_TEMPLATE, validateLineDueTemplate } from "@/lib/line/message-template";
 
 export type OperationalSetting = { rowNumber: number; key: string; value: string };
 export type PackageRecord = { rowNumber: number; package_name: string; total_price_thb: string; payment_type: string; installment_count: string; interval_months: string; active: string };
@@ -10,10 +11,19 @@ export async function listOperationalSettings(): Promise<OperationalSetting[]> {
 }
 
 export async function upsertOperationalSetting(key: string, value: string): Promise<void> {
+  if (key === "line_due_message_template") validateLineDueTemplate(value);
   const settings = await listOperationalSettings();
   const rowNumber = settings.find((item) => item.key === key)?.rowNumber ?? Math.max(2, ...settings.map((item) => item.rowNumber + 1));
   const { sheets, spreadsheetId } = getGoogleSheets();
   await sheets.spreadsheets.values.update({ spreadsheetId, range: `Settings!A${rowNumber}:B${rowNumber}`, valueInputOption: "USER_ENTERED", requestBody: { values: [[key, value]] } });
+}
+
+/** Returns workbook's custom LINE due message, or documented default when unset. */
+export async function getLineDueTemplate(): Promise<string> {
+  const template = (await listOperationalSettings()).find((item) => item.key === "line_due_message_template")?.value;
+  if (!template) return DEFAULT_LINE_DUE_TEMPLATE;
+  validateLineDueTemplate(template);
+  return template;
 }
 
 export async function listPackages(): Promise<PackageRecord[]> {

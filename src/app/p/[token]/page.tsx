@@ -3,8 +3,8 @@ import { notFound } from "next/navigation";
 import { SlipUpload } from "@/components/slip-upload";
 import { serverConfig } from "@/lib/config";
 import { formatThb, parseSatang } from "@/lib/money";
+import { buildPaymentPromptPayPayload } from "@/lib/payments/promptpay";
 import { getPaymentByToken } from "@/lib/sheets/payments";
-import { buildPromptPayPayload } from "@/lib/promptpay/generate";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +18,7 @@ export default async function PaymentPage({ params }: { params: Promise<{ token:
   // payment row has been updated, so do not rely on Number(...) here.
   const amountSatang = parseSatang(payment.amount_thb);
   if (amountSatang === null || amountSatang <= 0) return <main className="payment"><h1 className="brand">Coaching Payments</h1><p className="status">This payment amount is unavailable. Please contact your coach.</p></main>;
-  const payload = buildPromptPayPayload(config.promptPayIdentifier, config.promptPayType, amountSatang);
+  const payload = buildPaymentPromptPayPayload(payment, config);
   const qr = await QRCode.toDataURL(payload, { width: 720, margin: 1, errorCorrectionLevel: "M" });
   const recorded = payment.status === "AUTO_RECORDED" || payment.status === "MANUAL_CONFIRMED";
   const awaitingReview = payment.status === "REVIEW" || payment.status === "FLAGGED";

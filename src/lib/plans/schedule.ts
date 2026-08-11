@@ -78,8 +78,6 @@ export function buildPaymentForSchedule(schedule: PaymentSchedule, input: { paym
   if (amountSatang === null || amountSatang <= 0) throw new Error(`Schedule ${schedule.schedule_id} has an invalid amount`);
   parseDateOnly(schedule.due_date);
   const paymentUrl = `${input.baseUrl.replace(/\/$/, "")}/p/${input.publicToken}`;
-  const displayName = schedule.line_display_name || schedule.client_name;
-  const installmentDescription = `Payment ${schedule.installment_number} of ${schedule.installment_count} for ${schedule.package_name}`;
   return {
     payment_id: input.paymentId,
     client_id: schedule.client_id,
@@ -108,8 +106,22 @@ export function buildPaymentForSchedule(schedule: PaymentSchedule, input: { paym
     review_reason: "",
     slip_url: "",
     admin_notes: "",
-    line_message: `Hi ${displayName}, ${installmentDescription}. Your coaching payment of ฿${(amountSatang / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} is due on ${schedule.due_date}. You can pay here: ${paymentUrl}`,
+    line_message: "",
     updated_at: input.createdAt,
     qr_payload_hash: "",
+    line_message_status: "",
+    line_retry_key: "",
+    line_message_attempted_at: "",
+    line_message_sent_at: "",
+    line_request_id: "",
+    line_message_error: "",
+    line_payment_requested_at: "",
+    line_slip_expected: "",
+    line_slip_received_at: "",
+    line_source_message_id: "",
+    line_slip_processing_status: "",
+    line_slip_error: "",
+    line_reply_status: "",
+    line_reply_at: "",
   };
 }

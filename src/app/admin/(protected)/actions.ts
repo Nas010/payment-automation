@@ -7,6 +7,7 @@ import { z } from "zod";
 import { requireAdmin } from "@/lib/admin-auth";
 import { DASHBOARD_COLLECTED_DELTA_DISPLAY_KEY, dashboardCollectedDeltaDisplaySchema } from "@/lib/admin/dashboard-metrics";
 import { paymentLinkBaseUrl } from "@/lib/config";
+import { sendDueLinePaymentRequests } from "@/lib/line/due-payments";
 import { createLineLinkCode, expiresAt, normalizeLineLinkCode } from "@/lib/line/link-code";
 import { renderLineLinkInstruction } from "@/lib/line/link-message";
 import { disconnectLineUser, generateMissingLineLinkCodes, renewLineLinkCode, type GenerateMissingLineLinkCodesResult, type RenewLineLinkCodeResult } from "@/lib/line/linking";
@@ -15,11 +16,12 @@ import { buildInstallmentPlan } from "@/lib/plans/schedule";
 import { generateDuePaymentLinks } from "@/lib/payments/generate";
 import { persistPaymentTransition } from "@/lib/payments/transition";
 import { listClients, updateClient, updateLineLinkClient, writeClient } from "@/lib/sheets/clients";
-import { getPaymentById, appendAudit } from "@/lib/sheets/payments";
+import { getPaymentById, appendAudit, updatePaymentIfUnchanged } from "@/lib/sheets/payments";
 import { listSchedules, writeSchedule } from "@/lib/sheets/schedules";
 import { listPackages, savePackage, upsertOperationalSetting } from "@/lib/sheets/settings";
 
 const clientSchema = z.object({ client_name: z.string().trim().min(1), package_name: z.string().trim().min(1), payment_type: z.enum(["ONE_TIME", "INSTALLMENTS"]), total_price_thb: z.string(), installment_count: z.coerce.number().int().min(1), interval_months: z.coerce.number().int().min(0), first_due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), notes: z.string().trim() });
+const reservedOperationalSettingKeys = new Set(["line_due_message_template"]);
 
 function values(formData: FormData) { return Object.fromEntries([...formData.entries()].map(([key, value]) => [key, String(value)])); }
 
@@ -36,6 +38,59 @@ function revalidateLinePages(clientId?: string): void {
   revalidatePath("/admin");
   revalidatePath("/admin/clients");
   if (clientId) revalidatePath(`/admin/clients/${clientId}`);
+}
+
+function revalidatePaymentPages(paymentId: string): void {
+  revalidatePath("/admin");
+  revalidatePath("/admin/dashboard");
+  revalidatePath("/admin/payments");
+  revalidatePath(`/admin/payments/${paymentId}`);
+}
+
+export type LinePaymentAdminActionResult = { outcome: "SENT" | "ALREADY_ACCEPTED" | "DISABLED" | "MISSING_RECIPIENT" | "FAILED" | "NOT_ELIGIBLE" };
+
+export async function sendLinePaymentAction(paymentId: string): Promise<LinePaymentAdminActionResult> {
+  await requireAdmin();
+  if (!paymentId.trim()) throw new Error("Payment ID is required");
+  const baseUrl = paymentLinkBaseUrl(process.env, (await headers()).get("origin"));
+  const result = await sendDueLinePaymentRequests({ baseUrl, paymentIds: [paymentId] });
+  revalidatePaymentPages(paymentId);
+  if (result.accepted.includes(paymentId)) return { outcome: "SENT" };
+  if (result.alreadyAccepted.includes(paymentId)) return { outcome: "ALREADY_ACCEPTED" };
+  if (result.disabled) return { outcome: "DISABLED" };
+  if (result.skippedMissingUserId.includes(paymentId)) return { outcome: "MISSING_RECIPIENT" };
+  if (result.failed.includes(paymentId)) return { outcome: "FAILED" };
+  return { outcome: "NOT_ELIGIBLE" };
+}
+
+export async function stopAwaitingLineSlipAction(paymentId: string): Promise<boolean> {
+  await requireAdmin();
+  if (!paymentId.trim()) throw new Error("Payment ID is required");
+  const payment = await getPaymentById(paymentId);
+  if (!payment || payment.line_slip_expected !== "TRUE" || payment.line_slip_processing_status !== "AWAITING") return false;
+  const now = new Date().toISOString();
+  const updated = {
+    ...payment,
+    line_slip_expected: "FALSE",
+    line_slip_processing_status: "STOPPED",
+    updated_at: now,
+  };
+  if (!await updatePaymentIfUnchanged({ expectedPayment: payment, payment: updated })) {
+    revalidatePaymentPages(paymentId);
+    return false;
+  }
+  await appendAudit({
+    paymentId: payment.payment_id,
+    clientId: payment.client_id,
+    action: "LINE_SLIP_AWAITING_STOPPED",
+    previousStatus: "AWAITING",
+    newStatus: "STOPPED",
+    reason: "Admin stopped awaiting a LINE payment slip",
+    source: "ADMIN",
+    metadata: JSON.stringify({ paymentId: payment.payment_id, lineSlipExpected: false }),
+  });
+  revalidatePaymentPages(paymentId);
+  return true;
 }
 
 export async function generateDueLinksAction(): Promise<void> {
@@ -112,7 +167,7 @@ export async function savePackageAction(formData: FormData): Promise<void> {
 }
 
 export async function saveOperationalSettingAction(formData: FormData): Promise<void> {
-  await requireAdmin(); const data = values(formData); if (!data.key.trim()) throw new Error("Setting key is required"); await upsertOperationalSetting(data.key.trim(), data.value.trim()); revalidatePath("/admin/settings");
+  await requireAdmin(); const data = values(formData); const key = data.key.trim(); if (!key) throw new Error("Setting key is required"); if (reservedOperationalSettingKeys.has(key)) throw new Error("Use the dedicated LINE due-message controls for this setting"); await upsertOperationalSetting(key, data.value.trim()); revalidatePath("/admin/settings");
 }
 
 export async function saveDashboardDisplaySettingsAction(formData: FormData): Promise<void> {

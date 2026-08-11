@@ -36,6 +36,22 @@ describe("buildInstallmentPlan", () => {
       payment_id: "pay_1", client_id: "client_1", period: "2026-08", amount_thb: "1000.50", due_date: "2026-08-10",
       public_token: "token", payment_url: "https://pay.example/p/token", status: "PENDING",
     });
-    expect(payment.line_message).toContain("Payment 2 of 3 for PT");
+    expect(payment).toMatchObject({
+      line_message: "",
+      line_message_status: "",
+      line_retry_key: "",
+      line_message_attempted_at: "",
+      line_message_sent_at: "",
+      line_request_id: "",
+      line_message_error: "",
+      line_payment_requested_at: "",
+      line_slip_expected: "",
+      line_slip_received_at: "",
+      line_source_message_id: "",
+      line_slip_processing_status: "",
+      line_slip_error: "",
+      line_reply_status: "",
+      line_reply_at: "",
+    });
   });
 });
