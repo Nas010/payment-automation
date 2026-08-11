@@ -72,7 +72,6 @@ export function serverConfig() {
     adminSecret: process.env.ADMIN_SECRET ?? "",
     cronSecret: process.env.CRON_SECRET ?? "",
     slipRetentionDays: configuredSlipRetentionDays(),
-    slipStorageFolderId: process.env.SLIP_STORAGE_FOLDER_ID!,
     serviceAccountJson: process.env.GOOGLE_SERVICE_ACCOUNT_JSON!
   };
 }
