@@ -84,12 +84,24 @@ describe("processLineSlipEvent", () => {
     expect(deps.analyzeSlip).not.toHaveBeenCalled();
   });
 
-  it.each(["DOWNLOADING", "ANALYZING", "FAILED_TRANSIENT"]) ("ignores a non-awaiting %s payment before credential or content work", async (processingStatus) => {
+  it.each(["DOWNLOADING", "ANALYZING"]) ("ignores an in-flight %s payment before credential or content work", async (processingStatus) => {
     const deps = dependencies({ listPayments: vi.fn(async () => [payment({ line_slip_processing_status: processingStatus })]) });
 
     await expect(processLineSlipEvent(event, deps)).resolves.toEqual({ kind: "ignored" });
     expect(deps.getLineChannelAccessToken).not.toHaveBeenCalled();
     expect(deps.getLineMessageContent).not.toHaveBeenCalled();
+  });
+
+  it("retries a new image for a transiently failed payment", async () => {
+    const failed = payment({ line_slip_processing_status: "FAILED_TRANSIENT", line_slip_error: "LINE content download failed" });
+    const deps = dependencies({}, [failed]);
+
+    await expect(processLineSlipEvent(event, deps)).resolves.toMatchObject({ kind: "processed", decision: "AUTO_RECORDED" });
+    expect(deps.updatePaymentIfUnchanged).toHaveBeenCalledWith(expect.objectContaining({
+      expectedPayment: expect.objectContaining({ line_slip_processing_status: "FAILED_TRANSIENT" }),
+      payment: expect.objectContaining({ line_slip_processing_status: "DOWNLOADING", line_slip_error: "" }),
+    }));
+    expect(deps.getLineMessageContent).toHaveBeenCalledOnce();
   });
 
   it("exits a redelivered message before downloading content", async () => {

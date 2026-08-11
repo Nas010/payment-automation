@@ -67,7 +67,7 @@ export async function replyLineMessage({ channelAccessToken, replyToken, text, f
 
 export async function getLineMessageContent({ channelAccessToken, messageId, fetchFn, signal }: LineContentInput): Promise<{ bytes: Uint8Array; mimeType: "image/jpeg" | "image/png" }> {
   try {
-    const response = await fetchFn(`https://api.line.me/v2/bot/message/${encodeURIComponent(messageId)}/content`, { headers: authorization(channelAccessToken), signal: signal ?? AbortSignal.timeout(10_000) });
+    const response = await fetchFn(`https://api-data.line.me/v2/bot/message/${encodeURIComponent(messageId)}/content`, { headers: authorization(channelAccessToken), signal: signal ?? AbortSignal.timeout(10_000) });
     if (!response.ok) throw new Error("LINE content response was not successful");
     const contentLength = response.headers.get("content-length");
     if (contentLength !== null && Number(contentLength) > MAX_MESSAGE_CONTENT_BYTES) throw new Error("LINE content response was too large");

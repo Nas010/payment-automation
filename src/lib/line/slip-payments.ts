@@ -50,7 +50,7 @@ function linkedClient(clients: ClientRecord[], lineUserId: string): ClientRecord
 }
 
 function eligiblePayments(payments: PaymentRecord[], clientId: string): PaymentRecord[] {
-  return payments.filter((payment) => payment.client_id === clientId && payment.status === "PENDING" && payment.line_slip_expected === "TRUE" && payment.line_slip_processing_status === "AWAITING");
+  return payments.filter((payment) => payment.client_id === clientId && payment.status === "PENDING" && payment.line_slip_expected === "TRUE" && ["AWAITING", "FAILED_TRANSIENT"].includes(payment.line_slip_processing_status));
 }
 
 async function audit(dependencies: LineSlipDependencies, payment: PaymentRecord, action: string, reason: string, event: LineSlipEvent): Promise<void> {
@@ -193,7 +193,7 @@ export async function processLineSlipEvent(event: LineSlipEvent, injected?: Line
   const candidates = eligiblePayments(allPayments, client.client_id);
   const owner = [...candidates].sort((left, right) => left.payment_id.localeCompare(right.payment_id))[0];
   if (!owner) return { kind: "ignored" };
-  if (!await progress(dependencies, owner.payment_id, "AWAITING", "DOWNLOADING")) return { kind: "ignored" };
+  if (!await progress(dependencies, owner.payment_id, ["AWAITING", "FAILED_TRANSIENT"], "DOWNLOADING")) return { kind: "ignored" };
 
   let channelAccessToken: string;
   let content: { bytes: Uint8Array; mimeType: "image/jpeg" | "image/png" };
