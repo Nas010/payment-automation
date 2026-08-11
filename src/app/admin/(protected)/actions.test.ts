@@ -37,7 +37,7 @@ vi.mock("@/lib/sheets/payments", () => ({ appendAudit: mocks.appendAudit, getPay
 vi.mock("@/lib/sheets/schedules", () => ({ listSchedules: mocks.listSchedules, writeSchedule: mocks.writeSchedule }));
 vi.mock("@/lib/sheets/settings", () => ({ listPackages: mocks.listPackages, savePackage: mocks.savePackage, upsertOperationalSetting: mocks.upsertOperationalSetting }));
 
-import { createClientAction, disconnectLineAction, generateMissingLineLinkCodesAction, renewLineLinkCodeAction, saveOperationalSettingAction, sendLinePaymentAction, stopAwaitingLineSlipAction } from "./actions";
+import { assignPackageAction, createClientAction, createManualPaymentAction, disconnectLineAction, generateMissingLineLinkCodesAction, renewLineLinkCodeAction, saveOperationalSettingAction, sendLinePaymentAction, stopAwaitingLineSlipAction } from "./actions";
 
 const now = "2026-08-10T12:00:00.000Z";
 const userId = "Uaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -186,5 +186,112 @@ describe("protected operational setting actions", () => {
 
     await expect(saveOperationalSettingAction(formData)).rejects.toThrow(/dedicated LINE due-message controls/i);
     expect(mocks.upsertOperationalSetting).not.toHaveBeenCalled();
+  });
+});
+
+describe("existing client billing actions", () => {
+  it("assigns an active package schedule and updates the current client summary", async () => {
+    mocks.listClients.mockResolvedValue([client({ line_user_id: userId, line_display_name: "Nisa LINE", line_link_status: "LINKED" })]);
+    mocks.listPackages.mockResolvedValue([{
+      rowNumber: 4,
+      package_name: "Extended coaching",
+      total_price_thb: "1200",
+      payment_type: "INSTALLMENTS",
+      installment_count: "2",
+      interval_months: "1",
+      active: "TRUE",
+    }]);
+    const formData = new FormData();
+    formData.set("package_name", "Extended coaching");
+    formData.set("first_due_date", "2026-08-31");
+    formData.set("notes", "Second program");
+
+    await assignPackageAction("client_1", formData);
+
+    expect(mocks.requireAdmin).toHaveBeenCalledTimes(1);
+    expect(mocks.writeSchedule).toHaveBeenCalledTimes(2);
+    expect(mocks.writeSchedule).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      client_id: "client_1",
+      line_user_id: userId,
+      package_name: "Extended coaching",
+      installment_number: "1",
+      installment_count: "2",
+      amount_thb: "600",
+      due_date: "2026-08-31",
+    }));
+    expect(mocks.writeSchedule).toHaveBeenNthCalledWith(2, expect.objectContaining({ due_date: "2026-09-30", amount_thb: "600" }));
+    expect(mocks.updateClient).toHaveBeenCalledWith(expect.objectContaining({
+      client_id: "client_1",
+      package_name: "Extended coaching",
+      payment_type: "INSTALLMENTS",
+      total_price_thb: "1200",
+      installment_count: "2",
+      interval_months: "1",
+      first_due_date: "2026-08-31",
+      default_amount_thb: "600",
+      next_due_date: "2026-08-31",
+    }));
+    expect(mocks.appendAudit).toHaveBeenCalledWith(expect.objectContaining({
+      clientId: "client_1",
+      action: "PACKAGE_ASSIGNED",
+      source: "ADMIN",
+      metadata: JSON.stringify({ packageName: "Extended coaching", installmentCount: 2, intervalMonths: 1 }),
+    }));
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/admin/clients/client_1");
+    expect(mocks.redirect).toHaveBeenCalledWith("/admin/clients/client_1");
+  });
+
+  it("rejects an inactive package before writing client data", async () => {
+    mocks.listClients.mockResolvedValue([client()]);
+    mocks.listPackages.mockResolvedValue([{
+      rowNumber: 4,
+      package_name: "Retired package",
+      total_price_thb: "1000",
+      payment_type: "ONE_TIME",
+      installment_count: "1",
+      interval_months: "0",
+      active: "FALSE",
+    }]);
+    const formData = new FormData();
+    formData.set("package_name", "Retired package");
+    formData.set("first_due_date", "2026-08-31");
+    formData.set("notes", "");
+
+    await expect(assignPackageAction("client_1", formData)).rejects.toThrow("Choose an active package");
+
+    expect(mocks.writeSchedule).not.toHaveBeenCalled();
+    expect(mocks.updateClient).not.toHaveBeenCalled();
+    expect(mocks.appendAudit).not.toHaveBeenCalled();
+  });
+
+  it("schedules a recurring manual payment without replacing the current package", async () => {
+    mocks.listClients.mockResolvedValue([client({ line_user_id: userId, line_display_name: "Nisa LINE" })]);
+    const formData = new FormData();
+    for (const [key, value] of [["description", "Nutrition check-in"], ["amount_thb", "1200"], ["frequency", "RECURRING"], ["payment_count", "3"], ["interval_months", "1"], ["first_due_date", "2026-08-15"], ["notes", "Monthly add-on"]]) formData.set(key, value);
+
+    await createManualPaymentAction("client_1", formData);
+
+    expect(mocks.writeSchedule).toHaveBeenCalledTimes(3);
+    expect(mocks.writeSchedule).toHaveBeenNthCalledWith(1, expect.objectContaining({ package_name: "Nutrition check-in", payment_type: "INSTALLMENTS", installment_count: "3", amount_thb: "400", due_date: "2026-08-15" }));
+    expect(mocks.writeSchedule).toHaveBeenNthCalledWith(3, expect.objectContaining({ installment_number: "3", due_date: "2026-10-15" }));
+    expect(mocks.updateClient).not.toHaveBeenCalled();
+    expect(mocks.appendAudit).toHaveBeenCalledWith(expect.objectContaining({
+      clientId: "client_1",
+      action: "MANUAL_PAYMENT_SCHEDULED",
+      metadata: JSON.stringify({ description: "Nutrition check-in", paymentCount: 3, intervalMonths: 1, totalSatang: 120000 }),
+    }));
+    expect(mocks.redirect).toHaveBeenCalledWith("/admin/clients/client_1");
+  });
+
+  it("normalizes a one-time manual payment even when extra recurrence values are submitted", async () => {
+    mocks.listClients.mockResolvedValue([client()]);
+    const formData = new FormData();
+    for (const [key, value] of [["description", "Assessment"], ["amount_thb", "750"], ["frequency", "ONE_TIME"], ["payment_count", "9"], ["interval_months", "9"], ["first_due_date", "2026-08-20"], ["notes", ""]]) formData.set(key, value);
+
+    await createManualPaymentAction("client_1", formData);
+
+    expect(mocks.writeSchedule).toHaveBeenCalledTimes(1);
+    expect(mocks.writeSchedule).toHaveBeenCalledWith(expect.objectContaining({ payment_type: "ONE_TIME", installment_count: "1", installment_number: "1", amount_thb: "750" }));
+    expect(mocks.appendAudit).toHaveBeenCalledWith(expect.objectContaining({ metadata: JSON.stringify({ description: "Assessment", paymentCount: 1, intervalMonths: 0, totalSatang: 75000 }) }));
   });
 });
