@@ -1,5 +1,5 @@
 export const requiredConfiguration = (environment: Record<string, string | undefined> = process.env): string[] => {
-  const required = ["SPREADSHEET_ID", "GOOGLE_SERVICE_ACCOUNT_JSON", "PROMPTPAY_IDENTIFIER", "RECIPIENT_NAME_EN", "SLIP_STORAGE_FOLDER_ID"];
+  const required = ["SPREADSHEET_ID", "GOOGLE_SERVICE_ACCOUNT_JSON", "PROMPTPAY_IDENTIFIER", "RECIPIENT_NAME_EN"];
   return required.filter((key) => !environment[key] || environment[key] === "CONFIG_REQUIRED");
 };
 

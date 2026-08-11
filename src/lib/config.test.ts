@@ -3,7 +3,7 @@ import { configuredSlipRetentionDays, lineChatPaymentsEnabled, lineConfig, lineL
 
 describe("requiredConfiguration", () => {
   it("reports required values without exposing their values", () => {
-    expect(requiredConfiguration({})).toEqual(["SPREADSHEET_ID", "GOOGLE_SERVICE_ACCOUNT_JSON", "PROMPTPAY_IDENTIFIER", "RECIPIENT_NAME_EN", "SLIP_STORAGE_FOLDER_ID"]);
+    expect(requiredConfiguration({})).toEqual(["SPREADSHEET_ID", "GOOGLE_SERVICE_ACCOUNT_JSON", "PROMPTPAY_IDENTIFIER", "RECIPIENT_NAME_EN"]);
   });
 
   it("normalizes configured receiver aliases without exposing identifiers", async () => {
