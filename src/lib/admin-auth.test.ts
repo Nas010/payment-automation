@@ -1,7 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { createAdminSessionValue, isValidAdminSession } from "./admin-auth";
+import { adminSessionCookieOptions, createAdminSessionValue, isValidAdminSession } from "./admin-auth";
 
 describe("admin session values", () => {
+  it("uses lax cookies so OAuth callbacks keep the admin session", () => {
+    expect(adminSessionCookieOptions()).toMatchObject({
+      httpOnly: true,
+      sameSite: "lax",
+      path: "/admin",
+      maxAge: 60 * 60 * 8,
+    });
+  });
+
   it("accepts a session signed with the configured admin secret", () => {
     const value = createAdminSessionValue("secret-value");
 
