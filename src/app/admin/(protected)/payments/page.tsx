@@ -11,8 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { formatDate, formatDateTime } from "@/lib/date";
 import { formatThb, parseSatang } from "@/lib/money";
 import { isLinkedLinePaymentRecipient } from "@/lib/line/recipient";
-import { listClients } from "@/lib/sheets/clients";
-import { listPayments } from "@/lib/sheets/payments";
+import { readPaymentClientSnapshot } from "@/lib/sheets/payment-client-snapshot";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +19,7 @@ export default async function PaymentsPage({ searchParams }: { searchParams: Pro
   const { q = "", status = "" } = await searchParams;
   const activeStatus = status === "ALL" ? "" : status;
   const needle = q.toLowerCase();
-  const [allPayments, clients] = await Promise.all([listPayments(), listClients()]);
+  const { payments: allPayments, clients } = await readPaymentClientSnapshot();
   const clientsById = new Map(clients.map((client) => [client.client_id, client]));
   const payments = allPayments.filter((item) => (!activeStatus || item.status === activeStatus) && [item.client_name, item.payment_id].some((value) => value.toLowerCase().includes(needle)));
 

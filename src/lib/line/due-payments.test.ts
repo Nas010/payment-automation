@@ -89,6 +89,20 @@ beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 
 describe("sendDueLinePaymentRequests", () => {
+  it("uses one payment-client snapshot when the dependency is available", async () => {
+    const deps = dependencies();
+    const readPaymentClientSnapshot = vi.fn(async () => ({ payments: [payment()], clients: [client()] }));
+
+    await sendDueLinePaymentRequests(
+      { baseUrl: "https://pay.example", today: "2026-08-10" },
+      { ...deps, readPaymentClientSnapshot },
+    );
+
+    expect(readPaymentClientSnapshot).toHaveBeenCalledOnce();
+    expect(deps.listPayments).not.toHaveBeenCalled();
+    expect(deps.listClients).not.toHaveBeenCalled();
+  });
+
   it("delivers catch-up payments to current linked client with rendered text and HTTPS QR", async () => {
     const deps = dependencies([payment({ due_date: "2026-08-01" })]);
 

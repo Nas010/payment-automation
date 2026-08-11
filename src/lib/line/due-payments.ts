@@ -6,6 +6,7 @@ import { getLineChannelAccessToken } from "@/lib/secrets/service";
 import { listClients, type ClientRecord } from "@/lib/sheets/clients";
 import { hasLineAuditEvent, type LineAuditEventIdentity } from "@/lib/sheets/audit";
 import { appendAudit, listPayments, updatePayment, type PaymentAuditInput, type PaymentRecord } from "@/lib/sheets/payments";
+import { readPaymentClientSnapshot } from "@/lib/sheets/payment-client-snapshot";
 import { getLineDueTemplate } from "@/lib/sheets/settings";
 import { sendLinePushMessage } from "./client";
 import { renderLineDueTemplate } from "./message-template";
@@ -17,6 +18,7 @@ type LinePushRequest = Omit<Parameters<typeof sendLinePushMessage>[0], "fetchFn"
 export type LineDueDependencies = {
   listPayments: () => Promise<PaymentRecord[]>;
   listClients: () => Promise<ClientRecord[]>;
+  readPaymentClientSnapshot?: typeof readPaymentClientSnapshot;
   updatePayment: (payment: PaymentRecord) => Promise<void>;
   appendAudit: (record: PaymentAuditInput) => Promise<void>;
   hasAuditEvent: (identity: LineAuditEventIdentity) => Promise<boolean>;
@@ -45,6 +47,7 @@ export type SendDueLinePaymentRequestsResult = {
 const defaultDependencies: LineDueDependencies = {
   listPayments,
   listClients,
+  readPaymentClientSnapshot,
   updatePayment,
   appendAudit,
   hasAuditEvent: hasLineAuditEvent,
@@ -229,6 +232,12 @@ function blankResult(disabled: boolean): SendDueLinePaymentRequestsResult {
   return { accepted: [], alreadyAccepted: [], skippedMissingUserId: [], failed: [], disabled };
 }
 
+async function loadPaymentClientSnapshot(dependencies: LineDueDependencies) {
+  if (dependencies.readPaymentClientSnapshot) return dependencies.readPaymentClientSnapshot();
+  const [payments, clients] = await Promise.all([dependencies.listPayments(), dependencies.listClients()]);
+  return { payments, clients };
+}
+
 /** Sends due LINE payment requests sequentially so one row's outcome is persisted before the next request. */
 export async function sendDueLinePaymentRequests(
   options: SendDueLinePaymentRequestsOptions,
@@ -240,7 +249,7 @@ export async function sendDueLinePaymentRequests(
   const now = dependencies.now();
   const selectedIds = options.paymentIds ? new Set(options.paymentIds) : null;
   const result = blankResult(false);
-  const [payments, clients] = await Promise.all([dependencies.listPayments(), dependencies.listClients()]);
+  const { payments, clients } = await loadPaymentClientSnapshot(dependencies);
   const clientsById = new Map(clients.map((client) => [client.client_id, client]));
   let channelAccessToken: string | null = null;
 

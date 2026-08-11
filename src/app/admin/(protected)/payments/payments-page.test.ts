@@ -4,11 +4,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClientRecord } from "@/lib/sheets/clients";
 import type { PaymentRecord } from "@/lib/sheets/payments";
 
-const mocks = vi.hoisted(() => ({ listPayments: vi.fn(), listClients: vi.fn() }));
+const mocks = vi.hoisted(() => ({ readPaymentClientSnapshot: vi.fn() }));
 
 vi.mock("next/link", () => ({ default: ({ children, href }: { children: React.ReactNode; href: string }) => React.createElement("a", { href }, children) }));
-vi.mock("@/lib/sheets/payments", () => ({ listPayments: mocks.listPayments }));
-vi.mock("@/lib/sheets/clients", () => ({ listClients: mocks.listClients }));
+vi.mock("@/lib/sheets/payment-client-snapshot", () => ({ readPaymentClientSnapshot: mocks.readPaymentClientSnapshot }));
 
 import PaymentsPage from "./page";
 
@@ -28,8 +27,7 @@ function client(overrides: Partial<ClientRecord> = {}): ClientRecord {
 
 beforeEach(() => {
   vi.stubGlobal("React", React);
-  mocks.listPayments.mockResolvedValue([payment()]);
-  mocks.listClients.mockResolvedValue([client()]);
+  mocks.readPaymentClientSnapshot.mockResolvedValue({ payments: [payment()], clients: [client()] });
 });
 
 describe("PaymentsPage LINE workflow columns", () => {
@@ -43,7 +41,7 @@ describe("PaymentsPage LINE workflow columns", () => {
   });
 
   it.each([{ active: "FALSE" }, { line_user_id: "Uinvalid" }])("shows recipient missing when a linked-looking client cannot receive LINE delivery: %o", async (overrides) => {
-    mocks.listClients.mockResolvedValue([client(overrides)]);
+    mocks.readPaymentClientSnapshot.mockResolvedValue({ payments: [payment()], clients: [client(overrides)] });
 
     const html = renderToStaticMarkup(await PaymentsPage({ searchParams: Promise.resolve({}) }));
 
