@@ -10,17 +10,21 @@ PromptPay payment links and trusted-client slip recording for a single coach. Th
 
 ## Google Drive slip storage
 
-Protected **Settings** is the normal place to connect or switch the private exception-slip folder:
+Protected **Settings** is the normal place to connect or switch the private exception-slip folder. The normal flow is OAuth, not service-account sharing:
 
-1. Open `/admin/settings` and find **Google Drive slip storage**.
-2. Copy the displayed service-account email.
-3. In Google Drive, share the desired private folder with that email as **Editor**.
-4. Paste the folder URL or raw folder ID into Settings, then click **Save & Test**.
-5. Confirm the card reports a workbook connection and the expected folder name.
+1. In Google Cloud project coaching-payments-automation, enable Google Drive API and Google Picker API.
+2. Configure the OAuth consent screen and create a Web application OAuth client. Add the production callback https://coaching-payments-automated.vercel.app/admin/google-drive/callback as an authorized redirect URI.
+3. Create a browser API key restricted to the production web origin and Google Picker API.
+4. Add GOOGLE_DRIVE_OAUTH_CLIENT_ID, GOOGLE_DRIVE_OAUTH_CLIENT_SECRET, GOOGLE_DRIVE_PICKER_API_KEY, and GOOGLE_DRIVE_PROJECT_NUMBER to the server deployment. Keep the client secret server-only; never put refresh tokens or folder IDs in deployment docs.
+5. Open /admin/settings and click **Connect Google Drive**.
+6. Choose the Google account that should own private slip files, then choose the destination folder in Google's Picker.
+7. The server checks the folder and creates/removes a zero-content probe file. The card reports **Connected** only after that write test succeeds.
 
-The app validates that the item is a live Drive folder and that the service account can add children before activating it. A failed test leaves the previous working folder unchanged. Switching affects only newly retained `REVIEW`/`FLAGGED` slips; existing slip links continue pointing to their original files.
+The active connection stores one encrypted refresh token, account email, selected folder, and validation time. The browser sees only a short-lived Picker access token. Any authenticated administrator can use **Change folder** or **Reconnect account**. A canceled consent, canceled Picker, permission error, revoked token, or failed probe leaves the previous working connection active.
 
-`SLIP_STORAGE_FOLDER_ID` is an optional deployment fallback for migration or recovery. A validated workbook `slip_storage_folder_id` takes precedence. To recover from a broken workbook setting, repair it through protected Settings; if Settings is temporarily unavailable, the server may use the configured environment fallback. Service-account JSON and private keys never belong in workbook settings or browser fields.
+The active OAuth account owns newly stored REVIEW/FLAGGED slip files. Existing slip links continue pointing to their original files. If Drive upload fails, the payment evidence remains reviewable and the system does not claim successful storage.
+
+SLIP_STORAGE_FOLDER_ID remains an optional service-account fallback for migration, recovery, or a deliberate Google Workspace Shared Drive deployment. The protected legacy Save & Test card is shown only when no OAuth connection is active. Service-account JSON and private keys never belong in workbook settings or browser fields. The OAuth flow is required for personal My Drive folders because service accounts have no personal Drive storage quota.
 
 ## LINE linking rollout
 
