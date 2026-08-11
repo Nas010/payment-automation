@@ -1,7 +1,8 @@
 const CP = {
   spreadsheetId: '1I7N201rghJ77R2vEk6ZvqOD1kZB-dCZrDD5sD3aArjA',
   dashboard: 'Dashboard', clients: 'Clients', payments: 'Payments', settings: 'Settings', schedule: 'Installment Schedule', audit: 'Audit Log',
-  dashboardForm: { clientName: 'B4', lineUserId: 'E4', lineDisplayName: 'B5', packageName: 'E5', paymentType: 'B6', firstDueDate: 'E6', totalPrice: 'B7', installmentCount: 'E7', intervalMonths: 'B8', notes: 'E8' },
+  clientHeaders: ['client_id', 'active', 'client_name', 'line_user_id', 'line_display_name', 'package_name', 'payment_type', 'total_price_thb', 'installment_count', 'interval_months', 'first_due_date', 'default_amount_thb', 'billing_frequency', 'next_due_date', 'notes', 'created_at', 'updated_at', 'line_link_code', 'line_link_code_expires_at', 'line_link_status', 'line_linked_at', 'line_link_message', 'line_link_error'],
+  dashboardForm: { clientName: 'B4', packageName: 'E5', paymentType: 'B6', firstDueDate: 'E6', totalPrice: 'B7', installmentCount: 'E7', intervalMonths: 'B8', notes: 'E8' },
   packageStartRow: 4,
 };
 
@@ -10,6 +11,10 @@ function onOpen() {
     .addItem('Save client from Dashboard', 'saveClientFromDashboard')
     .addItem('Clear Dashboard form', 'clearDashboardForm')
     .addSeparator()
+    .addItem('Generate missing LINE link codes', 'generateMissingLineLinkCodes')
+    .addItem('Renew LINE code for selected client', 'renewLineCodeForSelectedClient')
+    .addItem("Disconnect selected client's LINE", 'disconnectSelectedClientLine')
+    .addSeparator()
     .addItem('Generate links due today', 'generateDuePaymentLinks')
     .addItem('Install 09:00 daily scheduler', 'installDailyScheduler')
     .addToUi();
@@ -17,6 +22,7 @@ function onOpen() {
 
 function onEdit(event) {
   if (!event || event.range.getSheet().getName() !== CP.dashboard || event.range.getA1Notation() !== CP.dashboardForm.packageName) return;
+  ensureClientSchema_();
   const packageConfig = packageByName_(String(event.range.getValue() || '').trim());
   if (!packageConfig) return;
   const dashboard = event.range.getSheet();
@@ -27,12 +33,11 @@ function onEdit(event) {
 }
 
 function saveClientFromDashboard() {
+  ensureClientSchema_();
   const book = book_();
   const dashboard = book.getSheetByName(CP.dashboard);
   const value = (key) => dashboard.getRange(CP.dashboardForm[key]).getValue();
   const clientName = String(value('clientName') || '').trim();
-  const lineUserId = String(value('lineUserId') || '').trim();
-  const lineDisplayName = String(value('lineDisplayName') || '').trim();
   const packageName = String(value('packageName') || '').trim();
   const paymentType = String(value('paymentType') || '').trim();
   const firstDueDate = value('firstDueDate');
@@ -51,8 +56,10 @@ function saveClientFromDashboard() {
   }
   const clientId = `client_${Utilities.getUuid().replaceAll('-', '')}`;
   const now = new Date();
-  writeClient_([clientId, true, clientName, lineUserId, lineDisplayName, packageName, paymentType, totalPrice, count, interval, firstDueDate, totalPrice, 'MANUAL', firstDueDate, notes, now, now]);
-  const rows = buildScheduleRows_({ clientId, clientName, lineUserId, lineDisplayName, packageName, paymentType, totalPrice, count, interval, firstDueDate, notes, now });
+  const lineCode = lineCodeForRows_(clientDataRows_());
+  const lineFields = lineLinkFields_(clientName, lineCode, now);
+  writeClient_([clientId, true, clientName, '', '', packageName, paymentType, totalPrice, count, interval, firstDueDate, totalPrice, 'MANUAL', firstDueDate, notes, now, now].concat(lineFields));
+  const rows = buildScheduleRows_({ clientId, clientName, lineUserId: '', lineDisplayName: '', packageName, paymentType, totalPrice, count, interval, firstDueDate, notes, now });
   book.getSheetByName(CP.schedule).getRange(book.getSheetByName(CP.schedule).getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
   appendAudit_('', clientId, 'CLIENT_CREATED', '', 'SCHEDULED', `${paymentType} plan created from Dashboard`, 'DASHBOARD_SCRIPT', JSON.stringify({ packageName, count, interval }));
   clearDashboardForm();
@@ -81,9 +88,69 @@ function writeClient_(values) {
   sheet.getRange(targetRow, 1, 1, values.length).setValues([values]);
 }
 
+function createLineLinkCode_() { return Utilities.getUuid().replaceAll('-', '').slice(0, 10).toUpperCase(); }
+function lineLinkFields_(clientName, code, now) { const expiresAt = new Date(now); expiresAt.setUTCDate(expiresAt.getUTCDate() + 7); return [code, expiresAt, 'CODE_ACTIVE', '', `Hi ${clientName}, reply with this exact message to link your LINE account:\nLINK ${code}`, '']; }
+function activeClient_(row) { return row[1] === true || String(row[1]).toUpperCase() === 'TRUE'; }
+function normalizedLineCode_(value) { const code = String(value || '').toUpperCase(); return /^[A-F0-9]{10}$/.test(code) ? code : ''; }
+function hasUnexpiredLineCode_(row, now) { const expiry = new Date(row[18]); return Boolean(normalizedLineCode_(row[17])) && !Number.isNaN(expiry.getTime()) && expiry.getTime() > now.getTime(); }
+function clientDataRows_() { const sheet = book_().getSheetByName(CP.clients); const count = Math.max(0, sheet.getLastRow() - 1); if (!count) return []; const range = sheet.getRange(2, 1, count, CP.clientHeaders.length); const values = range.getValues(); const stateValues = range.getDisplayValues(); return values.map((item, index) => ({ row: index + 2, values: item, stateValues: stateValues[index] || item })).filter((item) => String(item.values[0] || '').trim()); }
+function lineCodeForRows_(rows, usedCodes) { const used = usedCodes || new Set(rows.map((item) => normalizedLineCode_(item.values[17])).filter(Boolean)); for (let attempt = 0; attempt < 100; attempt += 1) { const code = createLineLinkCode_(); if (!used.has(code)) { used.add(code); return code; } } throw new Error('Unable to generate a unique LINE link code'); }
+function writeLineFields_(row, fields, updatedAt) { book_().getSheetByName(CP.clients).getRange(row, 17, 1, 7).setValues([[updatedAt].concat(fields)]); }
+function lineHash_(value) { return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, value, Utilities.Charset.UTF_8).map((byte) => ((byte + 256) % 256).toString(16).padStart(2, '0')).join(''); }
+function lineReservationName_(kind, value) { return `line_link_${kind}_${lineHash_(value)}`; }
+function lineStateReservationName_(values) { return `line_link_state_${lineHash_(JSON.stringify([0, 1, 3, 4, 17, 18, 19, 20, 21, 22, 16].map((index) => index === 1 ? (activeClient_(values) ? 'TRUE' : 'FALSE') : String(values[index] ?? ''))))}`; }
+function lineCellValue_(value) { if (value instanceof Date) return { userEnteredValue: { numberValue: value.getTime() / 86400000 + 25569 } }; if (typeof value === 'number') return { userEnteredValue: { numberValue: value } }; if (typeof value === 'boolean') return { userEnteredValue: { boolValue: value } }; return { userEnteredValue: { stringValue: String(value ?? '') } }; }
+function lineCellsRequest_(row, startColumnIndex, values) { return { updateCells: { range: { sheetId: book_().getSheetByName(CP.clients).getSheetId(), startRowIndex: row - 1, endRowIndex: row, startColumnIndex, endColumnIndex: startColumnIndex + values.length }, rows: [{ values: values.map(lineCellValue_) }], fields: 'userEnteredValue' } }; }
+function lineNamedRangeId_(name) { const response = UrlFetchApp.fetch(`https://sheets.googleapis.com/v4/spreadsheets/${CP.spreadsheetId}?fields=namedRanges(namedRangeId,name)`, { method: 'get', headers: { Authorization: `Bearer ${ScriptApp.getOAuthToken()}` }, muteHttpExceptions: true }); if (response.getResponseCode() >= 300) throw new Error('Unable to read LINE reservations'); const namedRange = (JSON.parse(response.getContentText()).namedRanges || []).find((item) => item.name === name); return namedRange ? namedRange.namedRangeId : ''; }
+function lineBatchUpdate_(requests) { const response = UrlFetchApp.fetch(`https://sheets.googleapis.com/v4/spreadsheets/${CP.spreadsheetId}:batchUpdate`, { method: 'post', contentType: 'application/json', headers: { Authorization: `Bearer ${ScriptApp.getOAuthToken()}` }, payload: JSON.stringify({ requests }), muteHttpExceptions: true }); if (response.getResponseCode() < 300) return true; if (response.getResponseCode() === 400 && /named range.*already exists/i.test(response.getContentText())) return false; throw new Error('Unable to update LINE link state'); }
+function writeLineFieldsWithState_(item, fields, updatedAt, clearMapping, releaseLineUserId) { const sheet = book_().getSheetByName(CP.clients); const row = item.row; const reservationRange = { sheetId: sheet.getSheetId(), startRowIndex: row - 1, endRowIndex: row, startColumnIndex: 0, endColumnIndex: 1 }; const requests = [{ addNamedRange: { namedRange: { name: lineStateReservationName_(item.stateValues || item.values), range: reservationRange } } }, ...(clearMapping ? [lineCellsRequest_(row, 3, ['', ''])] : []), lineCellsRequest_(row, 16, [updatedAt].concat(fields))]; if (releaseLineUserId) { const namedRangeId = lineNamedRangeId_(lineReservationName_('user', releaseLineUserId)); if (namedRangeId) requests.push({ deleteNamedRange: { namedRangeId } }); } return lineBatchUpdate_(requests); }
+function selectedClientRow_() { const activeRange = SpreadsheetApp.getActiveRange(); if (!activeRange || activeRange.getSheet().getName() !== CP.clients || activeRange.getRow() < 2) { notifyLine_('Select a client data row in Clients (row 2 or later).', true); return null; } const range = book_().getSheetByName(CP.clients).getRange(activeRange.getRow(), 1, 1, CP.clientHeaders.length); const values = range.getValues()[0] || []; if (!String(values[0] || '').trim()) { notifyLine_('Selected row has no client record.', true); return null; } return { row: activeRange.getRow(), values, stateValues: range.getDisplayValues()[0] || values }; }
+function notifyLine_(message, isError) { setDashboardStatus_(message, isError); SpreadsheetApp.getUi().alert(message); }
+
+function generateMissingLineLinkCodes() {
+  ensureClientSchema_();
+  const rows = clientDataRows_(); const now = new Date(); const usedCodes = new Set(rows.map((item) => normalizedLineCode_(item.values[17])).filter(Boolean)); const result = { created: [], alreadyActive: [], alreadyLinked: [], skippedInactive: [], failed: [] };
+  rows.forEach((item) => {
+    const clientId = String(item.values[0]);
+    if (!activeClient_(item.values)) { result.skippedInactive.push(clientId); return; }
+    if (String(item.values[3] || '').trim()) { result.alreadyLinked.push(clientId); return; }
+    if (hasUnexpiredLineCode_(item.values, now)) { result.alreadyActive.push(clientId); return; }
+    try { const code = lineCodeForRows_(rows, usedCodes); if (!writeLineFieldsWithState_(item, lineLinkFields_(String(item.values[2] || '').trim(), code, now), now, false, '')) throw new Error('Client changed before LINE link code update'); appendAudit_('', clientId, 'LINE_LINK_CODE_CREATED', String(item.values[19] || ''), 'CODE_ACTIVE', 'LINE link code created', 'LINE_TRAINER', JSON.stringify({ clientId, status: 'CODE_ACTIVE' })); result.created.push(clientId); } catch (error) { result.failed.push({ clientId, error: error instanceof Error ? error.message : 'LINE link code generation failed' }); }
+  });
+  notifyLine_(`LINE codes: created ${result.created.length}; already active ${result.alreadyActive.length}; already linked ${result.alreadyLinked.length}; failed ${result.failed.length}.`, result.failed.length > 0);
+  return result;
+}
+
+function renewLineCodeForSelectedClient() {
+  ensureClientSchema_();
+  const selected = selectedClientRow_(); if (!selected) return null;
+  const clientId = String(selected.values[0]);
+  if (!activeClient_(selected.values)) { notifyLine_('Cannot renew LINE code for an inactive client.', true); return null; }
+  if (String(selected.values[3] || '').trim()) { notifyLine_('Cannot renew while selected client has a linked LINE user. Disconnect first.', true); return null; }
+  const now = new Date(); const code = lineCodeForRows_(clientDataRows_()); if (!writeLineFieldsWithState_(selected, lineLinkFields_(String(selected.values[2] || '').trim(), code, now), now, false, '')) { notifyLine_('Client changed before LINE code renewal. Try again.', true); return null; } appendAudit_('', clientId, 'LINE_LINK_CODE_RENEWED', String(selected.values[19] || ''), 'CODE_ACTIVE', 'LINE link code renewed', 'LINE_TRAINER', JSON.stringify({ clientId, status: 'CODE_ACTIVE' })); notifyLine_(`Renewed LINE code for ${String(selected.values[2] || '').trim()}.`, false); return { clientId, code, status: 'CODE_ACTIVE' };
+}
+
+function disconnectSelectedClientLine() {
+  ensureClientSchema_();
+  const selected = selectedClientRow_(); if (!selected) return false;
+  const clientId = String(selected.values[0]); const lineUserId = String(selected.values[3] || ''); const now = new Date();
+  if (!writeLineFieldsWithState_(selected, ['', '', '', '', '', ''], now, true, lineUserId)) { notifyLine_('Client changed before LINE disconnect. Try again.', true); return false; } appendAudit_('', clientId, 'LINE_LINK_DISCONNECTED', String(selected.values[19] || ''), '', 'LINE account disconnected', 'LINE_TRAINER', JSON.stringify({ clientId, status: '', ...(lineUserId ? { lineUserSuffix: lineUserId.slice(-4) } : {}) })); notifyLine_(`Disconnected LINE for ${String(selected.values[2] || '').trim()}.`, false); return true;
+}
+
 function clearDashboardForm() {
+  ensureClientSchema_();
   const sheet = book_().getSheetByName(CP.dashboard);
   Object.values(CP.dashboardForm).forEach((cell) => sheet.getRange(cell).clearContent());
+}
+
+function ensureClientSchema_() {
+  const sheet = book_().getSheetByName(CP.clients);
+  const maxColumns = sheet.getMaxColumns();
+  if (maxColumns < CP.clientHeaders.length) sheet.insertColumnsAfter(maxColumns, CP.clientHeaders.length - maxColumns);
+  const headers = sheet.getRange(1, 1, 1, CP.clientHeaders.length).getValues()[0] || [];
+  CP.clientHeaders.forEach((header, index) => {
+    if (!String(headers[index] ?? '').trim()) sheet.getRange(1, index + 1).setValue(header);
+  });
 }
 
 function generateDuePaymentLinks() {

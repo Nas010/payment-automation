@@ -20,8 +20,6 @@ const schema = z.object({
   installment_count: z.coerce.number().int().min(1),
   interval_months: z.coerce.number().int().min(0),
   first_due_date: z.string().min(1, "First due date is required"),
-  line_user_id: z.string(),
-  line_display_name: z.string(),
   notes: z.string(),
 });
 
@@ -31,7 +29,7 @@ export type AdminPackage = { package_name: string; total_price_thb: string; paym
 export function ClientForm({ packages, action }: { packages: AdminPackage[]; action: (formData: FormData) => void | Promise<void> }) {
   const formRef = useRef<HTMLFormElement>(null);
   const [pending, startTransition] = useTransition();
-  const form = useForm<Values>({ resolver: zodResolver(schema), defaultValues: { client_name: "", line_user_id: "", line_display_name: "", package_name: packages[0]?.package_name ?? "", payment_type: (packages[0]?.payment_type === "INSTALLMENTS" ? "INSTALLMENTS" : "ONE_TIME"), total_price_thb: Number(packages[0]?.total_price_thb ?? 0), installment_count: Number(packages[0]?.installment_count ?? 1), interval_months: Number(packages[0]?.interval_months ?? 0), first_due_date: bangkokDateKey(), notes: "" } });
+  const form = useForm<Values>({ resolver: zodResolver(schema), defaultValues: { client_name: "", package_name: packages[0]?.package_name ?? "", payment_type: (packages[0]?.payment_type === "INSTALLMENTS" ? "INSTALLMENTS" : "ONE_TIME"), total_price_thb: Number(packages[0]?.total_price_thb ?? 0), installment_count: Number(packages[0]?.installment_count ?? 1), interval_months: Number(packages[0]?.interval_months ?? 0), first_due_date: bangkokDateKey(), notes: "" } });
   const selectedPackage = form.watch("package_name");
   const paymentType = form.watch("payment_type");
   const paymentTypeLabel = paymentType === "ONE_TIME" ? "One-time payment" : "Installments";
@@ -44,8 +42,6 @@ export function ClientForm({ packages, action }: { packages: AdminPackage[]; act
         <FieldSet>
           <FieldGroup className="grid gap-4 sm:grid-cols-2">
             <Field label="Client name" error={form.formState.errors.client_name?.message}><Input id="client_name" {...form.register("client_name")} aria-invalid={Boolean(form.formState.errors.client_name)} autoComplete="name" /></Field>
-            <Field label="LINE user ID"><Input id="line_user_id" {...form.register("line_user_id")} autoComplete="off" /></Field>
-            <Field label="LINE display name"><Input id="line_display_name" {...form.register("line_display_name")} autoComplete="off" /></Field>
           </FieldGroup>
         </FieldSet>
         <FieldSet className="mt-6">
