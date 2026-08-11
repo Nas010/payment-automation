@@ -4,9 +4,23 @@ PromptPay payment links and trusted-client slip recording for a single coach. Th
 
 ## Production setup
 
-1. Add all values from `.env.example` to Vercel. Keep `GOOGLE_SERVICE_ACCOUNT_JSON` server-only. Share only [the new workbook](https://docs.google.com/spreadsheets/d/1I7N201rghJ77R2vEk6ZvqOD1kZB-dCZrDD5sD3aArjA/edit) and [private exception-slip folder](https://drive.google.com/drive/folders/11Gf6vMFVD0xDJla_OflyL2zMzH7TTBgD) with that service-account email as Editor, then set the folder ID as `SLIP_STORAGE_FOLDER_ID`.
+1. Add the bootstrap values from `.env.example` to Vercel. Keep `GOOGLE_SERVICE_ACCOUNT_JSON` server-only and share only the application workbook with that service-account email.
 2. Set your real PromptPay identifier and receiver aliases in Vercel and `Settings`; never commit them.
 3. Set `PRODUCTION_BASE_URL` after deployment. The protected `POST /api/admin/generate` needs `x-admin-secret`; Vercel Cron calls `/api/cron/generate` with `Authorization: Bearer $CRON_SECRET`.
+
+## Google Drive slip storage
+
+Protected **Settings** is the normal place to connect or switch the private exception-slip folder:
+
+1. Open `/admin/settings` and find **Google Drive slip storage**.
+2. Copy the displayed service-account email.
+3. In Google Drive, share the desired private folder with that email as **Editor**.
+4. Paste the folder URL or raw folder ID into Settings, then click **Save & Test**.
+5. Confirm the card reports a workbook connection and the expected folder name.
+
+The app validates that the item is a live Drive folder and that the service account can add children before activating it. A failed test leaves the previous working folder unchanged. Switching affects only newly retained `REVIEW`/`FLAGGED` slips; existing slip links continue pointing to their original files.
+
+`SLIP_STORAGE_FOLDER_ID` is an optional deployment fallback for migration or recovery. A validated workbook `slip_storage_folder_id` takes precedence. To recover from a broken workbook setting, repair it through protected Settings; if Settings is temporarily unavailable, the server may use the configured environment fallback. Service-account JSON and private keys never belong in workbook settings or browser fields.
 
 ## LINE linking rollout
 
@@ -80,7 +94,7 @@ Safe staged rollout:
 - `FLAGGED` = duplicate or contradictory signals.
 - `MANUAL_CONFIRMED` = coach verified independently in SCB.
 
-Run `npm test` and `npm run build` before deployment.
+Run `npm run lint`, `npm test`, and `npm run build` before deployment.
 
 After secure configuration, run `npm run smoke` to check production health. Set `SMOKE_PAYMENT_TOKEN` only for a dedicated test payment: it submits a tiny valid PNG and intentionally creates an auditable `REVIEW`/`FLAGGED` result.
 

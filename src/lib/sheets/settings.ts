@@ -11,11 +11,21 @@ export async function listOperationalSettings(): Promise<OperationalSetting[]> {
 }
 
 export async function upsertOperationalSetting(key: string, value: string): Promise<void> {
-  if (key === "line_due_message_template") validateLineDueTemplate(value);
+  await upsertOperationalSettings([{ key, value }]);
+}
+
+export async function upsertOperationalSettings(entries: Array<{ key: string; value: string }>): Promise<void> {
+  for (const entry of entries) {
+    if (entry.key === "line_due_message_template") validateLineDueTemplate(entry.value);
+  }
   const settings = await listOperationalSettings();
-  const rowNumber = settings.find((item) => item.key === key)?.rowNumber ?? Math.max(2, ...settings.map((item) => item.rowNumber + 1));
+  let nextRowNumber = Math.max(2, ...settings.map((item) => item.rowNumber + 1));
+  const data = entries.map((entry) => {
+    const rowNumber = settings.find((item) => item.key === entry.key)?.rowNumber ?? nextRowNumber++;
+    return { range: `Settings!A${rowNumber}:B${rowNumber}`, values: [[entry.key, entry.value]] };
+  });
   const { sheets, spreadsheetId } = getGoogleSheets();
-  await sheets.spreadsheets.values.update({ spreadsheetId, range: `Settings!A${rowNumber}:B${rowNumber}`, valueInputOption: "USER_ENTERED", requestBody: { values: [[key, value]] } });
+  await sheets.spreadsheets.values.batchUpdate({ spreadsheetId, requestBody: { valueInputOption: "USER_ENTERED", data } });
 }
 
 /** Returns workbook's custom LINE due message, or documented default when unset. */
