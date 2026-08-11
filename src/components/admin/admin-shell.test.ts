@@ -2,7 +2,7 @@
 
 import React, { createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 vi.mock("next/link", () => ({
   default: ({ children, href }: { children: React.ReactNode; href: string }) => createElement("a", { href }, children),
@@ -38,5 +38,10 @@ describe("AdminShell", () => {
     expect(screen.queryByText("Google Sheets · Connected")).toBeNull();
     expect(screen.queryByText("Admin session · Active")).toBeNull();
     expect(screen.getByRole("button", { name: "Sign out" })).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "Toggle Sidebar" })).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Toggle Sidebar" }));
+    expect(screen.queryByText("Coaching Payments")).toBeNull();
+    expect(screen.getAllByRole("button", { name: "Toggle Sidebar" })).toHaveLength(1);
   });
 });
