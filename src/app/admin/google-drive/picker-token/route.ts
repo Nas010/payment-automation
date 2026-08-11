@@ -20,8 +20,14 @@ export async function GET(request: NextRequest): Promise<Response> {
 
   const cookieStore = await cookies();
   const candidateCookie = cookieStore.get("google_drive_candidate")?.value;
-  const candidate = candidateCookie ? decodeDriveCandidate(candidateCookie) : null;
-  const connection = candidate ?? await getGoogleDriveConnection();
+  let candidate = null;
+  try {
+    candidate = candidateCookie ? decodeDriveCandidate(candidateCookie) : null;
+  } catch {
+    return safeError("Google Drive connection needs attention.", 409);
+  }
+  const activeConnection = candidate ? null : await getGoogleDriveConnection();
+  const connection = candidate ?? activeConnection;
   if (!connection) return safeError("Google Drive connection is not connected.", 409);
 
   try {
@@ -30,11 +36,12 @@ export async function GET(request: NextRequest): Promise<Response> {
     const accessResponse = await client.getAccessToken();
     const accessToken = typeof accessResponse === "string" ? accessResponse : accessResponse.token;
     if (!accessToken) return safeError("Google Drive connection needs attention.", 409);
+    const folderFields = candidate || !activeConnection ? {} : { folderId: activeConnection.folderId, folderName: activeConnection.folderName };
     return Response.json({
       accessToken,
       appId: config.projectNumber,
       apiKey: config.pickerApiKey,
-      ...("folderId" in connection ? { folderId: connection.folderId, folderName: connection.folderName } : {}),
+      ...folderFields,
     }, { headers: { "Cache-Control": "no-store" } });
   } catch {
     return safeError("Google Drive connection needs attention.", 409);

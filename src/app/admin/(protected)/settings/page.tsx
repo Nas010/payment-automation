@@ -3,6 +3,7 @@ import { EmptyTableRow, PageHeader } from "@/components/admin/page-ui";
 import { LineIntegrationForm, type LineCredentialMetadata } from "@/components/admin/line-integration-form";
 import { LineDueTemplateForm } from "@/components/admin/line-due-template-form";
 import { DriveStorageForm } from "@/components/admin/drive-storage-form";
+import { GoogleDriveConnectionCard } from "@/components/admin/google-drive-connection-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
@@ -15,23 +16,34 @@ import { DEFAULT_LINE_DUE_TEMPLATE } from "@/lib/line/message-template";
 import { getSecretMetadata } from "@/lib/secrets/service";
 import { listOperationalSettings } from "@/lib/sheets/settings";
 import { selectSlipStorageFolderId, serviceAccountEmail, SLIP_STORAGE_FOLDER_SETTING, SLIP_STORAGE_VALIDATION_SETTING } from "@/lib/storage/drive-folder";
+import { googleDriveConfig } from "@/lib/config";
+import { getGoogleDriveConnection, googleDriveStatus } from "@/lib/storage/google-drive-connection";
 import { saveDashboardDisplaySettingsAction, saveOperationalSettingAction } from "../actions";
 import { previewLineDueTemplateAction, resetLineDueTemplateAction, saveAndTestLineCredentialsAction, saveLineDueTemplateAction } from "./line-actions";
 import { saveAndTestDriveFolderAction } from "./drive-actions";
+import { activateGoogleDriveFolderAction } from "@/app/admin/google-drive/actions";
 
-export default async function SettingsPage() {
-  const [settings, secretMetadata] = await Promise.all([listOperationalSettings(), getSecretMetadata()]);
+export default async function SettingsPage({ searchParams }: { searchParams?: Promise<{ drive?: string; drive_error?: string }> }) {
+  const query = await searchParams;
+  const [settings, secretMetadata, driveConnection] = await Promise.all([
+    listOperationalSettings(),
+    getSecretMetadata(),
+    getGoogleDriveConnection().catch(() => null),
+  ]);
   const collectedDeltaDisplay = parseDashboardCollectedDeltaDisplay(settings);
   const validation = validationMetadata(settings.find((item) => item.key === "line_access_token_validation")?.value);
   const credentials = lineCredentialMetadata(secretMetadata);
   const dueTemplate = settings.find((item) => item.key === "line_due_message_template")?.value || DEFAULT_LINE_DUE_TEMPLATE;
   const activeDrive = selectSlipStorageFolderId(settings, process.env);
   const driveValidation = activeDrive?.source === "workbook" ? driveValidationMetadata(settings.find((item) => item.key === SLIP_STORAGE_VALIDATION_SETTING)?.value) : undefined;
+  const driveStatus = googleDriveStatus(driveConnection);
+  const driveError = driveErrorMessage(query?.drive_error);
   const visibleSettings = settings.filter((item) => !["line_access_token_validation", "line_due_message_template", SLIP_STORAGE_FOLDER_SETTING, SLIP_STORAGE_VALIDATION_SETTING].includes(item.key));
 
   return <div className="flex flex-col gap-6">
     <PageHeader title="Settings" description="Operational values are stored in Sheets. Secrets remain server-side." />
-    <DriveStorageForm serviceAccountEmail={configuredServiceAccountEmail()} source={activeDrive?.source ?? "unconfigured"} folderName={driveValidation?.folderName} validatedAt={driveValidation?.validatedAt} action={saveAndTestDriveFolderAction} />
+    <GoogleDriveConnectionCard status={driveStatus} canConnect={Boolean(googleDriveConfig())} autoOpenPicker={query?.drive === "select"} initialError={driveError} activateAction={activateGoogleDriveFolderAction} />
+    {!driveStatus.connected ? <div className="space-y-2"><h2 className="text-sm font-semibold">Legacy service-account fallback</h2><DriveStorageForm serviceAccountEmail={configuredServiceAccountEmail()} source={activeDrive?.source ?? "unconfigured"} folderName={driveValidation?.folderName} validatedAt={driveValidation?.validatedAt} action={saveAndTestDriveFolderAction} /></div> : null}
     <LineIntegrationForm credentials={credentials} validation={validation} action={saveAndTestLineCredentialsAction} />
     <LineDueTemplateForm template={dueTemplate} messagingEnabled={lineMessagingEnabled()} chatPaymentsEnabled={lineChatPaymentsEnabled()} previewAction={previewLineDueTemplateAction} saveAction={saveLineDueTemplateAction} resetAction={resetLineDueTemplateAction} />
     <Card>
@@ -88,4 +100,18 @@ function validationMetadata(value: string | undefined): { status: "VALID" | "FAI
     if ((parsed.status === "VALID" || parsed.status === "FAILED") && typeof parsed.validatedAt === "string") return { status: parsed.status, validatedAt: parsed.validatedAt };
   } catch {}
   return undefined;
+}
+
+function driveErrorMessage(value: string | undefined): string {
+  switch (value) {
+    case "oauth_not_configured": return "Google Drive connection is not configured.";
+    case "oauth_denied": return "Google Drive authorization was canceled.";
+    case "oauth_missing_refresh_token": return "Google did not return offline access. Reconnect and approve access.";
+    case "oauth_account_unavailable": return "Google account email was unavailable. Reconnect and try again.";
+    case "oauth_state_invalid":
+    case "oauth_callback_invalid":
+    case "oauth_exchange_failed":
+    case "oauth_provider_error": return "Google Drive authorization failed. Reconnect and try again.";
+    default: return "";
+  }
 }

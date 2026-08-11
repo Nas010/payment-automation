@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { CodeChallengeMethod } from "google-auth-library";
 import { requireAdmin } from "@/lib/admin-auth";
 import {
   createGoogleDriveOAuthClient,
@@ -28,7 +29,7 @@ function flowCookieOptions(path: string): {
   return { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path, maxAge: FLOW_MAX_AGE };
 }
 
-export async function GET(request: NextRequest): Promise<Response> {
+export async function GET(request: NextRequest): Promise<NextResponse> {
   await requireAdmin();
   const config = googleDriveConfig();
   if (!config) return settingsRedirect(request, "oauth_not_configured");
@@ -44,7 +45,7 @@ export async function GET(request: NextRequest): Promise<Response> {
     scope: [...googleDriveScopes],
     state,
     code_challenge: createPkceChallenge(verifier),
-    code_challenge_method: "S256",
+    code_challenge_method: CodeChallengeMethod.S256,
   });
 
   const response = NextResponse.redirect(authorizationUrl);

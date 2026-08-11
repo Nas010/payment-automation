@@ -2,7 +2,7 @@ import { Readable } from "node:stream";
 import { google } from "googleapis";
 import { googleDriveConfig, googleDriveRedirectUri, type GoogleDriveConfig } from "@/lib/config";
 import { createGoogleDriveOAuthClient } from "./google-drive-auth";
-import { getGoogleDriveConnection } from "./google-drive-connection";
+import { getGoogleDriveConnection, type GoogleDriveConnection } from "./google-drive-connection";
 import { serviceAccountEmail } from "./drive-folder";
 
 type DriveFolderMetadata = {
@@ -39,17 +39,20 @@ export function createDriveClient(serviceAccountJson: string = process.env.GOOGL
 }
 
 export function createOAuthDriveClient(connection: { refreshToken: string }, config: GoogleDriveConfig = googleDriveConfig() ?? (() => { throw new Error("Google Drive OAuth is not configured."); })()): DriveClientLike {
-  const redirectUri = googleDriveRedirectUri(process.env.PRODUCTION_BASE_URL || "http://localhost:3000");
+  const redirectUri = googleDriveRedirectUri("http://localhost:3000");
   const auth = createGoogleDriveOAuthClient({ config, redirectUri });
   auth.setCredentials({ refresh_token: connection.refreshToken });
   return google.drive({ version: "v3", auth }) as unknown as DriveClientLike;
 }
 
 export async function getConfiguredDriveClient(): Promise<DriveClientLike> {
+  let connection: GoogleDriveConnection | null = null;
   try {
-    const connection = await getGoogleDriveConnection();
-    if (connection && googleDriveConfig()) return createOAuthDriveClient(connection);
-  } catch {}
+    connection = await getGoogleDriveConnection();
+  } catch {
+    return createDriveClient();
+  }
+  if (connection) return createOAuthDriveClient(connection);
   return createDriveClient();
 }
 
