@@ -4,12 +4,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClientRecord } from "@/lib/sheets/clients";
 import type { PaymentRecord } from "@/lib/sheets/payments";
 
-const mocks = vi.hoisted(() => ({ getPaymentById: vi.fn(), listClients: vi.fn(), notFound: vi.fn(), sendLinePaymentAction: vi.fn(), stopAwaitingLineSlipAction: vi.fn(), confirmPaymentAction: vi.fn() }));
+const mocks = vi.hoisted(() => ({ readPaymentClientSnapshot: vi.fn(), notFound: vi.fn(), sendLinePaymentAction: vi.fn(), stopAwaitingLineSlipAction: vi.fn(), confirmPaymentAction: vi.fn() }));
 
 vi.mock("next/navigation", () => ({ notFound: mocks.notFound }));
 vi.mock("next/image", () => ({ default: (props: React.ImgHTMLAttributes<HTMLImageElement>) => React.createElement("img", props) }));
-vi.mock("@/lib/sheets/payments", () => ({ getPaymentById: mocks.getPaymentById }));
-vi.mock("@/lib/sheets/clients", () => ({ listClients: mocks.listClients }));
+vi.mock("@/lib/sheets/payment-client-snapshot", () => ({ readPaymentClientSnapshot: mocks.readPaymentClientSnapshot }));
 vi.mock("../../actions", () => ({ confirmPaymentAction: mocks.confirmPaymentAction, sendLinePaymentAction: mocks.sendLinePaymentAction, stopAwaitingLineSlipAction: mocks.stopAwaitingLineSlipAction }));
 
 import PaymentDetailPage from "./page";
@@ -30,8 +29,7 @@ function client(overrides: Partial<ClientRecord> = {}): ClientRecord {
 
 beforeEach(() => {
   vi.stubGlobal("React", React);
-  mocks.getPaymentById.mockResolvedValue(payment());
-  mocks.listClients.mockResolvedValue([client()]);
+  mocks.readPaymentClientSnapshot.mockResolvedValue({ payments: [payment()], clients: [client()] });
 });
 
 describe("PaymentDetailPage LINE workflow", () => {

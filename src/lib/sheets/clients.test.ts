@@ -7,7 +7,12 @@ vi.mock("./client", () => ({
   getGoogleSheets: () => ({ spreadsheetId: "spreadsheet_1", sheets: { spreadsheets: { get: spreadsheetGet, batchUpdate, values: { get, update } } } }),
 }));
 
-import { claimLineLink, listClients, updateLineLinkClient, writeClient, type ClientRecord } from "./clients";
+import type { ClientRecord } from "./clients";
+
+let claimLineLink: typeof import("./clients").claimLineLink;
+let listClients: typeof import("./clients").listClients;
+let updateLineLinkClient: typeof import("./clients").updateLineLinkClient;
+let writeClient: typeof import("./clients").writeClient;
 
 const clientHeaders = [
   "client_id", "active", "client_name", "line_user_id", "line_display_name", "package_name", "payment_type",
@@ -23,7 +28,11 @@ function linkedClient(): ClientRecord {
   };
 }
 
-beforeEach(() => spreadsheetGet.mockResolvedValue({ data: { sheets: [{ properties: { sheetId: 9, title: "Clients", gridProperties: { columnCount: 23 } } }] } }));
+beforeEach(async () => {
+  vi.resetModules();
+  ({ claimLineLink, listClients, updateLineLinkClient, writeClient } = await import("./clients"));
+  spreadsheetGet.mockResolvedValue({ data: { sheets: [{ properties: { sheetId: 9, title: "Clients", gridProperties: { columnCount: 23 } } }] } });
+});
 afterEach(() => vi.clearAllMocks());
 
 describe("Clients repository", () => {
@@ -77,7 +86,6 @@ describe("Clients repository", () => {
     const winner = linkedClient();
     const error = Object.assign(new Error("Named range already exists"), { response: { status: 400 } });
     get
-      .mockResolvedValueOnce({ data: { values: [clientHeaders] } })
       .mockResolvedValueOnce({ data: { values: [clientHeaders] } })
       .mockResolvedValueOnce({ data: { values: [clientHeaders, clientHeaders.map((header) => winner[header as keyof ClientRecord] ?? "")] } });
     batchUpdate.mockRejectedValueOnce(error);
