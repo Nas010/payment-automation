@@ -43,13 +43,23 @@ export function verifyAdminSecret(candidate: string): boolean {
 
 export async function createAdminSession(): Promise<void> {
   const cookieStore = await cookies();
-  cookieStore.set(SESSION_COOKIE, createAdminSessionValue(adminSecret()), {
+  cookieStore.set(SESSION_COOKIE, createAdminSessionValue(adminSecret()), adminSessionCookieOptions());
+}
+
+export function adminSessionCookieOptions(): {
+  httpOnly: true;
+  secure: boolean;
+  sameSite: "lax";
+  path: "/admin";
+  maxAge: number;
+} {
+  return {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
-    sameSite: "strict",
+    sameSite: "lax",
     path: "/admin",
     maxAge: SESSION_TTL_SECONDS,
-  });
+  };
 }
 
 export async function clearAdminSession(): Promise<void> {
