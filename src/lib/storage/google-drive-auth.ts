@@ -22,6 +22,13 @@ export function createGoogleDriveOAuthClient({ config, redirectUri }: GoogleDriv
   return new google.auth.OAuth2(config.clientId, config.clientSecret, redirectUri);
 }
 
+export async function getGoogleAccountEmail(client: OAuth2Client): Promise<string> {
+  const response = await google.oauth2({ version: "v2", auth: client }).userinfo.get();
+  const email = response.data.email?.trim();
+  if (!email || !/^[^@\s]+@[^@\s]+$/.test(email)) throw new Error("Google account email is unavailable.");
+  return email;
+}
+
 export function createOAuthState(): string {
   return randomBytes(32).toString("base64url");
 }
