@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClientRecord } from "@/lib/sheets/clients";
+import type { PaymentRecord } from "@/lib/sheets/payments";
 
 const mocks = vi.hoisted(() => ({
   requireAdmin: vi.fn(),
@@ -17,6 +18,8 @@ const mocks = vi.hoisted(() => ({
   getPaymentById: vi.fn(),
   listSchedules: vi.fn(),
   persistPaymentTransition: vi.fn(),
+  sendDueLinePaymentRequests: vi.fn(),
+  updatePaymentIfUnchanged: vi.fn(),
   savePackage: vi.fn(),
   upsertOperationalSetting: vi.fn(),
 }));
@@ -28,12 +31,13 @@ vi.mock("@/lib/admin-auth", () => ({ requireAdmin: mocks.requireAdmin }));
 vi.mock("@/lib/config", () => ({ paymentLinkBaseUrl: vi.fn(() => "https://example.test") }));
 vi.mock("@/lib/payments/generate", () => ({ generateDuePaymentLinks: mocks.generateDuePaymentLinks }));
 vi.mock("@/lib/payments/transition", () => ({ persistPaymentTransition: mocks.persistPaymentTransition }));
+vi.mock("@/lib/line/due-payments", () => ({ sendDueLinePaymentRequests: mocks.sendDueLinePaymentRequests }));
 vi.mock("@/lib/sheets/clients", () => ({ listClients: mocks.listClients, writeClient: mocks.writeClient, updateClient: mocks.updateClient, updateLineLinkClient: mocks.updateLineLinkClient }));
-vi.mock("@/lib/sheets/payments", () => ({ appendAudit: mocks.appendAudit, getPaymentById: mocks.getPaymentById }));
+vi.mock("@/lib/sheets/payments", () => ({ appendAudit: mocks.appendAudit, getPaymentById: mocks.getPaymentById, updatePaymentIfUnchanged: mocks.updatePaymentIfUnchanged }));
 vi.mock("@/lib/sheets/schedules", () => ({ listSchedules: mocks.listSchedules, writeSchedule: mocks.writeSchedule }));
 vi.mock("@/lib/sheets/settings", () => ({ listPackages: mocks.listPackages, savePackage: mocks.savePackage, upsertOperationalSetting: mocks.upsertOperationalSetting }));
 
-import { createClientAction, disconnectLineAction, generateMissingLineLinkCodesAction, renewLineLinkCodeAction } from "./actions";
+import { createClientAction, disconnectLineAction, generateMissingLineLinkCodesAction, renewLineLinkCodeAction, saveOperationalSettingAction, sendLinePaymentAction, stopAwaitingLineSlipAction } from "./actions";
 
 const now = "2026-08-10T12:00:00.000Z";
 const userId = "Uaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -52,6 +56,19 @@ function clientForm(): FormData {
   return formData;
 }
 
+function payment(overrides: Partial<PaymentRecord> = {}): PaymentRecord {
+  return {
+    rowNumber: 2,
+    payment_id: "pay_1",
+    client_id: "client_1",
+    status: "PENDING",
+    line_slip_expected: "TRUE",
+    line_slip_processing_status: "AWAITING",
+    updated_at: now,
+    ...overrides,
+  } as PaymentRecord;
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.requireAdmin.mockResolvedValue(undefined);
@@ -63,6 +80,9 @@ beforeEach(() => {
   mocks.appendAudit.mockResolvedValue(undefined);
   mocks.listPackages.mockResolvedValue([{ package_name: "PT", active: "TRUE" }]);
   mocks.writeSchedule.mockResolvedValue(undefined);
+  mocks.getPaymentById.mockResolvedValue(payment());
+  mocks.updatePaymentIfUnchanged.mockResolvedValue(true);
+  mocks.sendDueLinePaymentRequests.mockResolvedValue({ accepted: ["pay_1"], alreadyAccepted: [], skippedMissingUserId: [], failed: [], disabled: false });
 });
 
 describe("protected LINE trainer actions", () => {
@@ -121,5 +141,50 @@ describe("protected LINE trainer actions", () => {
     expect(mocks.updateLineLinkClient).toHaveBeenCalledWith(expect.objectContaining({ client: expect.objectContaining({ line_user_id: "", line_display_name: "", line_link_code: "", line_link_code_expires_at: "", line_link_status: "", line_linked_at: "", line_link_message: "", line_link_error: "" }) }));
     expect(mocks.updateLineLinkClient).toHaveBeenCalledWith(expect.objectContaining({ releaseLineUserId: userId }));
     expect(mocks.appendAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "LINE_LINK_DISCONNECTED", clientId: "client_1", source: "LINE_TRAINER" }));
+  });
+});
+
+describe("protected LINE payment actions", () => {
+  it("sends a single payment through shared sender and revalidates payment views", async () => {
+    await expect(sendLinePaymentAction("pay_1")).resolves.toEqual({ outcome: "SENT" });
+
+    expect(mocks.requireAdmin).toHaveBeenCalledTimes(1);
+    expect(mocks.sendDueLinePaymentRequests).toHaveBeenCalledWith({ baseUrl: "https://example.test", paymentIds: ["pay_1"] });
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/admin/payments/pay_1");
+  });
+
+  it("does not turn an accepted request into a resend", async () => {
+    mocks.sendDueLinePaymentRequests.mockResolvedValue({ accepted: [], alreadyAccepted: ["pay_1"], skippedMissingUserId: [], failed: [], disabled: false });
+
+    await expect(sendLinePaymentAction("pay_1")).resolves.toEqual({ outcome: "ALREADY_ACCEPTED" });
+    expect(mocks.sendDueLinePaymentRequests).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops awaiting a LINE slip through payment CAS and records an admin audit", async () => {
+    await expect(stopAwaitingLineSlipAction("pay_1")).resolves.toBe(true);
+
+    expect(mocks.updatePaymentIfUnchanged).toHaveBeenCalledWith({
+      expectedPayment: payment(),
+      payment: expect.objectContaining({ line_slip_expected: "FALSE", line_slip_processing_status: "STOPPED", updated_at: expect.any(String) }),
+    });
+    expect(mocks.appendAudit).toHaveBeenCalledWith(expect.objectContaining({ paymentId: "pay_1", clientId: "client_1", action: "LINE_SLIP_AWAITING_STOPPED", source: "ADMIN" }));
+  });
+
+  it("does not audit when a competing update wins the payment CAS", async () => {
+    mocks.updatePaymentIfUnchanged.mockResolvedValue(false);
+
+    await expect(stopAwaitingLineSlipAction("pay_1")).resolves.toBe(false);
+    expect(mocks.appendAudit).not.toHaveBeenCalled();
+  });
+});
+
+describe("protected operational setting actions", () => {
+  it("rejects the LINE due template key from the generic settings writer", async () => {
+    const formData = new FormData();
+    formData.set("key", "line_due_message_template");
+    formData.set("value", "invalid template without required placeholders");
+
+    await expect(saveOperationalSettingAction(formData)).rejects.toThrow(/dedicated LINE due-message controls/i);
+    expect(mocks.upsertOperationalSetting).not.toHaveBeenCalled();
   });
 });

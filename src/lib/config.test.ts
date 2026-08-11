@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { configuredSlipRetentionDays, lineConfig, lineLinkingEnabled, paymentLinkBaseUrl, requiredConfiguration, sheetsConfig } from "./config";
+import { configuredSlipRetentionDays, lineChatPaymentsEnabled, lineConfig, lineLinkingEnabled, lineMessagingEnabled, paymentLinkBaseUrl, requiredConfiguration, sheetsConfig } from "./config";
 
 describe("requiredConfiguration", () => {
   it("reports required values without exposing their values", () => {
@@ -33,6 +33,15 @@ describe("requiredConfiguration", () => {
     expect(lineLinkingEnabled({ LINE_LINKING_ENABLED: "false" })).toBe(false);
     expect(lineLinkingEnabled({ LINE_LINKING_ENABLED: " true " })).toBe(true);
     expect(requiredConfiguration({ LINE_LINKING_ENABLED: "true" })).not.toContain("LINE_CHANNEL_ACCESS_TOKEN");
+  });
+
+  it("keeps LINE messaging and chat payments off unless explicitly enabled", () => {
+    expect(lineMessagingEnabled({})).toBe(false);
+    expect(lineMessagingEnabled({ LINE_MESSAGING_ENABLED: " false " })).toBe(false);
+    expect(lineMessagingEnabled({ LINE_MESSAGING_ENABLED: " true " })).toBe(true);
+    expect(lineChatPaymentsEnabled({})).toBe(false);
+    expect(lineChatPaymentsEnabled({ LINE_CHAT_PAYMENTS_ENABLED: "false" })).toBe(false);
+    expect(lineChatPaymentsEnabled({ LINE_CHAT_PAYMENTS_ENABLED: "TRUE" })).toBe(true);
   });
 
   it("uses the current request origin for payment links when no canonical URL is configured", () => {

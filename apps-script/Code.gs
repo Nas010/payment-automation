@@ -16,7 +16,7 @@ function onOpen() {
     .addItem("Disconnect selected client's LINE", 'disconnectSelectedClientLine')
     .addSeparator()
     .addItem('Generate links due today', 'generateDuePaymentLinks')
-    .addItem('Install 09:00 daily scheduler', 'installDailyScheduler')
+    .addItem('Remove legacy daily payment scheduler', 'removeLegacyDailyPaymentScheduler')
     .addToUi();
 }
 
@@ -167,7 +167,8 @@ function generateDuePaymentLinks() {
     const token = Utilities.getUuid().replaceAll('-', '') + Utilities.getUuid().replaceAll('-', '');
     const paymentUrl = `${baseUrl}/p/${token}`;
     const now = new Date();
-    book.getSheetByName(CP.payments).appendRow([paymentId, row[1], row[2], Utilities.formatDate(dueDate, Session.getScriptTimeZone(), 'yyyy-MM'), row[9], dueDate, token, paymentUrl, 'PENDING', now, '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', `Payment ${row[7]} of ${row[8]} for ${row[5]}`, now, '']);
+    const dueDateKey = Utilities.formatDate(dueDate, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+    book.getSheetByName(CP.payments).appendRow([paymentId, row[1], row[2], Utilities.formatDate(dueDate, Session.getScriptTimeZone(), 'yyyy-MM'), row[9], dueDateKey, token, paymentUrl, 'PENDING', now, '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', now, '']);
     schedule.getRange(index + 2, 12, 1, 4).setValues([['GENERATED', now, paymentId, paymentUrl]]);
     schedule.getRange(index + 2, 18).setValue(now);
     appendAudit_(paymentId, row[1], 'PAYMENT_LINK_GENERATED', '', 'PENDING', `Due-date link created for installment ${row[7]} of ${row[8]}`, 'DAILY_SCHEDULER', JSON.stringify({ scheduleId: row[0], paymentUrl }));
@@ -176,12 +177,11 @@ function generateDuePaymentLinks() {
   return generated;
 }
 
-function installDailyScheduler() {
-  ScriptApp.getProjectTriggers().filter((trigger) => ['generateDuePaymentLinks', 'onOpen', 'onEdit'].includes(trigger.getHandlerFunction())).forEach((trigger) => ScriptApp.deleteTrigger(trigger));
-  ScriptApp.newTrigger('generateDuePaymentLinks').timeBased().atHour(9).everyDays(1).inTimezone('Asia/Bangkok').create();
-  ScriptApp.newTrigger('onOpen').forSpreadsheet(CP.spreadsheetId).onOpen().create();
-  ScriptApp.newTrigger('onEdit').forSpreadsheet(CP.spreadsheetId).onEdit().create();
-  setDashboardStatus_('Automation installed: Dashboard menu loads on open; links generate daily at 09:00 Asia/Bangkok.');
+function removeLegacyDailyPaymentScheduler() {
+  ScriptApp.getProjectTriggers()
+    .filter((trigger) => trigger.getHandlerFunction() === 'generateDuePaymentLinks')
+    .forEach((trigger) => ScriptApp.deleteTrigger(trigger));
+  setDashboardStatus_('Legacy daily payment scheduler removed. Vercel now owns automatic generation.');
 }
 
 function setting_(key) {

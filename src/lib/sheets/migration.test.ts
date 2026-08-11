@@ -6,8 +6,10 @@ vi.mock("./client", () => ({
   getGoogleSheets: () => ({ spreadsheetId: "spreadsheet_1", sheets: { spreadsheets: { get: spreadsheetGet, batchUpdate, values: { get, update } } } }),
 }));
 
-import { ensureClientSchema } from "./migration";
-import { CLIENT_HEADERS } from "./records";
+import * as migration from "./migration";
+import { CLIENT_HEADERS, PAYMENT_HEADERS } from "./records";
+
+const { ensureClientSchema } = migration;
 
 beforeEach(() => spreadsheetGet.mockResolvedValue({ data: { sheets: [{ properties: { sheetId: 9, title: "Clients", gridProperties: { columnCount: 23 } } }] } }));
 afterEach(() => vi.clearAllMocks());
@@ -45,5 +47,41 @@ describe("ensureClientSchema", () => {
 
     expect(batchUpdate).toHaveBeenCalledWith({ spreadsheetId: "spreadsheet_1", requestBody: { requests: [{ appendDimension: { sheetId: 9, dimension: "COLUMNS", length: 6 } }] } });
     expect(batchUpdate.mock.invocationCallOrder[0]).toBeLessThan(get.mock.invocationCallOrder[0] ?? Infinity);
+  });
+});
+
+describe("ensurePaymentSchema", () => {
+  const ensurePaymentSchema = Reflect.get(migration, "ensurePaymentSchema") as unknown;
+
+  it("is available for repositories to migrate Payments before access", () => {
+    expect(ensurePaymentSchema).toBeTypeOf("function");
+  });
+
+  it("expands a legacy 30-column Payments grid before reading or writing through AR", async () => {
+    spreadsheetGet.mockResolvedValueOnce({ data: { sheets: [{ properties: { sheetId: 12, title: "Payments", gridProperties: { columnCount: 30 } } }] } });
+    get.mockResolvedValueOnce({ data: { values: [[...PAYMENT_HEADERS.slice(0, 30)]] } });
+    batchUpdate.mockResolvedValueOnce({});
+    update.mockResolvedValue({});
+
+    await (ensurePaymentSchema as () => Promise<void>)();
+
+    expect(batchUpdate).toHaveBeenCalledWith({ spreadsheetId: "spreadsheet_1", requestBody: { requests: [{ appendDimension: { sheetId: 12, dimension: "COLUMNS", length: 14 } }] } });
+    expect(get).toHaveBeenCalledWith({ spreadsheetId: "spreadsheet_1", range: "Payments!A1:AR1" });
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({ range: "Payments!AE1", requestBody: { values: [["line_message_status"]] } }));
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({ range: "Payments!AR1", requestBody: { values: [["line_reply_at"]] } }));
+    expect(batchUpdate.mock.invocationCallOrder[0]).toBeLessThan(get.mock.invocationCallOrder[0] ?? Infinity);
+  });
+
+  it("fills only blank appended Payments headers", async () => {
+    spreadsheetGet.mockResolvedValueOnce({ data: { sheets: [{ properties: { sheetId: 12, title: "Payments", gridProperties: { columnCount: 44 } } }] } });
+    get.mockResolvedValueOnce({ data: { values: [[...PAYMENT_HEADERS.slice(0, 30), "line_message_status", "", "legacy retry key"]] } });
+    update.mockResolvedValue({});
+
+    await (ensurePaymentSchema as () => Promise<void>)();
+
+    expect(update).toHaveBeenCalledTimes(12);
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({ range: "Payments!AF1", requestBody: { values: [["line_retry_key"]] } }));
+    expect(update).not.toHaveBeenCalledWith(expect.objectContaining({ range: "Payments!AE1" }));
+    expect(update).not.toHaveBeenCalledWith(expect.objectContaining({ range: "Payments!AG1" }));
   });
 });

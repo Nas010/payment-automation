@@ -4,6 +4,7 @@ import { claimLineLink, listClients, updateClient, updateLineLinkClient } from "
 import { getLineProfile, replyLineMessage } from "@/lib/line/client";
 import { parseLineLinkCommand } from "@/lib/line/link-command";
 import { createLineLinkService, type LinkResult } from "@/lib/line/linking";
+import { processLineSlipEvent, type LineSlipEvent } from "@/lib/line/slip-payments";
 import { verifyLineSignature } from "@/lib/line/signature";
 import { lineLinkingEnabled } from "@/lib/config";
 
@@ -37,6 +38,22 @@ function directLinkEvent(value: unknown): DirectLinkEvent | null {
   if (!code) return null;
   if (typeof event.replyToken !== "string" || !event.replyToken) return null;
   return { webhookEventId: typeof event.webhookEventId === "string" ? event.webhookEventId : "", replyToken: event.replyToken, lineUserId, code };
+}
+
+function directImageEvent(value: unknown): LineSlipEvent | null {
+  if (!value || typeof value !== "object") return null;
+  const event = value as LineEvent;
+  if (event.type !== "message") return null;
+  const source = event.source;
+  const message = event.message;
+  if (!source || typeof source !== "object" || (source as { type?: unknown }).type !== "user") return null;
+  const lineUserId = (source as { userId?: unknown }).userId;
+  if (typeof lineUserId !== "string" || !LINE_USER_ID_PATTERN.test(lineUserId)) return null;
+  if (!message || typeof message !== "object" || (message as { type?: unknown }).type !== "image") return null;
+  const messageId = (message as { id?: unknown }).id;
+  if (typeof messageId !== "string" || !messageId) return null;
+  if (typeof event.replyToken !== "string" || !event.replyToken) return null;
+  return { webhookEventId: typeof event.webhookEventId === "string" ? event.webhookEventId : "", replyToken: event.replyToken, lineUserId, messageId };
 }
 
 async function auditReplyFailure(event: DirectLinkEvent): Promise<void> {
@@ -111,8 +128,23 @@ export async function POST(request: Request): Promise<Response> {
 
   const events = payload && typeof payload === "object" && Array.isArray((payload as { events?: unknown }).events) ? (payload as { events: unknown[] }).events : [];
   for (const value of events) {
-    const event = directLinkEvent(value);
-    if (event) await processEvent(event);
+    const linkEvent = directLinkEvent(value);
+    if (linkEvent) {
+      try {
+        await processEvent(linkEvent);
+      } catch {
+        // One event failure must not make LINE retry a successfully signed batch.
+      }
+      continue;
+    }
+    const imageEvent = directImageEvent(value);
+    if (imageEvent) {
+      try {
+        await processLineSlipEvent(imageEvent);
+      } catch {
+        // One event failure must not make LINE retry a successfully signed batch.
+      }
+    }
   }
   return new Response(null, { status: 200 });
 }

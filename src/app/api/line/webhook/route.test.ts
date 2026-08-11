@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   updateLineLinkClient: vi.fn(),
   claimLineLink: vi.fn(),
   appendAudit: vi.fn(),
+  processLineSlipEvent: vi.fn(),
   fetchFn: vi.fn(),
 }));
 
@@ -26,6 +27,8 @@ vi.mock("@/lib/sheets/clients", () => ({
 }));
 
 vi.mock("@/lib/sheets/payments", () => ({ appendAudit: mocks.appendAudit }));
+
+vi.mock("@/lib/line/slip-payments", () => ({ processLineSlipEvent: mocks.processLineSlipEvent }));
 
 vi.stubGlobal("fetch", mocks.fetchFn);
 
@@ -65,6 +68,7 @@ beforeEach(() => {
   mocks.updateLineLinkClient.mockResolvedValue(true);
   mocks.claimLineLink.mockResolvedValue("CLAIMED");
   mocks.appendAudit.mockResolvedValue(undefined);
+  mocks.processLineSlipEvent.mockResolvedValue({ kind: "ignored" });
   mocks.fetchFn.mockResolvedValue(new Response(null, { status: 200 }));
 });
 
@@ -117,6 +121,23 @@ describe("POST /api/line/webhook", () => {
     expect(mocks.listClients).not.toHaveBeenCalled();
     expect(mocks.getLineChannelAccessToken).not.toHaveBeenCalled();
     expect(mocks.fetchFn).not.toHaveBeenCalled();
+  });
+
+  it("routes a valid signed direct-user image to the eligible slip processor", async () => {
+    const image = event({ message: { type: "image", id: "message_1" } });
+
+    await expect(POST(signedRequest({ events: [image] }))).resolves.toMatchObject({ status: 200 });
+
+    expect(mocks.processLineSlipEvent).toHaveBeenCalledWith({ webhookEventId: "event_1", replyToken: "reply-token", lineUserId: userId, messageId: "message_1" });
+    expect(mocks.getLineChannelAccessToken).not.toHaveBeenCalled();
+  });
+
+  it("isolates a failed image event and acknowledges later signed events", async () => {
+    mocks.processLineSlipEvent.mockRejectedValueOnce(new Error("private processor failure"));
+    const image = event({ message: { type: "image", id: "message_1" } });
+
+    await expect(POST(signedRequest({ events: [image, event({ webhookEventId: "event_2", message: { type: "image", id: "message_2" } })] }))).resolves.toMatchObject({ status: 200 });
+    expect(mocks.processLineSlipEvent).toHaveBeenCalledTimes(2);
   });
 
   it("ignores non-message events even when they mimic direct LINK messages", async () => {
