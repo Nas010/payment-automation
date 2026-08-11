@@ -69,7 +69,8 @@
 - googleDriveRedirectUri(origin, environment?): string uses PRODUCTION_BASE_URL when configured, otherwise supplied request origin, and appends /admin/google-drive/callback.
 - createGoogleDriveOAuthClient(input): OAuth2Client constructs google.auth.OAuth2 with configured client ID/secret/redirect URI.
 - createOAuthState(), createPkceVerifier(), createPkceChallenge(verifier) use cryptographically random bytes and SHA-256 base64url encoding.
-- encodeDriveCandidate(candidate): string and decodeDriveCandidate(value): GoogleDriveConnection use AES-GCM encrypted payloads with no token suffix metadata.
+- GoogleDriveCandidate = { refreshToken: string; accountEmail: string }.
+- encodeDriveCandidate(candidate): string and decodeDriveCandidate(value): GoogleDriveCandidate use AES-GCM encrypted payloads with no token suffix metadata.
 - getGoogleDriveConnection(): Promise<GoogleDriveConnection | null> decrypts active record and validates exact string fields.
 - saveGoogleDriveConnection(connection): Promise<void> encrypts and upserts one active record.
 - googleDriveStatus(connection) returns only connected, account email, folder name, and validation time.

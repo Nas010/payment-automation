@@ -21,6 +21,7 @@ const encryptedRecord = {
 };
 
 const otherEncryptedRecord = { ...encryptedRecord, keyName: "line_channel_secret" as const, ciphertext: "other-ciphertext", iv: "other-iv", authTag: "other-tag", lastFour: "cret" };
+const driveEncryptedRecord = { ...encryptedRecord, keyName: "google_drive_connection" as const, ciphertext: "drive-ciphertext", iv: "drive-iv", authTag: "drive-tag", lastFour: "" };
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -45,6 +46,13 @@ describe("Integration Secrets repository", () => {
 
   it("returns only the selected encrypted record", async () => {
     await expect(getSecretRecord("line_channel_access_token")).resolves.toMatchObject(encryptedRecord);
+  });
+
+  it("parses the encrypted Google Drive connection key without token metadata", async () => {
+    get.mockResolvedValue({ data: { values: [["key_name", "ciphertext", "iv", "auth_tag", "algorithm", "key_version", "created_at", "updated_at", "last_four", "status", "notes"], [driveEncryptedRecord.keyName, driveEncryptedRecord.ciphertext, driveEncryptedRecord.iv, driveEncryptedRecord.authTag, driveEncryptedRecord.algorithm, driveEncryptedRecord.keyVersion, driveEncryptedRecord.createdAt, driveEncryptedRecord.updatedAt, driveEncryptedRecord.lastFour, "ACTIVE", ""]] } });
+
+    await expect(getSecretRecord("google_drive_connection")).resolves.toMatchObject(driveEncryptedRecord);
+    await expect(listSecretMetadata()).resolves.toEqual([{ rowNumber: 2, keyName: "google_drive_connection", algorithm: "aes-256-gcm", keyVersion: "1", createdAt: driveEncryptedRecord.createdAt, updatedAt: driveEncryptedRecord.updatedAt, lastFour: "" }]);
   });
 
   it("updates one secret row without overwriting another encrypted secret", async () => {

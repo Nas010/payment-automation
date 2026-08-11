@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { configuredSlipRetentionDays, lineChatPaymentsEnabled, lineConfig, lineLinkingEnabled, lineMessagingEnabled, paymentLinkBaseUrl, requiredConfiguration, sheetsConfig } from "./config";
+import { configuredSlipRetentionDays, googleDriveConfig, googleDriveRedirectUri, lineChatPaymentsEnabled, lineConfig, lineLinkingEnabled, lineMessagingEnabled, paymentLinkBaseUrl, requiredConfiguration, sheetsConfig } from "./config";
 
 describe("requiredConfiguration", () => {
   it("reports required values without exposing their values", () => {
@@ -46,5 +46,20 @@ describe("requiredConfiguration", () => {
 
   it("uses the current request origin for payment links when no canonical URL is configured", () => {
     expect(paymentLinkBaseUrl({ PRODUCTION_BASE_URL: "" }, "http://localhost:3000")).toBe("http://localhost:3000");
+  });
+
+  it("keeps Google Drive OAuth configuration optional until all values exist", () => {
+    expect(googleDriveConfig({ GOOGLE_DRIVE_OAUTH_CLIENT_ID: "CONFIG_REQUIRED" })).toBeNull();
+    expect(googleDriveConfig({
+      GOOGLE_DRIVE_OAUTH_CLIENT_ID: "client-id",
+      GOOGLE_DRIVE_OAUTH_CLIENT_SECRET: "client-secret",
+      GOOGLE_DRIVE_PICKER_API_KEY: "picker-key",
+      GOOGLE_DRIVE_PROJECT_NUMBER: "123456789",
+    })).toEqual({ clientId: "client-id", clientSecret: "client-secret", pickerApiKey: "picker-key", projectNumber: "123456789" });
+  });
+
+  it("builds the production OAuth callback from the canonical base URL", () => {
+    expect(googleDriveRedirectUri("http://localhost:3000", { PRODUCTION_BASE_URL: "https://coaching-payments-automated.vercel.app" })).toBe("https://coaching-payments-automated.vercel.app/admin/google-drive/callback");
+    expect(googleDriveRedirectUri("http://localhost:3000", { PRODUCTION_BASE_URL: "" })).toBe("http://localhost:3000/admin/google-drive/callback");
   });
 });

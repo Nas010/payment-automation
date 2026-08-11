@@ -38,4 +38,14 @@ describe("integration secret encryption", () => {
 
     expect(() => encryptSecret({ keyName: "line_channel_access_token", plaintext: "token-value" })).toThrow("SETTINGS_ENCRYPTION_KEY must be base64-encoded 32 bytes");
   });
+
+  it("can encrypt Drive connection payloads without storing token suffix metadata", () => {
+    vi.stubEnv("SETTINGS_ENCRYPTION_KEY", encryptionKey);
+    const plaintext = JSON.stringify({ refreshToken: "refresh-secret", accountEmail: "coach@example.com", folderId: "folder-12345", folderName: "Private slips", validatedAt: "2026-08-11T12:00:00.000Z" });
+
+    const record = encryptSecret({ keyName: "google_drive_connection", plaintext, exposeLastFour: false });
+
+    expect(record.lastFour).toBe("");
+    expect(decryptSecret({ keyName: "google_drive_connection", record })).toBe(plaintext);
+  });
 });

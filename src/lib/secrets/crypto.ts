@@ -21,7 +21,7 @@ function aad(keyName: SecretKeyName): Buffer {
   return Buffer.from(keyName, "utf8");
 }
 
-export function encryptSecret({ keyName, plaintext }: { keyName: SecretKeyName; plaintext: string }): EncryptedSecretPayload {
+export function encryptSecret({ keyName, plaintext, exposeLastFour = true }: { keyName: SecretKeyName; plaintext: string; exposeLastFour?: boolean }): EncryptedSecretPayload {
   const key = encryptionKey();
   const iv = randomBytes(IV_LENGTH);
   const cipher = createCipheriv(ALGORITHM, key, iv);
@@ -36,7 +36,7 @@ export function encryptSecret({ keyName, plaintext }: { keyName: SecretKeyName; 
     keyVersion: "1",
     createdAt: now,
     updatedAt: now,
-    lastFour: plaintext.slice(-4),
+    lastFour: exposeLastFour ? plaintext.slice(-4) : "",
   };
 }
 
