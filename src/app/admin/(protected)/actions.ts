@@ -12,6 +12,7 @@ import { createLineLinkCode, expiresAt, normalizeLineLinkCode } from "@/lib/line
 import { renderLineLinkInstruction } from "@/lib/line/link-message";
 import { disconnectLineUser, generateMissingLineLinkCodes, renewLineLinkCode, type GenerateMissingLineLinkCodesResult, type RenewLineLinkCodeResult } from "@/lib/line/linking";
 import { parseSatang } from "@/lib/money";
+import { buildAssignedScheduleRows } from "@/lib/plans/assignment";
 import { buildInstallmentPlan } from "@/lib/plans/schedule";
 import { generateDuePaymentLinks } from "@/lib/payments/generate";
 import { persistPaymentTransition } from "@/lib/payments/transition";
@@ -22,6 +23,8 @@ import { listPackages, savePackage, upsertOperationalSetting } from "@/lib/sheet
 
 const clientSchema = z.object({ client_name: z.string().trim().min(1), package_name: z.string().trim().min(1), payment_type: z.enum(["ONE_TIME", "INSTALLMENTS"]), total_price_thb: z.string(), installment_count: z.coerce.number().int().min(1), interval_months: z.coerce.number().int().min(0), first_due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), notes: z.string().trim() });
 const reservedOperationalSettingKeys = new Set(["line_due_message_template"]);
+const assignPackageSchema = z.object({ package_name: z.string().trim().min(1), first_due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), notes: z.string().trim() });
+const manualPaymentSchema = z.object({ description: z.string().trim().min(1), amount_thb: z.string(), frequency: z.enum(["ONE_TIME", "RECURRING"]), payment_count: z.coerce.number().int().min(1), interval_months: z.coerce.number().int().min(0), first_due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), notes: z.string().trim() });
 
 function values(formData: FormData) { return Object.fromEntries([...formData.entries()].map(([key, value]) => [key, String(value)])); }
 
@@ -93,6 +96,16 @@ export async function stopAwaitingLineSlipAction(paymentId: string): Promise<boo
   return true;
 }
 
+function revalidateClientBillingPages(clientId: string): void {
+  revalidatePath("/admin");
+  revalidatePath("/admin/clients");
+  revalidatePath(`/admin/clients/${clientId}`);
+}
+
+function newScheduleId(): string {
+  return `schedule_${crypto.randomUUID().replaceAll("-", "")}`;
+}
+
 export async function generateDueLinksAction(): Promise<void> {
   await requireAdmin();
   const baseUrl = paymentLinkBaseUrl(process.env, (await headers()).get("origin"));
@@ -122,6 +135,63 @@ export async function createClientAction(formData: FormData): Promise<void> {
   for (const item of plan) await writeSchedule({ schedule_id: `schedule_${crypto.randomUUID().replaceAll("-", "")}`, client_id: clientId, client_name: data.client_name, line_user_id: "", line_display_name: "", package_name: data.package_name, payment_type: paymentType, installment_number: String(item.installmentNumber), installment_count: String(count), amount_thb: String(item.amountSatang / 100), due_date: item.dueDate, status: "SCHEDULED", generated_at: "", payment_id: "", payment_url: "", notes: data.notes, created_at: now, updated_at: now });
   await appendAudit({ paymentId: "", clientId, action: "CLIENT_CREATED", previousStatus: "", newStatus: "SCHEDULED", reason: "Client and payment schedule created from admin", source: "ADMIN", metadata: JSON.stringify({ packageName: data.package_name, installmentCount: count, intervalMonths: interval }) });
   revalidatePath("/admin");
+  redirect(`/admin/clients/${clientId}`);
+}
+
+export async function assignPackageAction(clientId: string, formData: FormData): Promise<void> {
+  await requireAdmin();
+  const data = assignPackageSchema.parse(values(formData));
+  const [clients, packages] = await Promise.all([listClients(), listPackages()]);
+  const client = clients.find((item) => item.client_id === clientId);
+  if (!client) throw new Error("Client was not found");
+  const selectedPackage = packages.find((item) => item.package_name === data.package_name && item.active.toUpperCase() === "TRUE");
+  if (!selectedPackage) throw new Error("Choose an active package");
+  const totalSatang = parseSatang(selectedPackage.total_price_thb);
+  if (!totalSatang || totalSatang <= 0 || !Number.isSafeInteger(totalSatang)) throw new Error("Package price must be a positive THB amount");
+  const paymentType = selectedPackage.payment_type === "INSTALLMENTS" ? "INSTALLMENTS" : selectedPackage.payment_type === "ONE_TIME" ? "ONE_TIME" : null;
+  if (!paymentType) throw new Error("Package payment type is invalid");
+  const paymentCount = paymentType === "ONE_TIME" ? 1 : Number(selectedPackage.installment_count);
+  const intervalMonths = paymentType === "ONE_TIME" ? 0 : Number(selectedPackage.interval_months);
+  const now = new Date().toISOString();
+  const schedules = buildAssignedScheduleRows({ client, label: selectedPackage.package_name, paymentType, totalSatang, paymentCount, intervalMonths, firstDueDate: data.first_due_date, notes: data.notes, now, createScheduleId: newScheduleId });
+
+  for (const schedule of schedules) await writeSchedule(schedule);
+  await updateClient({
+    ...client,
+    package_name: selectedPackage.package_name,
+    payment_type: paymentType,
+    total_price_thb: String(totalSatang / 100),
+    installment_count: String(paymentCount),
+    interval_months: String(intervalMonths),
+    first_due_date: data.first_due_date,
+    default_amount_thb: schedules[0].amount_thb,
+    billing_frequency: "MANUAL",
+    next_due_date: data.first_due_date,
+    updated_at: now,
+  });
+  await appendAudit({ paymentId: "", clientId, action: "PACKAGE_ASSIGNED", previousStatus: "", newStatus: "SCHEDULED", reason: "Package assigned to existing client", source: "ADMIN", metadata: JSON.stringify({ packageName: selectedPackage.package_name, installmentCount: paymentCount, intervalMonths }) });
+  revalidateClientBillingPages(clientId);
+  redirect(`/admin/clients/${clientId}`);
+}
+
+export async function createManualPaymentAction(clientId: string, formData: FormData): Promise<void> {
+  await requireAdmin();
+  const data = manualPaymentSchema.parse(values(formData));
+  const clients = await listClients();
+  const client = clients.find((item) => item.client_id === clientId);
+  if (!client) throw new Error("Client was not found");
+  const totalSatang = parseSatang(data.amount_thb);
+  if (!totalSatang || totalSatang <= 0 || !Number.isSafeInteger(totalSatang)) throw new Error("Amount must be a positive THB amount");
+  const paymentType = data.frequency === "ONE_TIME" ? "ONE_TIME" : "INSTALLMENTS";
+  const paymentCount = data.frequency === "ONE_TIME" ? 1 : data.payment_count;
+  const intervalMonths = data.frequency === "ONE_TIME" ? 0 : data.interval_months;
+  if (data.frequency === "RECURRING" && (paymentCount < 2 || intervalMonths < 1)) throw new Error("Recurring payments need at least two payments and a one-month interval");
+  const now = new Date().toISOString();
+  const schedules = buildAssignedScheduleRows({ client, label: data.description, paymentType, totalSatang, paymentCount, intervalMonths, firstDueDate: data.first_due_date, notes: data.notes, now, createScheduleId: newScheduleId });
+
+  for (const schedule of schedules) await writeSchedule(schedule);
+  await appendAudit({ paymentId: "", clientId, action: "MANUAL_PAYMENT_SCHEDULED", previousStatus: "", newStatus: "SCHEDULED", reason: "Manual payment scheduled for existing client", source: "ADMIN", metadata: JSON.stringify({ description: data.description, paymentCount, intervalMonths, totalSatang }) });
+  revalidateClientBillingPages(clientId);
   redirect(`/admin/clients/${clientId}`);
 }
 
