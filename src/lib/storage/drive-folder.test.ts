@@ -6,6 +6,7 @@ describe("parseDriveFolderId", () => {
     const folderId = "11Gf6vMFVD0xDJla_OflyL2zMzH7TTBgD";
     expect(parseDriveFolderId(folderId)).toBe(folderId);
     expect(parseDriveFolderId(`https://drive.google.com/drive/folders/${folderId}?usp=sharing`)).toBe(folderId);
+    expect(parseDriveFolderId(`https://drive.google.com/drive/u/1/folders/${folderId}`)).toBe(folderId);
   });
 
   it("rejects non-Drive and Drive file URLs", () => {
@@ -31,8 +32,17 @@ describe("selectSlipStorageFolderId", () => {
 });
 
 describe("getSlipStorageFolder", () => {
+  it("prefers an active OAuth connection over workbook and environment folders", async () => {
+    await expect(getSlipStorageFolder({
+      getGoogleDriveConnection: vi.fn().mockResolvedValue({ refreshToken: "refresh-secret", accountEmail: "coach@example.com", folderId: "oauth-folder-12345", folderName: "OAuth folder", validatedAt: "2026-08-11T12:00:00.000Z" }),
+      listSettings: vi.fn().mockResolvedValue([{ rowNumber: 2, key: "slip_storage_folder_id", value: "workbook-folder" }]),
+      environment: { SLIP_STORAGE_FOLDER_ID: "environment-folder" },
+    })).resolves.toEqual({ folderId: "oauth-folder-12345", source: "oauth", folderName: "OAuth folder" });
+  });
+
   it("uses workbook settings when readable", async () => {
     await expect(getSlipStorageFolder({
+      getGoogleDriveConnection: vi.fn().mockResolvedValue(null),
       listSettings: vi.fn().mockResolvedValue([{ rowNumber: 2, key: "slip_storage_folder_id", value: "workbook-folder" }]),
       environment: { SLIP_STORAGE_FOLDER_ID: "environment-folder" },
     })).resolves.toEqual({ folderId: "workbook-folder", source: "workbook" });
@@ -40,6 +50,7 @@ describe("getSlipStorageFolder", () => {
 
   it("falls back to environment when Settings cannot be read", async () => {
     await expect(getSlipStorageFolder({
+      getGoogleDriveConnection: vi.fn().mockResolvedValue(null),
       listSettings: vi.fn().mockRejectedValue(new Error("Sheets unavailable")),
       environment: { SLIP_STORAGE_FOLDER_ID: "environment-folder" },
     })).resolves.toEqual({ folderId: "environment-folder", source: "environment" });

@@ -1,9 +1,10 @@
 import { listOperationalSettings, type OperationalSetting } from "@/lib/sheets/settings";
+import { getGoogleDriveConnection, type GoogleDriveConnection } from "./google-drive-connection";
 
 export const SLIP_STORAGE_FOLDER_SETTING = "slip_storage_folder_id";
 export const SLIP_STORAGE_VALIDATION_SETTING = "slip_storage_validation";
 
-export type SlipStorageFolder = { folderId: string; source: "workbook" | "environment" };
+export type SlipStorageFolder = { folderId: string; source: "oauth" | "workbook" | "environment"; folderName?: string };
 
 const DRIVE_ID_PATTERN = /^[A-Za-z0-9_-]{10,}$/;
 
@@ -14,8 +15,10 @@ export function parseDriveFolderId(value: string): string {
   try {
     const url = new URL(trimmed);
     const segments = url.pathname.split("/").filter(Boolean);
-    const folderId = segments[2] ?? "";
-    if (url.protocol === "https:" && url.hostname === "drive.google.com" && segments.length === 3 && segments[0] === "drive" && segments[1] === "folders" && DRIVE_ID_PATTERN.test(folderId)) return folderId;
+    const standardFolderId = segments.length === 3 && segments[0] === "drive" && segments[1] === "folders" ? segments[2] : "";
+    const accountFolderId = segments.length === 5 && segments[0] === "drive" && segments[1] === "u" && /^\d+$/.test(segments[2] ?? "") && segments[3] === "folders" ? segments[4] : "";
+    const folderId = standardFolderId || accountFolderId;
+    if (url.protocol === "https:" && url.hostname === "drive.google.com" && DRIVE_ID_PATTERN.test(folderId)) return folderId;
   } catch {}
 
   throw new Error("Invalid Google Drive folder URL or ID.");
@@ -40,10 +43,16 @@ export function selectSlipStorageFolderId(settings: Array<Pick<OperationalSettin
 export async function getSlipStorageFolder({
   listSettings = listOperationalSettings,
   environment = process.env,
+  getGoogleDriveConnection: resolveConnection = getGoogleDriveConnection,
 }: {
   listSettings?: () => Promise<OperationalSetting[]>;
   environment?: Record<string, string | undefined>;
+  getGoogleDriveConnection?: () => Promise<GoogleDriveConnection | null>;
 } = {}): Promise<SlipStorageFolder> {
+  try {
+    const connection = await resolveConnection();
+    if (connection) return { folderId: connection.folderId, source: "oauth", folderName: connection.folderName };
+  } catch {}
   let settings: OperationalSetting[] = [];
   try {
     settings = await listSettings();

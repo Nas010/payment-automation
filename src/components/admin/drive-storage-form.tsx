@@ -16,7 +16,7 @@ export function DriveStorageForm({
   action,
 }: {
   serviceAccountEmail: string;
-  source: "workbook" | "environment" | "unconfigured";
+  source: "oauth" | "workbook" | "environment" | "unconfigured";
   folderName?: string;
   validatedAt?: string;
   action: (formData: FormData) => Promise<DriveStorageActionResult>;
@@ -44,7 +44,7 @@ export function DriveStorageForm({
     setCopied(true);
   };
 
-  const sourceLabel = source === "workbook" ? "Workbook" : source === "environment" ? "Environment fallback" : "Not configured";
+  const sourceLabel = source === "oauth" ? "Google account" : source === "workbook" ? "Workbook" : source === "environment" ? "Environment fallback" : "Not configured";
   const activeDescription = [sourceLabel, folderName, validatedAt].filter(Boolean).join(" · ");
 
   return <Card>

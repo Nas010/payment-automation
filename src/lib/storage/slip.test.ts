@@ -18,4 +18,12 @@ describe("storeExceptionSlip", () => {
     await expect(storeExceptionSlip({ bytes, mimeType: "image/png", paymentId: "pay_1", imageHash: "abcdef1234567890" }, { getSlipStorageFolder, createDriveSlipFile })).resolves.toBe("https://drive.google.com/open?id=file-12345");
     expect(createDriveSlipFile).toHaveBeenCalledWith({ bytes, mimeType: "image/png", paymentId: "pay_1", imageHash: "abcdef1234567890", folderId: "workbook-folder" });
   });
+
+  it("passes through an OAuth-selected folder returned by the runtime resolver", async () => {
+    const getSlipStorageFolder = vi.fn().mockResolvedValue({ folderId: "oauth-folder-12345", source: "oauth", folderName: "OAuth folder" });
+    const createDriveSlipFile = vi.fn().mockResolvedValue("file-oauth");
+
+    await expect(storeExceptionSlip({ bytes: new Uint8Array([1]), mimeType: "image/png", paymentId: "pay_oauth", imageHash: "abcdef1234567890" }, { getSlipStorageFolder, createDriveSlipFile })).resolves.toBe("https://drive.google.com/open?id=file-oauth");
+    expect(createDriveSlipFile).toHaveBeenCalledWith({ bytes: new Uint8Array([1]), mimeType: "image/png", paymentId: "pay_oauth", imageHash: "abcdef1234567890", folderId: "oauth-folder-12345" });
+  });
 });

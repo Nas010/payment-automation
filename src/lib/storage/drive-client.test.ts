@@ -1,13 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
-import { createDriveSlipFile, validateDriveFolder, type DriveClientLike } from "./drive-client";
+import { createDriveSlipFile, testDriveFolderWrite, validateDriveFolder, type DriveClientLike } from "./drive-client";
 
-function driveWith({ folder, getError, createdId = "file-12345" }: { folder?: Record<string, unknown>; getError?: unknown; createdId?: string | null } = {}) {
+function driveWith({ folder, getError, createdId = "file-12345", deleteError }: { folder?: Record<string, unknown>; getError?: unknown; createdId?: string | null; deleteError?: unknown } = {}) {
   const get = vi.fn().mockImplementation(async () => {
     if (getError) throw getError;
     return { data: folder };
   });
   const create = vi.fn().mockResolvedValue({ data: { id: createdId } });
-  return { drive: { files: { get, create } } as unknown as DriveClientLike, get, create };
+  const deleteFile = vi.fn().mockImplementation(async () => {
+    if (deleteError) throw deleteError;
+    return {};
+  });
+  return { drive: { files: { get, create, delete: deleteFile } } as unknown as DriveClientLike, get, create, deleteFile };
 }
 
 const writableFolder = {
@@ -52,5 +56,26 @@ describe("createDriveSlipFile", () => {
       fields: "id",
       supportsAllDrives: true,
     }));
+  });
+});
+
+describe("testDriveFolderWrite", () => {
+  it("creates and removes a zero-content probe in the selected folder", async () => {
+    const { drive, create, deleteFile } = driveWith({ createdId: "probe-12345" });
+
+    await expect(testDriveFolderWrite("folder-12345", drive, { now: () => "2026-08-11T12:00:00.000Z" })).resolves.toBeUndefined();
+
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({
+      requestBody: { name: "coaching-payments-drive-probe-2026-08-11T12-00-00-000Z", parents: ["folder-12345"], mimeType: "text/plain" },
+      fields: "id",
+      supportsAllDrives: true,
+    }));
+    expect(deleteFile).toHaveBeenCalledWith({ fileId: "probe-12345", supportsAllDrives: true });
+  });
+
+  it("fails when probe cleanup cannot complete", async () => {
+    const { drive } = driveWith({ createdId: "probe-12345", deleteError: new Error("private Google response") });
+
+    await expect(testDriveFolderWrite("folder-12345", drive)).rejects.toThrow("Could not validate Google Drive folder. Try again.");
   });
 });
