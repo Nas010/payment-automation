@@ -86,6 +86,17 @@ function resolvedProfiles(profiles: LineDueMessageProfiles = DEFAULT_LINE_DUE_PR
   };
 }
 
+const termsPng = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+const termsVersion = {
+  versionId: "terms_11111111111111111111111111111111",
+  publicToken: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  driveFileId: "terms-file-12345",
+  mimeType: "image/png" as const,
+  byteLength: termsPng.byteLength,
+  originalName: "terms.png",
+  uploadedAt: "2026-08-15T01:00:00.000Z",
+};
+
 function dependencies(rows: PaymentRecord[] = [payment()]): LineDueDependencies & {
   listPayments: ReturnType<typeof vi.fn>;
   updatePayment: ReturnType<typeof vi.fn>;
@@ -94,6 +105,8 @@ function dependencies(rows: PaymentRecord[] = [payment()]): LineDueDependencies 
   listClients: ReturnType<typeof vi.fn>;
   createRetryKey: ReturnType<typeof vi.fn>;
   getLineDueMessageProfiles: ReturnType<typeof vi.fn>;
+  getLineTermsImageState: ReturnType<typeof vi.fn>;
+  readDriveTermsImageFile: ReturnType<typeof vi.fn>;
   listSchedules: ReturnType<typeof vi.fn>;
   hasAuditEvent: ReturnType<typeof vi.fn>;
   now: ReturnType<typeof vi.fn>;
@@ -104,6 +117,8 @@ function dependencies(rows: PaymentRecord[] = [payment()]): LineDueDependencies 
     updatePayment: vi.fn(async () => undefined),
     appendAudit: vi.fn(async () => undefined),
     getLineDueMessageProfiles: vi.fn(async () => resolvedProfiles()),
+    getLineTermsImageState: vi.fn(async () => ({ activeVersionId: termsVersion.versionId, versions: [termsVersion] })),
+    readDriveTermsImageFile: vi.fn(async () => ({ bytes: termsPng, declaredMimeType: "image/png" })),
     listSchedules: vi.fn(async () => []),
     hasAuditEvent: vi.fn(async () => false),
     getLineChannelAccessToken: vi.fn(async () => "line-token-value-1234567890"),
@@ -158,12 +173,59 @@ Please scan the PromptPay QR below. After paying, send the bank payment slip bac
 If you have trouble with the QR, use your payment page:
 https://pay.example/p/token_1` },
         { type: "image", originalContentUrl: "https://pay.example/api/payments/token_1/promptpay-qr.png", previewImageUrl: "https://pay.example/api/payments/token_1/promptpay-qr.png" },
+        { type: "image", originalContentUrl: `https://pay.example/api/line/terms-image/${termsVersion.publicToken}`, previewImageUrl: `https://pay.example/api/line/terms-image/${termsVersion.publicToken}` },
       ],
     }));
     expect(deps.updatePayment.mock.calls[0]?.[0]).toMatchObject({ line_message_status: "SENDING", line_message_attempted_at: "2026-08-10T02:00:00.000Z", line_message: expect.stringContaining("Your Coaching payment is due.") });
+    expect(deps.updatePayment.mock.calls[0]?.[0]).toMatchObject({ line_terms_image_token: termsVersion.publicToken });
     expect(deps.updatePayment.mock.calls.at(-1)?.[0]).toMatchObject({ line_message_status: "ACCEPTED", line_request_id: "request_1", line_slip_expected: "TRUE", line_slip_processing_status: "AWAITING", line_message_sent_at: "2026-08-10T02:00:00.000Z", line_payment_requested_at: "2026-08-10T02:00:00.000Z" });
     expect(deps.appendAudit.mock.calls.map(([value]) => value.action)).toEqual(["LINE_DUE_MESSAGE_ACCEPTED", "LINE_PAYMENT_QR_SENT"]);
     expect(deps.appendAudit.mock.calls[0]?.[0].metadata).toBe(JSON.stringify({ paymentId: "pay_1", status: "ACCEPTED", requestCode: "request_1" }));
+  });
+
+  it("uses each extension plan's installment one and skips later installments", async () => {
+    const deps = dependencies([
+      payment({ payment_id: "pay_extension_1", payment_type: "INSTALLMENTS", installment_number: "1", installment_count: "2" }),
+      payment({ payment_id: "pay_extension_2", rowNumber: 3, payment_type: "INSTALLMENTS", installment_number: "2", installment_count: "2" }),
+    ]);
+
+    await sendDueLinePaymentRequests({ baseUrl: "https://pay.example", today: "2026-08-10" }, deps);
+
+    expect(deps.sendPush.mock.calls[0]?.[0].messages).toHaveLength(3);
+    expect(deps.sendPush.mock.calls[1]?.[0].messages).toHaveLength(2);
+    expect(deps.getLineTermsImageState).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to text and QR and freezes NONE when active image is unavailable", async () => {
+    const deps = dependencies([payment({ installment_number: "1" })]);
+    deps.readDriveTermsImageFile.mockRejectedValue(new Error("private Google body"));
+
+    await expect(sendDueLinePaymentRequests({ baseUrl: "https://pay.example", today: "2026-08-10" }, deps)).resolves.toMatchObject({ accepted: ["pay_1"] });
+    expect(deps.sendPush.mock.calls[0]?.[0].messages).toHaveLength(2);
+    expect(deps.updatePayment.mock.calls[0]?.[0]).toMatchObject({ line_terms_image_token: "NONE" });
+    expect(deps.appendAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "LINE_TERMS_IMAGE_SKIPPED", metadata: JSON.stringify({ paymentId: "pay_1", reasonCode: "ASSET_UNAVAILABLE" }) }));
+    expect(JSON.stringify(deps.appendAudit.mock.calls)).not.toContain("terms-file-12345");
+  });
+
+  it("reuses frozen historical token without selecting the current active image", async () => {
+    const deps = dependencies([payment({ line_message_status: "FAILED_RETRYABLE", line_retry_key: "stored-key", line_message: "Frozen message", line_terms_image_token: termsVersion.publicToken })]);
+    deps.getLineTermsImageState.mockResolvedValue({ activeVersionId: "terms_new", versions: [] });
+
+    await sendDueLinePaymentRequests({ baseUrl: "https://pay.example", today: "2026-08-10" }, deps);
+
+    expect(deps.getLineTermsImageState).not.toHaveBeenCalled();
+    expect(deps.readDriveTermsImageFile).not.toHaveBeenCalled();
+    expect(deps.sendPush.mock.calls[0]?.[0].messages[2]).toMatchObject({ originalContentUrl: expect.stringContaining(termsVersion.publicToken) });
+  });
+
+  it("falls back to text and QR when a frozen token is malformed", async () => {
+    const deps = dependencies([payment({ line_message_status: "FAILED_RETRYABLE", line_retry_key: "stored-key", line_message: "Frozen message", line_terms_image_token: "not a token" })]);
+
+    await expect(sendDueLinePaymentRequests({ baseUrl: "https://pay.example", today: "2026-08-10" }, deps)).resolves.toMatchObject({ accepted: ["pay_1"] });
+
+    expect(deps.sendPush.mock.calls[0]?.[0].messages).toHaveLength(2);
+    expect(deps.updatePayment.mock.calls[0]?.[0]).toMatchObject({ line_terms_image_token: "NONE" });
+    expect(deps.getLineTermsImageState).not.toHaveBeenCalled();
   });
 
   it("persists frozen text and retry key before the first outbound request", async () => {
