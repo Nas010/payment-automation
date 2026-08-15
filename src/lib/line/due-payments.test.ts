@@ -414,6 +414,20 @@ https://pay.example/p/token_1`,
     expect(deps.sendPush).toHaveBeenCalledTimes(1);
   });
 
+  it("sends requested payment IDs in the caller's deterministic order", async () => {
+    const deps = dependencies([
+      payment({ payment_id: "newer", due_date: "2026-08-10", created_at: "2026-08-02T00:00:00.000Z" }),
+      payment({ payment_id: "older", due_date: "2026-08-09", created_at: "2026-08-01T00:00:00.000Z", rowNumber: 3 }),
+    ]);
+
+    await sendDueLinePaymentRequests({ baseUrl: "https://pay.example", today: "2026-08-10", paymentIds: ["older", "newer"] }, deps);
+
+    expect(deps.sendPush.mock.calls.map(([request]) => request.messages[0].text)).toEqual([
+      expect.stringContaining("Due date: 2026-08-09"),
+      expect.stringContaining("Due date: 2026-08-10"),
+    ]);
+  });
+
   it("catches up a previously skipped payment after its client becomes linked", async () => {
     const deps = dependencies([payment({ line_message_status: "SKIPPED_MISSING_USER_ID", line_message_error: "MISSING_USER_ID" })]);
 
