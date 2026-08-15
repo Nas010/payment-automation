@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_LINE_DUE_PROFILES, DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG } from "@/lib/line/message-profile";
+import { DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG, LINE_AUTOMATIC_REPLY_CONFIG_SETTING_KEY } from "@/lib/line/reply-config";
 
-const mocks = vi.hoisted(() => ({ requireAdmin: vi.fn(), setSecret: vi.fn(), getLineChannelAccessToken: vi.fn(), upsertOperationalSetting: vi.fn(), saveLineDueMessageProfile: vi.fn(), saveLineInstallmentReminderConfig: vi.fn(), appendAudit: vi.fn(), revalidatePath: vi.fn(), fetch: vi.fn() }));
+const mocks = vi.hoisted(() => ({ requireAdmin: vi.fn(), setSecret: vi.fn(), getLineChannelAccessToken: vi.fn(), upsertOperationalSetting: vi.fn(), saveLineAutomaticReplyConfig: vi.fn(), saveLineDueMessageProfile: vi.fn(), saveLineInstallmentReminderConfig: vi.fn(), appendAudit: vi.fn(), revalidatePath: vi.fn(), fetch: vi.fn() }));
 
 vi.mock("@/lib/admin-auth", () => ({ requireAdmin: mocks.requireAdmin }));
 vi.mock("@/lib/secrets/service", () => ({ setSecret: mocks.setSecret, getLineChannelAccessToken: mocks.getLineChannelAccessToken }));
-vi.mock("@/lib/sheets/settings", () => ({ upsertOperationalSetting: mocks.upsertOperationalSetting, saveLineDueMessageProfile: mocks.saveLineDueMessageProfile, saveLineInstallmentReminderConfig: mocks.saveLineInstallmentReminderConfig }));
+vi.mock("@/lib/sheets/settings", () => ({ upsertOperationalSetting: mocks.upsertOperationalSetting, saveLineAutomaticReplyConfig: mocks.saveLineAutomaticReplyConfig, saveLineDueMessageProfile: mocks.saveLineDueMessageProfile, saveLineInstallmentReminderConfig: mocks.saveLineInstallmentReminderConfig }));
 vi.mock("@/lib/sheets/payments", () => ({ appendAudit: mocks.appendAudit }));
 vi.mock("next/cache", () => ({ revalidatePath: mocks.revalidatePath }));
 
@@ -14,10 +15,12 @@ import {
   previewLineInstallmentReminderAction,
   previewLineWelcomeTemplateAction,
   resetLineDueMessageProfileAction,
+  resetLineAutomaticReplyConfigAction,
   resetLineInstallmentReminderConfigAction,
   resetLineWelcomeTemplateAction,
   saveAndTestLineCredentialsAction,
   saveLineDueMessageProfileAction,
+  saveLineAutomaticReplyConfigAction,
   saveLineInstallmentReminderConfigAction,
   saveLineWelcomeTemplateAction,
 } from "./line-actions";
@@ -32,10 +35,51 @@ beforeEach(() => {
   mocks.setSecret.mockResolvedValue(undefined);
   mocks.getLineChannelAccessToken.mockResolvedValue(accessToken);
   mocks.upsertOperationalSetting.mockResolvedValue(undefined);
+  mocks.saveLineAutomaticReplyConfig.mockResolvedValue(undefined);
   mocks.saveLineDueMessageProfile.mockResolvedValue(undefined);
   mocks.saveLineInstallmentReminderConfig.mockResolvedValue(undefined);
   mocks.appendAudit.mockResolvedValue(undefined);
   mocks.fetch.mockResolvedValue(new Response("{}", { status: 200 }));
+});
+
+describe("LINE automatic reply actions", () => {
+  it("requires admin access before parsing automatic replies", async () => {
+    mocks.requireAdmin.mockRejectedValueOnce(new Error("Unauthorized"));
+
+    await expect(saveLineAutomaticReplyConfigAction(new FormData())).rejects.toThrow("Unauthorized");
+    expect(mocks.saveLineAutomaticReplyConfig).not.toHaveBeenCalled();
+  });
+
+  it("saves one complete config and audits no message body", async () => {
+    const config = structuredClone(DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG);
+    config.slip.flagged = "Private custom flagged copy";
+    const formData = new FormData();
+    formData.set("config", JSON.stringify(config));
+
+    await expect(saveLineAutomaticReplyConfigAction(formData)).resolves.toEqual({ ok: true, config });
+    expect(mocks.saveLineAutomaticReplyConfig).toHaveBeenCalledWith(config);
+    expect(mocks.appendAudit).toHaveBeenCalledWith(expect.objectContaining({
+      action: "LINE_AUTOMATIC_REPLY_CONFIG_SAVED",
+      metadata: JSON.stringify({ settingKey: LINE_AUTOMATIC_REPLY_CONFIG_SETTING_KEY, version: 1 }),
+    }));
+    expect(JSON.stringify(mocks.appendAudit.mock.calls)).not.toContain("Private custom flagged copy");
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/admin/settings");
+  });
+
+  it("rejects invalid submitted config before persistence or audit", async () => {
+    const formData = new FormData();
+    formData.set("config", JSON.stringify({ version: 1 }));
+
+    await expect(saveLineAutomaticReplyConfigAction(formData)).rejects.toThrow();
+    expect(mocks.saveLineAutomaticReplyConfig).not.toHaveBeenCalled();
+    expect(mocks.appendAudit).not.toHaveBeenCalled();
+  });
+
+  it("restores and audits documented defaults", async () => {
+    await expect(resetLineAutomaticReplyConfigAction()).resolves.toEqual({ ok: true, config: DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG });
+    expect(mocks.saveLineAutomaticReplyConfig).toHaveBeenCalledWith(DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG);
+    expect(mocks.appendAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "LINE_AUTOMATIC_REPLY_CONFIG_RESET" }));
+  });
 });
 
 describe("LINE due-message profile actions", () => {

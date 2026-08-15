@@ -1,6 +1,7 @@
 import { createHmac } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClientRecord } from "@/lib/sheets/clients";
+import { DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG } from "@/lib/line/reply-config";
 
 const mocks = vi.hoisted(() => ({
   getLineChannelSecret: vi.fn(),
@@ -11,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   claimLineLink: vi.fn(),
   appendAudit: vi.fn(),
   processLineSlipEvent: vi.fn(),
+  getLineAutomaticReplyConfig: vi.fn(),
   fetchFn: vi.fn(),
   runtimeConfig: vi.fn(),
 }));
@@ -28,6 +30,7 @@ vi.mock("@/lib/sheets/clients", () => ({
 }));
 
 vi.mock("@/lib/sheets/payments", () => ({ appendAudit: mocks.appendAudit }));
+vi.mock("@/lib/sheets/settings", () => ({ getLineAutomaticReplyConfig: mocks.getLineAutomaticReplyConfig }));
 
 vi.mock("@/lib/line/slip-payments", () => ({ processLineSlipEvent: mocks.processLineSlipEvent }));
 vi.mock("@/lib/runtime-config", () => ({ runtimeConfig: mocks.runtimeConfig }));
@@ -71,6 +74,15 @@ beforeEach(() => {
   mocks.claimLineLink.mockResolvedValue("CLAIMED");
   mocks.appendAudit.mockResolvedValue(undefined);
   mocks.processLineSlipEvent.mockResolvedValue({ kind: "ignored" });
+  mocks.getLineAutomaticReplyConfig.mockResolvedValue({
+    ...DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG,
+    connection: {
+      linked: "linked-custom",
+      alreadyLinked: "already-custom",
+      invalidOrExpired: "invalid-custom",
+      conflict: "conflict-custom",
+    },
+  });
   mocks.fetchFn.mockResolvedValue(new Response(null, { status: 200 }));
 });
 
@@ -107,6 +119,7 @@ describe("POST /api/line/webhook", () => {
     await expect(POST(signedRequest({ events: [] }))).resolves.toMatchObject({ status: 200 });
     expect(mocks.getLineChannelSecret).toHaveBeenCalledTimes(1);
     expect(mocks.getLineChannelAccessToken).not.toHaveBeenCalled();
+    expect(mocks.getLineAutomaticReplyConfig).not.toHaveBeenCalled();
     expect(mocks.fetchFn).not.toHaveBeenCalled();
   });
 
@@ -120,6 +133,7 @@ describe("POST /api/line/webhook", () => {
     await expect(POST(signedRequest({ events }))).resolves.toMatchObject({ status: 200 });
     expect(mocks.listClients).not.toHaveBeenCalled();
     expect(mocks.getLineChannelAccessToken).not.toHaveBeenCalled();
+    expect(mocks.getLineAutomaticReplyConfig).not.toHaveBeenCalled();
     expect(mocks.fetchFn).not.toHaveBeenCalled();
   });
 
@@ -170,8 +184,9 @@ describe("POST /api/line/webhook", () => {
     expect(res.status).toBe(200);
     expect(mocks.claimLineLink).toHaveBeenCalledWith(expect.objectContaining({ code: "ABCDEF0123", lineUserId: userId, client: expect.objectContaining({ line_user_id: userId, line_link_status: "LINKED" }) }));
     expect(mocks.updateLineLinkClient).toHaveBeenCalledWith(expect.objectContaining({ client: expect.objectContaining({ line_display_name: "Nisa LINE", line_picture_url: "https://profile.line-scdn.net/avatar/path" }) }));
-    expect(mocks.fetchFn).toHaveBeenCalledWith("https://api.line.me/v2/bot/message/reply", expect.objectContaining({ body: JSON.stringify({ replyToken: "reply-token", messages: [{ type: "text", text: "✓ Connected\n\nYour coaching account is now linked. Future payment links can be sent here automatically." }] }) }));
-    expect(mocks.fetchFn).toHaveBeenCalledWith("https://api.line.me/v2/bot/message/reply", expect.objectContaining({ body: JSON.stringify({ replyToken: "reply-token-2", messages: [{ type: "text", text: "I couldn't connect this account. The code is invalid or expired. Please ask your trainer for a new code." }] }) }));
+    expect(mocks.fetchFn).toHaveBeenCalledWith("https://api.line.me/v2/bot/message/reply", expect.objectContaining({ body: JSON.stringify({ replyToken: "reply-token", messages: [{ type: "text", text: "linked-custom" }] }) }));
+    expect(mocks.fetchFn).toHaveBeenCalledWith("https://api.line.me/v2/bot/message/reply", expect.objectContaining({ body: JSON.stringify({ replyToken: "reply-token-2", messages: [{ type: "text", text: "invalid-custom" }] }) }));
+    expect(mocks.getLineAutomaticReplyConfig).toHaveBeenCalledOnce();
   });
 
   it("keeps a completed link when profile lookup fails", async () => {
@@ -192,6 +207,16 @@ describe("POST /api/line/webhook", () => {
     expect(mocks.updateLineLinkClient).not.toHaveBeenCalled();
   });
 
+  it("uses documented defaults when automatic reply settings cannot be read", async () => {
+    mocks.getLineAutomaticReplyConfig.mockRejectedValueOnce(new Error("Sheets unavailable"));
+
+    await expect(POST(signedRequest({ events: [event()] }))).resolves.toMatchObject({ status: 200 });
+
+    expect(mocks.fetchFn).toHaveBeenCalledWith("https://api.line.me/v2/bot/message/reply", expect.objectContaining({
+      body: JSON.stringify({ replyToken: "reply-token", messages: [{ type: "text", text: DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG.connection.linked }] }),
+    }));
+  });
+
   it("uses mandated replies without disclosing inactive-client state", async () => {
     mocks.listClients
       .mockResolvedValueOnce([client({ line_user_id: userId, line_link_code: "", line_link_code_expires_at: "", line_link_status: "LINKED" })])
@@ -204,9 +229,10 @@ describe("POST /api/line/webhook", () => {
       event({ webhookEventId: "event_3", replyToken: "reply-token-3" }),
     ] }))).resolves.toMatchObject({ status: 200 });
 
-    expect(mocks.fetchFn).toHaveBeenCalledWith("https://api.line.me/v2/bot/message/reply", expect.objectContaining({ body: JSON.stringify({ replyToken: "reply-token", messages: [{ type: "text", text: "✓ Already connected\n\nThis LINE account is already linked to your coaching account." }] }) }));
-    expect(mocks.fetchFn).toHaveBeenCalledWith("https://api.line.me/v2/bot/message/reply", expect.objectContaining({ body: JSON.stringify({ replyToken: "reply-token-2", messages: [{ type: "text", text: "I couldn't connect this account. The code is invalid or expired. Please ask your trainer for a new code." }] }) }));
-    expect(mocks.fetchFn).toHaveBeenCalledWith("https://api.line.me/v2/bot/message/reply", expect.objectContaining({ body: JSON.stringify({ replyToken: "reply-token-3", messages: [{ type: "text", text: "I couldn't connect this account automatically. Please contact your trainer so they can check the existing connection." }] }) }));
+    expect(mocks.fetchFn).toHaveBeenCalledWith("https://api.line.me/v2/bot/message/reply", expect.objectContaining({ body: JSON.stringify({ replyToken: "reply-token", messages: [{ type: "text", text: "already-custom" }] }) }));
+    expect(mocks.fetchFn).toHaveBeenCalledWith("https://api.line.me/v2/bot/message/reply", expect.objectContaining({ body: JSON.stringify({ replyToken: "reply-token-2", messages: [{ type: "text", text: "invalid-custom" }] }) }));
+    expect(mocks.fetchFn).toHaveBeenCalledWith("https://api.line.me/v2/bot/message/reply", expect.objectContaining({ body: JSON.stringify({ replyToken: "reply-token-3", messages: [{ type: "text", text: "conflict-custom" }] }) }));
+    expect(mocks.getLineAutomaticReplyConfig).toHaveBeenCalledOnce();
   });
 
   it("audits reply failure without rolling back a valid link", async () => {

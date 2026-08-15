@@ -1,9 +1,11 @@
 import { getLineChannelAccessToken, getLineChannelSecret } from "@/lib/secrets/service";
 import { appendAudit } from "@/lib/sheets/payments";
+import { getLineAutomaticReplyConfig } from "@/lib/sheets/settings";
 import { claimLineLink, listClients, updateClient, updateLineLinkClient } from "@/lib/sheets/clients";
 import { getLineProfile, replyLineMessage } from "@/lib/line/client";
 import { parseLineLinkCommand } from "@/lib/line/link-command";
 import { createLineLinkService, type LinkResult } from "@/lib/line/linking";
+import { DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG, lineConnectionReplyText, type LineAutomaticReplyConfig } from "@/lib/line/reply-config";
 import { processLineSlipEvent, type LineSlipEvent } from "@/lib/line/slip-payments";
 import { verifyLineSignature } from "@/lib/line/signature";
 import { runtimeConfig } from "@/lib/runtime-config";
@@ -11,14 +13,6 @@ import { runtimeConfig } from "@/lib/runtime-config";
 export const runtime = "nodejs";
 
 const LINE_USER_ID_PATTERN = /^U[a-f0-9]{32}$/;
-const REPLY_TEXT: Record<LinkResult, string> = {
-  LINKED: "✓ Connected\n\nYour coaching account is now linked. Future payment links can be sent here automatically.",
-  ALREADY_LINKED: "✓ Already connected\n\nThis LINE account is already linked to your coaching account.",
-  INVALID_OR_EXPIRED: "I couldn't connect this account. The code is invalid or expired. Please ask your trainer for a new code.",
-  CLIENT_INACTIVE: "I couldn't connect this account. The code is invalid or expired. Please ask your trainer for a new code.",
-  CONFLICT: "I couldn't connect this account automatically. Please contact your trainer so they can check the existing connection.",
-};
-
 type LineEvent = { type?: unknown; webhookEventId?: unknown; replyToken?: unknown; source?: unknown; message?: unknown };
 type DirectLinkEvent = { webhookEventId: string; replyToken: string; lineUserId: string; code: string };
 type DirectProfileEvent = { lineUserId: string };
@@ -84,7 +78,7 @@ async function auditReplyFailure(event: DirectLinkEvent): Promise<void> {
   }
 }
 
-async function processEvent(event: DirectLinkEvent): Promise<void> {
+async function processEvent(event: DirectLinkEvent, automaticReplyConfig: LineAutomaticReplyConfig): Promise<void> {
   const service = createLineLinkService({ listClients, updateClient, updateLineLinkClient, claimLineLink, appendAudit });
   let result: LinkResult;
   try {
@@ -111,7 +105,7 @@ async function processEvent(event: DirectLinkEvent): Promise<void> {
   }
 
   try {
-    await replyLineMessage({ channelAccessToken, replyToken: event.replyToken, text: REPLY_TEXT[result], fetchFn: fetch });
+    await replyLineMessage({ channelAccessToken, replyToken: event.replyToken, text: lineConnectionReplyText(automaticReplyConfig, result), fetchFn: fetch });
   } catch {
     await auditReplyFailure(event);
   }
@@ -151,11 +145,19 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const events = payload && typeof payload === "object" && Array.isArray((payload as { events?: unknown }).events) ? (payload as { events: unknown[] }).events : [];
+  let automaticReplyConfig = DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG;
+  if (events.some((value) => directLinkEvent(value) !== null)) {
+    try {
+      automaticReplyConfig = await getLineAutomaticReplyConfig();
+    } catch {
+      automaticReplyConfig = DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG;
+    }
+  }
   for (const value of events) {
     const linkEvent = directLinkEvent(value);
     if (linkEvent) {
       try {
-        await processEvent(linkEvent);
+        await processEvent(linkEvent, automaticReplyConfig);
       } catch {
         // One event failure must not make LINE retry a successfully signed batch.
       }

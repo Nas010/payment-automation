@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_LINE_DUE_PROFILES, LINE_DUE_PROFILE_SETTING_KEYS } from "@/lib/line/message-profile";
 import { DEFAULT_LINE_WELCOME_TEMPLATE } from "@/lib/line/message-template";
+import { DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG, LINE_AUTOMATIC_REPLY_CONFIG_SETTING_KEY } from "@/lib/line/reply-config";
 import { LINE_TERMS_ACTIVE_VERSION_KEY, LINE_TERMS_VERSIONS_KEY, type LineTermsImageVersion } from "@/lib/line/terms-image";
 import { createDefaultLineMessageTestProfile, LINE_MESSAGE_TEST_PROFILE_SETTING_KEY } from "@/lib/line/message-test-profile";
 
@@ -10,7 +11,7 @@ vi.mock("./client", () => ({
   getGoogleSheets: () => ({ spreadsheetId: "spreadsheet_1", sheets: { spreadsheets: { values: { get: mocks.get, batchUpdate: mocks.batchUpdate } } } }),
 }));
 
-import { getLineDueMessageProfiles, getLineTermsImageState, getLineWelcomeTemplate, resolveLineDueMessageProfiles, resolveLineInstallmentReminderConfig, resolveLineMessageTestProfile, saveLineDueMessageProfile, saveLineTermsImageVersion, upsertOperationalSetting, upsertOperationalSettings } from "./settings";
+import { getLineAutomaticReplyConfig, getLineDueMessageProfiles, getLineTermsImageState, getLineWelcomeTemplate, resolveLineDueMessageProfiles, resolveLineInstallmentReminderConfig, resolveLineMessageTestProfile, saveLineAutomaticReplyConfig, saveLineDueMessageProfile, saveLineTermsImageVersion, upsertOperationalSetting, upsertOperationalSettings } from "./settings";
 
 const termsVersion: LineTermsImageVersion = {
   versionId: "terms_abcdefghijklmnopqrstuvwxyzABCDEF",
@@ -51,6 +52,39 @@ describe("operational settings writes", () => {
   it("keeps the single-setting API on the same atomic write path", async () => {
     await upsertOperationalSetting("existing_key", "new");
     expect(mocks.batchUpdate).toHaveBeenCalledWith(expect.objectContaining({ requestBody: expect.objectContaining({ data: [{ range: "Settings!A2:B2", values: [["existing_key", "new"]] }] }) }));
+  });
+
+  it("stores one validated automatic reply object atomically", async () => {
+    const config = structuredClone(DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG);
+    config.slip.review = "Custom review";
+
+    await saveLineAutomaticReplyConfig(config);
+
+    expect(mocks.batchUpdate).toHaveBeenCalledWith(expect.objectContaining({ requestBody: expect.objectContaining({ data: [
+      expect.objectContaining({ values: [[LINE_AUTOMATIC_REPLY_CONFIG_SETTING_KEY, JSON.stringify(config)]] }),
+    ] }) }));
+  });
+
+  it("rejects malformed automatic replies before a Sheets write", async () => {
+    const invalid = structuredClone(DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG);
+    invalid.connection.conflict = "   ";
+
+    await expect(upsertOperationalSetting(LINE_AUTOMATIC_REPLY_CONFIG_SETTING_KEY, JSON.stringify(invalid)))
+      .rejects.toThrow("LINE automatic reply configuration is invalid");
+    expect(mocks.batchUpdate).not.toHaveBeenCalled();
+  });
+
+  it("loads saved automatic replies and safely falls back for malformed storage or Sheets errors", async () => {
+    const custom = structuredClone(DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG);
+    custom.connection.linked = "Connected custom";
+    mocks.get.mockResolvedValueOnce({ data: { values: [["key", "value"], [LINE_AUTOMATIC_REPLY_CONFIG_SETTING_KEY, JSON.stringify(custom)]] } });
+    await expect(getLineAutomaticReplyConfig()).resolves.toEqual(custom);
+
+    mocks.get.mockResolvedValueOnce({ data: { values: [["key", "value"], [LINE_AUTOMATIC_REPLY_CONFIG_SETTING_KEY, "invalid"]] } });
+    await expect(getLineAutomaticReplyConfig()).resolves.toEqual(DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG);
+
+    mocks.get.mockRejectedValueOnce(new Error("Sheets unavailable"));
+    await expect(getLineAutomaticReplyConfig()).resolves.toEqual(DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG);
   });
 
   it("resolves stored profiles independently and uses legacy fallback only for the absent type", () => {
