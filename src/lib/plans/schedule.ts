@@ -39,6 +39,7 @@ type PlanSchedule = Pick<PaymentSchedule, "client_id" | "package_name" | "instal
   payment_type: string;
   installment_number: string;
   created_at: string;
+  assignment_id?: string;
 };
 
 function parseDateOnly(value: string): Date {
@@ -102,11 +103,13 @@ export function selectPaymentGenerationSchedules<T extends PaymentGenerationSche
 export function planTotalSatangForSchedule(target: PlanSchedule, schedules: readonly PlanSchedule[]): number {
   const expectedCount = Number(target.installment_count);
   if (!Number.isSafeInteger(expectedCount) || expectedCount < 1) throw new Error("Schedule installment count is invalid");
-  const group = schedules.filter((item) => item.client_id === target.client_id
-    && item.package_name === target.package_name
-    && item.payment_type === target.payment_type
-    && item.installment_count === target.installment_count
-    && item.created_at === target.created_at);
+  const group = schedules.filter((item) => target.assignment_id
+    ? item.assignment_id === target.assignment_id
+    : item.client_id === target.client_id
+      && item.package_name === target.package_name
+      && item.payment_type === target.payment_type
+      && item.installment_count === target.installment_count
+      && item.created_at === target.created_at);
   const positions = group.map((item) => Number(item.installment_number)).sort((left, right) => left - right);
   if (group.length !== expectedCount || positions.some((position, index) => position !== index + 1)) {
     throw new Error("Schedule plan group is incomplete");

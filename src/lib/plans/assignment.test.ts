@@ -18,6 +18,8 @@ describe("buildAssignedScheduleRows", () => {
       firstDueDate: "2026-08-31",
       notes: "Round two",
       now: "2026-08-11T00:00:00.000Z",
+      assignmentId: "assignment_1",
+      assignmentKind: "PACKAGE",
       createScheduleId: (index) => `schedule_${index + 1}`,
     });
 
@@ -41,6 +43,8 @@ describe("buildAssignedScheduleRows", () => {
       notes: "Round two",
       created_at: "2026-08-11T00:00:00.000Z",
       updated_at: "2026-08-11T00:00:00.000Z",
+      assignment_id: "assignment_1",
+      assignment_kind: "PACKAGE",
     });
   });
 
@@ -55,6 +59,8 @@ describe("buildAssignedScheduleRows", () => {
       firstDueDate: "2026-08-15",
       notes: "",
       now: "2026-08-11T00:00:00.000Z",
+      assignmentId: "manual_1",
+      assignmentKind: "MANUAL",
       createScheduleId: () => "schedule_once",
     });
 
@@ -67,6 +73,8 @@ describe("buildAssignedScheduleRows", () => {
       installment_count: "1",
       amount_thb: "1250",
       due_date: "2026-08-15",
+      assignment_id: "manual_1",
+      assignment_kind: "MANUAL",
     });
   });
 });

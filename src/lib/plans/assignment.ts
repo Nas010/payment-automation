@@ -16,6 +16,8 @@ export type AssignedScheduleInput = {
   firstDueDate: string;
   notes: string;
   now: string;
+  assignmentId: string;
+  assignmentKind: "PACKAGE" | "MANUAL";
   createScheduleId: (index: number) => string;
 };
 
@@ -46,5 +48,7 @@ export function buildAssignedScheduleRows(input: AssignedScheduleInput): NewSche
     notes: input.notes,
     created_at: input.now,
     updated_at: input.now,
+    assignment_id: input.assignmentId,
+    assignment_kind: input.assignmentKind,
   }));
 }
