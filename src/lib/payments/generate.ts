@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { buildPaymentForSchedule, planTotalSatangForSchedule, selectPaymentGenerationSchedules } from "@/lib/plans/schedule";
-import { appendAudit, appendPayment, listPayments, type NewPaymentRecord } from "@/lib/sheets/payments";
-import { listSchedules, updateSchedule, type ScheduleRecord } from "@/lib/sheets/schedules";
+import { appendAudit, appendPayment, getPaymentById, listPayments, updatePaymentIfUnchanged, type NewPaymentRecord } from "@/lib/sheets/payments";
+import { listSchedules, updateScheduleIfUnchanged, type ScheduleRecord } from "@/lib/sheets/schedules";
 import { createPublicToken } from "./token";
 
 export type DuePaymentGenerationResult = {
@@ -53,7 +53,20 @@ export async function generateDuePaymentLinks(options: GenerateDuePaymentLinksOp
         planTotalSatang,
       });
       await appendPayment(payment);
-      await updateSchedule({ ...schedule, status: "GENERATED", generated_at: now, payment_id: payment.payment_id, payment_url: payment.payment_url, updated_at: now });
+      const generatedSchedule = { ...schedule, status: "GENERATED", generated_at: now, payment_id: payment.payment_id, payment_url: payment.payment_url, updated_at: now };
+      if (!await updateScheduleIfUnchanged({ expectedSchedule: schedule, schedule: generatedSchedule })) {
+        const appendedPayment = await getPaymentById(payment.payment_id);
+        if (!appendedPayment) throw new Error("Fresh payment could not be found for revocation");
+        if (appendedPayment.status !== "VOID") {
+          if (appendedPayment.status !== "PENDING") throw new Error("Fresh payment changed before revocation");
+          const voidedPayment = { ...appendedPayment, status: "VOID", line_slip_expected: "FALSE", line_slip_processing_status: "STOPPED", updated_at: now };
+          if (!await updatePaymentIfUnchanged({ expectedPayment: appendedPayment, payment: voidedPayment })) {
+            const currentPayment = await getPaymentById(payment.payment_id);
+            if (currentPayment?.status !== "VOID") throw new Error("Fresh payment changed before revocation");
+          }
+        }
+        throw new Error("Schedule changed before payment link generation");
+      }
       await appendAudit({
         paymentId: payment.payment_id,
         clientId: payment.client_id,

@@ -108,9 +108,9 @@ describe("ensureScheduleSchema", () => {
 
     await ensureScheduleSchema();
 
-    expect(SCHEDULE_HEADERS.slice(-2)).toEqual(["assignment_id", "assignment_kind"]);
-    expect(batchUpdate).toHaveBeenCalledWith({ spreadsheetId: "spreadsheet_1", requestBody: { requests: [{ appendDimension: { sheetId: 14, dimension: "COLUMNS", length: 2 } }] } });
-    expect(get).toHaveBeenCalledWith({ spreadsheetId: "spreadsheet_1", range: "Installment Schedule!A1:T1" });
+    expect(SCHEDULE_HEADERS.slice(-3)).toEqual(["assignment_id", "assignment_kind", "lifecycle_operation_id"]);
+    expect(batchUpdate).toHaveBeenCalledWith({ spreadsheetId: "spreadsheet_1", requestBody: { requests: [{ appendDimension: { sheetId: 14, dimension: "COLUMNS", length: 3 } }] } });
+    expect(get).toHaveBeenCalledWith({ spreadsheetId: "spreadsheet_1", range: "Installment Schedule!A1:U1" });
     expect(update).toHaveBeenCalledWith(expect.objectContaining({
       range: "Installment Schedule!S1",
       requestBody: { values: [["assignment_id"]] },
@@ -118,6 +118,10 @@ describe("ensureScheduleSchema", () => {
     expect(update).toHaveBeenCalledWith(expect.objectContaining({
       range: "Installment Schedule!T1",
       requestBody: { values: [["assignment_kind"]] },
+    }));
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({
+      range: "Installment Schedule!U1",
+      requestBody: { values: [["lifecycle_operation_id"]] },
     }));
   });
 });

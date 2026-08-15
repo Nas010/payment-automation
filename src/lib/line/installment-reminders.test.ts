@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   getLineChannelAccessToken: vi.fn(),
   appendAudit: vi.fn(),
   updatePayment: vi.fn(),
+  updatePaymentIfUnchanged: vi.fn(),
   readPaymentClientSnapshot: vi.fn(),
   getLineInstallmentReminderConfig: vi.fn(),
   renderLineDueMessageProfile: vi.fn(),
@@ -17,7 +18,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/runtime-config", () => ({ runtimeConfig: mocks.runtimeConfig }));
 vi.mock("@/lib/secrets/service", () => ({ getLineChannelAccessToken: mocks.getLineChannelAccessToken }));
-vi.mock("@/lib/sheets/payments", () => ({ appendAudit: mocks.appendAudit, updatePayment: mocks.updatePayment }));
+vi.mock("@/lib/sheets/payments", () => ({ appendAudit: mocks.appendAudit, updatePayment: mocks.updatePayment, updatePaymentIfUnchanged: mocks.updatePaymentIfUnchanged }));
 vi.mock("@/lib/sheets/payment-client-snapshot", () => ({ readPaymentClientSnapshot: mocks.readPaymentClientSnapshot }));
 vi.mock("@/lib/sheets/settings", () => ({ getLineInstallmentReminderConfig: mocks.getLineInstallmentReminderConfig }));
 vi.mock("./message-profile", async (importOriginal) => {
@@ -71,6 +72,7 @@ function expectNoDeliveryWork() {
   expect(mocks.resolveLineDueMessageValues).not.toHaveBeenCalled();
   expect(mocks.renderLineDueMessageProfile).not.toHaveBeenCalled();
   expect(mocks.updatePayment).not.toHaveBeenCalled();
+  expect(mocks.updatePaymentIfUnchanged).not.toHaveBeenCalled();
   expect(mocks.sendLinePushMessage).not.toHaveBeenCalled();
   expect(mocks.appendAudit).not.toHaveBeenCalled();
 }
@@ -81,6 +83,7 @@ beforeEach(() => {
   mocks.getLineChannelAccessToken.mockResolvedValue("line-token");
   mocks.appendAudit.mockResolvedValue(undefined);
   mocks.updatePayment.mockResolvedValue(undefined);
+  mocks.updatePaymentIfUnchanged.mockResolvedValue(true);
   mocks.readPaymentClientSnapshot.mockResolvedValue({ payments: [payment()], clients: [linkedClient()], schedules: [] });
   mocks.getLineInstallmentReminderConfig.mockResolvedValue(reminderConfig(true));
   mocks.isLinkedLinePaymentRecipient.mockReturnValue(true);
@@ -90,6 +93,19 @@ beforeEach(() => {
 });
 
 describe("sendInstallmentReminderRequests", () => {
+  it("does not send or revive a reminder when a stale snapshot loses to VOID", async () => {
+    mocks.updatePaymentIfUnchanged.mockResolvedValue(false);
+
+    await expect(sendInstallmentReminderRequests({ baseUrl: "https://pay.example", today: "2026-08-16" })).resolves.toEqual([]);
+
+    expect(mocks.updatePaymentIfUnchanged).toHaveBeenCalledWith({
+      expectedPayment: payment(),
+      payment: expect.objectContaining({ status: "PENDING", line_reminder_delivery_log: expect.stringContaining('"status":"SENDING"') }),
+    });
+    expect(mocks.sendLinePushMessage).not.toHaveBeenCalled();
+    expect(mocks.appendAudit).not.toHaveBeenCalled();
+  });
+
   it("does not resolve a recipient when all scheduled slots are disabled", async () => {
     mocks.getLineInstallmentReminderConfig.mockResolvedValue(allDisabledReminderConfig());
     const clientLookup = vi.spyOn(Map.prototype, "get");

@@ -1,5 +1,6 @@
 "use server";
 
+import { createHash } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
@@ -18,7 +19,7 @@ import { generateDuePaymentLinks } from "@/lib/payments/generate";
 import { persistPaymentTransition } from "@/lib/payments/transition";
 import { claimLineConnection, listClients, updateClient, updateLineLinkClient, writeClient } from "@/lib/sheets/clients";
 import { getPaymentById, appendAudit, listPayments, updatePaymentIfUnchanged, type PaymentRecord } from "@/lib/sheets/payments";
-import { listSchedules, updateSchedule, writeSchedule, type ScheduleRecord } from "@/lib/sheets/schedules";
+import { listSchedules, updateSchedulesIfUnchanged, writeSchedule, type ScheduleRecord } from "@/lib/sheets/schedules";
 import { listPackages, savePackage, upsertOperationalSetting } from "@/lib/sheets/settings";
 
 const clientSchema = z.object({ client_name: z.string().trim().min(1), package_name: z.string().trim().min(1), payment_type: z.enum(["ONE_TIME", "INSTALLMENTS"]), total_price_thb: z.string(), installment_count: z.coerce.number().int().min(1), interval_months: z.coerce.number().int().min(0), first_due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), notes: z.string().trim() });
@@ -100,6 +101,11 @@ function newScheduleId(): string {
 
 function newAssignmentId(): string {
   return `assignment_${crypto.randomUUID().replaceAll("-", "")}`;
+}
+
+function lifecycleOperationId(action: string, values: readonly string[]): string {
+  const hash = createHash("sha256").update(JSON.stringify(values)).digest("hex").slice(0, 32);
+  return `${action}_${hash}`;
 }
 
 async function generateAndSendInitialPayment(scheduleIds: string[]): Promise<void> {
@@ -207,6 +213,7 @@ type PackageLifecycleContext = {
   assignment: PackageAssignment<ScheduleRecord>;
   packages: Awaited<ReturnType<typeof listPackages>>;
   payments: PaymentRecord[];
+  schedules: ScheduleRecord[];
 };
 
 async function loadPackageLifecycleContext(clientId: string, assignmentId: string): Promise<PackageLifecycleContext> {
@@ -216,13 +223,10 @@ async function loadPackageLifecycleContext(clientId: string, assignmentId: strin
   const assignment = buildPackageAssignments(schedules.filter((item) => item.client_id === clientId), new Set(packages.map((item) => item.package_name)))
     .find((item) => item.id === assignmentId);
   if (!assignment) throw new Error("Package assignment was not found for this client");
-  return { client, assignment, packages, payments };
+  return { client, assignment, packages, payments, schedules };
 }
 
 function requireAssignmentState(assignment: PackageAssignment<ScheduleRecord>, allowed: readonly PackageAssignment<ScheduleRecord>["state"][], action: string): void {
-  if (["COMPLETED", "ENDED", "DELETED"].includes(assignment.state)) {
-    throw new Error(`Package assignment is already ${assignment.state.toLowerCase()}`);
-  }
   if (!allowed.includes(assignment.state)) throw new Error(`Package assignment must be ${allowed.map((item) => item.toLowerCase()).join(" or ")} to ${action}`);
 }
 
@@ -236,16 +240,24 @@ function generatedPaymentForSchedule(schedule: ScheduleRecord, paymentsById: Rea
   if (!schedule.payment_id) throw new Error(`Generated schedule ${schedule.schedule_id} is missing a linked payment`);
   const payment = paymentsById.get(schedule.payment_id);
   if (!payment || payment.client_id !== schedule.client_id) throw new Error(`Generated schedule ${schedule.schedule_id} is missing a linked payment`);
-  if (payment.status !== "PENDING") throw new Error(`Package assignment cannot be changed while payment ${payment.payment_id} is ${payment.status}`);
+  if (payment.status !== "PENDING" && payment.status !== "VOID") throw new Error(`Package assignment cannot be changed while payment ${payment.payment_id} is ${payment.status}`);
   return payment;
 }
 
-async function updateLifecycleSchedules(schedules: readonly ScheduleRecord[], nextStatus: "PAUSED" | "SCHEDULED" | "CANCELLED" | "DELETED", payments: readonly PaymentRecord[], now: string): Promise<void> {
+function assignmentClaimedBy(assignment: PackageAssignment<ScheduleRecord>, operationId: string): boolean {
+  return assignment.schedules.length > 0 && assignment.schedules.every((schedule) => schedule.lifecycle_operation_id === operationId);
+}
+
+async function updateLifecycleSchedules(assignment: PackageAssignment<ScheduleRecord>, nextStatus: "PAUSED" | "SCHEDULED" | "CANCELLED" | "DELETED", payments: readonly PaymentRecord[], now: string, operationId: string): Promise<void> {
+  if (assignmentClaimedBy(assignment, operationId)) return;
+  const schedules = assignment.schedules;
+  const outstanding = new Set(outstandingAssignmentSchedules(assignment).map((schedule) => schedule.schedule_id));
   const paymentsById = new Map(payments.map((payment) => [payment.payment_id, payment]));
   const linkedPayments = new Map<string, PaymentRecord>();
   const paymentsByScheduleId = new Map<string, PaymentRecord>();
 
   for (const schedule of schedules) {
+    if (!outstanding.has(schedule.schedule_id)) continue;
     const payment = generatedPaymentForSchedule(schedule, paymentsById);
     if (payment) {
       linkedPayments.set(payment.payment_id, payment);
@@ -254,21 +266,31 @@ async function updateLifecycleSchedules(schedules: readonly ScheduleRecord[], ne
   }
 
   for (const payment of linkedPayments.values()) {
+    if (payment.status === "VOID") continue;
     const voided = { ...payment, status: "VOID", line_slip_expected: "FALSE", line_slip_processing_status: "STOPPED", updated_at: now };
     if (!await updatePaymentIfUnchanged({ expectedPayment: payment, payment: voided })) {
-      throw new Error("Payment changed before package lifecycle update");
+      const currentPayment = await getPaymentById(payment.payment_id);
+      if (!currentPayment || currentPayment.client_id !== payment.client_id || currentPayment.status !== "VOID") {
+        throw new Error("Payment changed before package lifecycle update");
+      }
     }
   }
 
-  for (const schedule of schedules) {
+  const updates = schedules.map((schedule) => {
     const payment = paymentsByScheduleId.get(schedule.schedule_id);
-    await updateSchedule({
+    const changesState = outstanding.has(schedule.schedule_id);
+    return {
+      expectedSchedule: schedule,
+      schedule: {
       ...schedule,
-      status: nextStatus,
+      ...(changesState ? { status: nextStatus } : {}),
       ...(payment ? { generated_at: "", payment_id: "", payment_url: "" } : {}),
-      updated_at: now,
-    });
-  }
+      ...(changesState || payment ? { updated_at: now } : {}),
+      lifecycle_operation_id: operationId,
+      },
+    };
+  });
+  if (!await updateSchedulesIfUnchanged({ updates })) throw new Error("Schedule changed before package lifecycle update");
 }
 
 async function recordPackageLifecycleAction(input: {
@@ -300,8 +322,9 @@ export async function pausePackageAssignmentAction(clientId: string, formData: F
   await requireAdmin();
   const data = assignmentIdSchema.parse(values(formData));
   const context = await loadPackageLifecycleContext(clientId, data.assignment_id);
-  requireAssignmentState(context.assignment, ["ACTIVE"], "pause");
-  await updateLifecycleSchedules(outstandingAssignmentSchedules(context.assignment), "PAUSED", context.payments, new Date().toISOString());
+  const operationId = lifecycleOperationId("pause", [clientId, context.assignment.id]);
+  requireAssignmentState(context.assignment, ["ACTIVE", ...(assignmentClaimedBy(context.assignment, operationId) ? ["PAUSED" as const] : [])], "pause");
+  await updateLifecycleSchedules(context.assignment, "PAUSED", context.payments, new Date().toISOString(), operationId);
   await recordPackageLifecycleAction({ clientId, assignment: context.assignment, action: "PACKAGE_ASSIGNMENT_PAUSED", newStatus: "PAUSED", reason: "Package assignment paused by admin" });
   await finishPackageLifecycleAction(clientId);
 }
@@ -310,8 +333,9 @@ export async function resumePackageAssignmentAction(clientId: string, formData: 
   await requireAdmin();
   const data = assignmentIdSchema.parse(values(formData));
   const context = await loadPackageLifecycleContext(clientId, data.assignment_id);
-  requireAssignmentState(context.assignment, ["PAUSED"], "resume");
-  await updateLifecycleSchedules(outstandingAssignmentSchedules(context.assignment), "SCHEDULED", context.payments, new Date().toISOString());
+  const operationId = lifecycleOperationId("resume", [clientId, context.assignment.id]);
+  requireAssignmentState(context.assignment, ["PAUSED", ...(assignmentClaimedBy(context.assignment, operationId) ? ["ACTIVE" as const] : [])], "resume");
+  await updateLifecycleSchedules(context.assignment, "SCHEDULED", context.payments, new Date().toISOString(), operationId);
   await recordPackageLifecycleAction({ clientId, assignment: context.assignment, action: "PACKAGE_ASSIGNMENT_RESUMED", newStatus: "ACTIVE", reason: "Package assignment resumed by admin" });
   await finishPackageLifecycleAction(clientId);
 }
@@ -320,8 +344,9 @@ export async function endPackageAssignmentAction(clientId: string, formData: For
   await requireAdmin();
   const data = assignmentIdSchema.parse(values(formData));
   const context = await loadPackageLifecycleContext(clientId, data.assignment_id);
-  requireAssignmentState(context.assignment, ["ACTIVE", "PAUSED"], "end");
-  await updateLifecycleSchedules(outstandingAssignmentSchedules(context.assignment), "CANCELLED", context.payments, new Date().toISOString());
+  const operationId = lifecycleOperationId("end", [clientId, context.assignment.id]);
+  requireAssignmentState(context.assignment, ["ACTIVE", "PAUSED", ...(assignmentClaimedBy(context.assignment, operationId) ? ["ENDED" as const] : [])], "end");
+  await updateLifecycleSchedules(context.assignment, "CANCELLED", context.payments, new Date().toISOString(), operationId);
   await recordPackageLifecycleAction({ clientId, assignment: context.assignment, action: "PACKAGE_ASSIGNMENT_ENDED", newStatus: "ENDED", reason: "Package assignment ended by admin" });
   await finishPackageLifecycleAction(clientId);
 }
@@ -330,9 +355,10 @@ export async function deletePackageAssignmentAction(clientId: string, formData: 
   await requireAdmin();
   const data = assignmentIdSchema.parse(values(formData));
   const context = await loadPackageLifecycleContext(clientId, data.assignment_id);
-  requireAssignmentState(context.assignment, ["ACTIVE", "PAUSED"], "delete");
+  const operationId = lifecycleOperationId("delete", [clientId, context.assignment.id]);
+  requireAssignmentState(context.assignment, ["ACTIVE", "PAUSED", ...(assignmentClaimedBy(context.assignment, operationId) ? ["DELETED" as const] : [])], "delete");
   if (context.assignment.schedules.some((schedule) => schedule.status === "PAID")) throw new Error("Package assignment cannot be deleted after a payment has been recorded");
-  await updateLifecycleSchedules(outstandingAssignmentSchedules(context.assignment), "DELETED", context.payments, new Date().toISOString());
+  await updateLifecycleSchedules(context.assignment, "DELETED", context.payments, new Date().toISOString(), operationId);
   await recordPackageLifecycleAction({ clientId, assignment: context.assignment, action: "PACKAGE_ASSIGNMENT_DELETED", newStatus: "DELETED", reason: "Package assignment deleted by admin" });
   await finishPackageLifecycleAction(clientId);
 }
@@ -341,7 +367,6 @@ export async function changePackageAssignmentAction(clientId: string, formData: 
   await requireAdmin();
   const data = changePackageAssignmentSchema.parse(values(formData));
   const context = await loadPackageLifecycleContext(clientId, data.assignment_id);
-  requireAssignmentState(context.assignment, ["ACTIVE", "PAUSED"], "change");
   const selectedPackage = context.packages.find((item) => item.package_name === data.package_name && item.active.toUpperCase() === "TRUE");
   if (!selectedPackage) throw new Error("Choose an active package");
   const targetTotalSatang = parseSatang(selectedPackage.total_price_thb);
@@ -354,13 +379,50 @@ export async function changePackageAssignmentAction(clientId: string, formData: 
     throw new Error("Selected package has invalid payment terms");
   }
 
+  let paidSatang = 0;
+  for (const schedule of context.assignment.schedules) {
+    if (schedule.status !== "PAID") continue;
+    const amountSatang = parseSatang(schedule.amount_thb);
+    if (amountSatang === null || amountSatang <= 0 || !Number.isSafeInteger(amountSatang)) {
+      throw new Error(`Paid schedule ${schedule.schedule_id} has an invalid amount`);
+    }
+    paidSatang += amountSatang;
+    if (!Number.isSafeInteger(paidSatang)) throw new Error("Paid package total is invalid");
+  }
+
+  const operationId = lifecycleOperationId("change", [
+    clientId,
+    context.assignment.id,
+    selectedPackage.package_name,
+    selectedPackage.total_price_thb,
+    paymentType,
+    String(paymentCount),
+    String(intervalMonths),
+    data.first_due_date,
+    data.notes,
+  ]);
+  const claimed = assignmentClaimedBy(context.assignment, operationId);
+  if (context.assignment.schedules.some((schedule) => (schedule.lifecycle_operation_id ?? "").startsWith("change_") && schedule.lifecycle_operation_id !== operationId)) {
+    throw new Error("Package assignment was already changed by another operation");
+  }
+  requireAssignmentState(context.assignment, ["ACTIVE", "PAUSED", "COMPLETED", ...(claimed ? ["ENDED" as const] : [])], "change");
+
   const now = new Date().toISOString();
-  const scheduledOutstandingSatang = Math.max(targetTotalSatang - context.assignment.paidSatang, 0);
-  await updateLifecycleSchedules(outstandingAssignmentSchedules(context.assignment), "CANCELLED", context.payments, now);
+  const scheduledOutstandingSatang = Math.max(targetTotalSatang - paidSatang, 0);
+  await updateLifecycleSchedules(context.assignment, "CANCELLED", context.payments, now, operationId);
+  const replacementAssignmentId = `assignment_${operationId}`;
   const schedules = scheduledOutstandingSatang > 0
-    ? buildAssignedScheduleRows({ client: context.client, label: selectedPackage.package_name, paymentType, totalSatang: scheduledOutstandingSatang, paymentCount, intervalMonths, firstDueDate: data.first_due_date, notes: data.notes, now, assignmentId: newAssignmentId(), assignmentKind: "PACKAGE", createScheduleId: newScheduleId })
+    ? buildAssignedScheduleRows({ client: context.client, label: selectedPackage.package_name, paymentType, totalSatang: scheduledOutstandingSatang, paymentCount, intervalMonths, firstDueDate: data.first_due_date, notes: data.notes, now, assignmentId: replacementAssignmentId, assignmentKind: "PACKAGE", createScheduleId: (index) => `schedule_${operationId}_${index + 1}` })
     : [];
-  for (const schedule of schedules) await writeSchedule(schedule);
+  const schedulesById = new Map(context.schedules.map((schedule) => [schedule.schedule_id, schedule]));
+  for (const schedule of schedules) {
+    const existing = schedulesById.get(schedule.schedule_id);
+    if (existing) {
+      if (existing.assignment_id !== replacementAssignmentId || existing.client_id !== clientId) throw new Error("Replacement schedule identity conflicts with existing data");
+      continue;
+    }
+    await writeSchedule(schedule);
+  }
   await generateAndSendInitialPayment(schedules.length ? [schedules[0].schedule_id] : []);
   await updateClient({
     ...context.client,
@@ -383,10 +445,10 @@ export async function changePackageAssignmentAction(clientId: string, formData: 
     reason: "Package assignment changed by admin",
     metadata: {
       packageName: selectedPackage.package_name,
-      paidSatang: context.assignment.paidSatang,
+      paidSatang,
       targetTotalSatang,
       scheduledOutstandingSatang,
-      excessCreditSatang: Math.max(context.assignment.paidSatang - targetTotalSatang, 0),
+      excessCreditSatang: Math.max(paidSatang - targetTotalSatang, 0),
     },
   });
   await finishPackageLifecycleAction(clientId);
@@ -420,6 +482,7 @@ export async function confirmPaymentAction(formData: FormData): Promise<void> {
   const [payment, schedules] = await Promise.all([getPaymentById(paymentId), listSchedules()]);
   const schedule = schedules.find((item) => item.payment_id === paymentId);
   if (!payment || !schedule) throw new Error("Payment or linked schedule was not found");
+  if (payment.status === "VOID") throw new Error("Voided payments cannot be manually confirmed");
   await persistPaymentTransition({ payment, schedule, nextStatus: "MANUAL_CONFIRMED", source: "ADMIN", reason });
   revalidatePath("/admin");
 }

@@ -66,6 +66,7 @@ function PackageAssignmentCard({
   deletePackageAssignmentAction,
 }: Omit<ClientPackageAssignmentsProps, "assignments"> & { assignment: PackageAssignment }) {
   const mutable = assignment.state === "ACTIVE" || assignment.state === "PAUSED";
+  const changeable = mutable || assignment.state === "COMPLETED";
   const selectedPackage = packages.some((item) => item.package_name === assignment.label) ? assignment.label : packages[0]?.package_name ?? "";
 
   return <Card>
@@ -79,8 +80,8 @@ function PackageAssignmentCard({
         <Metric label="Remaining" value={formatThb(assignment.outstandingSatang)} />
         <Metric label="Next due" value={formatDate(assignment.nextDueDate)} />
       </dl>
+      {changeable ? <ChangePackageForm assignmentId={assignment.id} assignmentLabel={assignment.label} selectedPackage={selectedPackage} packages={packages} firstDueDate={assignment.nextDueDate || bangkokDateKey()} action={changePackageAssignmentAction} /> : null}
       {mutable ? <>
-        <ChangePackageForm assignmentId={assignment.id} assignmentLabel={assignment.label} selectedPackage={selectedPackage} packages={packages} firstDueDate={assignment.nextDueDate || bangkokDateKey()} action={changePackageAssignmentAction} />
         <div className="flex flex-wrap gap-2">
           {assignment.state === "ACTIVE" ? <LifecycleActionForm assignmentId={assignment.id} label="Pause" action={pausePackageAssignmentAction} /> : null}
           {assignment.state === "PAUSED" ? <LifecycleActionForm assignmentId={assignment.id} label="Resume" action={resumePackageAssignmentAction} /> : null}

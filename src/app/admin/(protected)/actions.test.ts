@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   listPayments: vi.fn(),
   listSchedules: vi.fn(),
   updateSchedule: vi.fn(),
+  updateSchedulesIfUnchanged: vi.fn(),
   persistPaymentTransition: vi.fn(),
   sendDueLinePaymentRequests: vi.fn(),
   updatePaymentIfUnchanged: vi.fn(),
@@ -39,11 +40,11 @@ vi.mock("@/lib/payments/transition", () => ({ persistPaymentTransition: mocks.pe
 vi.mock("@/lib/line/due-payments", () => ({ sendDueLinePaymentRequests: mocks.sendDueLinePaymentRequests }));
 vi.mock("@/lib/sheets/clients", () => ({ listClients: mocks.listClients, writeClient: mocks.writeClient, updateClient: mocks.updateClient, updateLineLinkClient: mocks.updateLineLinkClient, claimLineConnection: mocks.claimLineConnection }));
 vi.mock("@/lib/sheets/payments", () => ({ appendAudit: mocks.appendAudit, getPaymentById: mocks.getPaymentById, listPayments: mocks.listPayments, updatePaymentIfUnchanged: mocks.updatePaymentIfUnchanged }));
-vi.mock("@/lib/sheets/schedules", () => ({ listSchedules: mocks.listSchedules, updateSchedule: mocks.updateSchedule, writeSchedule: mocks.writeSchedule }));
+vi.mock("@/lib/sheets/schedules", () => ({ listSchedules: mocks.listSchedules, updateSchedule: mocks.updateSchedule, updateSchedulesIfUnchanged: mocks.updateSchedulesIfUnchanged, writeSchedule: mocks.writeSchedule }));
 vi.mock("@/lib/sheets/settings", () => ({ listPackages: mocks.listPackages, savePackage: mocks.savePackage, upsertOperationalSetting: mocks.upsertOperationalSetting }));
 
 import { hashLineConnectionToken, recoverLineConnectionToken } from "@/lib/line/connection-token";
-import { assignPackageAction, changePackageAssignmentAction, createClientAction, createManualPaymentAction, deletePackageAssignmentAction, disconnectLineAction, endPackageAssignmentAction, generateMissingLineConnectionsAction, pausePackageAssignmentAction, renewLineConnectionAction, resumePackageAssignmentAction, sendLinePaymentAction, stopAwaitingLineSlipAction } from "./actions";
+import { assignPackageAction, changePackageAssignmentAction, confirmPaymentAction, createClientAction, createManualPaymentAction, deletePackageAssignmentAction, disconnectLineAction, endPackageAssignmentAction, generateMissingLineConnectionsAction, pausePackageAssignmentAction, renewLineConnectionAction, resumePackageAssignmentAction, sendLinePaymentAction, stopAwaitingLineSlipAction } from "./actions";
 
 const now = "2026-08-10T12:00:00.000Z";
 const userId = "Uaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -99,6 +100,7 @@ function schedule(overrides: Partial<ScheduleRecord> = {}): ScheduleRecord {
     updated_at: now,
     assignment_id: "assignment_1",
     assignment_kind: "PACKAGE",
+    lifecycle_operation_id: "",
     ...overrides,
   };
 }
@@ -128,6 +130,7 @@ beforeEach(() => {
   mocks.listPayments.mockResolvedValue([]);
   mocks.listSchedules.mockResolvedValue([]);
   mocks.updateSchedule.mockResolvedValue(undefined);
+  mocks.updateSchedulesIfUnchanged.mockResolvedValue(true);
   mocks.updatePaymentIfUnchanged.mockResolvedValue(true);
   mocks.sendDueLinePaymentRequests.mockResolvedValue({ accepted: ["pay_1"], alreadyAccepted: [], skippedMissingUserId: [], failed: [], disabled: false });
   mocks.runtimeConfig.mockResolvedValue({ publicBaseUrl: "https://example.test" });
@@ -225,6 +228,19 @@ describe("protected LINE payment actions", () => {
 
     await expect(stopAwaitingLineSlipAction("pay_1")).resolves.toBe(false);
     expect(mocks.appendAudit).not.toHaveBeenCalled();
+  });
+
+  it("rejects direct manual confirmation of a voided payment", async () => {
+    const formData = new FormData();
+    formData.set("payment_id", "pay_1");
+    formData.set("reason", "bank checked");
+    formData.set("acknowledged", "on");
+    mocks.getPaymentById.mockResolvedValue(payment({ status: "VOID" }));
+    mocks.listSchedules.mockResolvedValue([schedule({ status: "GENERATED", payment_id: "pay_1" })]);
+
+    await expect(confirmPaymentAction(formData)).rejects.toThrow("Voided payments cannot be manually confirmed");
+
+    expect(mocks.persistPaymentTransition).not.toHaveBeenCalled();
   });
 });
 
@@ -394,7 +410,10 @@ describe("existing client billing actions", () => {
       expectedPayment: payment(),
       payment: expect.objectContaining({ status: "VOID", line_slip_expected: "FALSE", line_slip_processing_status: "STOPPED" }),
     }));
-    expect(mocks.updateSchedule).toHaveBeenCalledWith(expect.objectContaining({ schedule_id: "generated", status: "CANCELLED", generated_at: "", payment_id: "", payment_url: "" }));
+    expect(mocks.updateSchedulesIfUnchanged).toHaveBeenCalledWith({ updates: expect.arrayContaining([expect.objectContaining({
+      expectedSchedule: expect.objectContaining({ schedule_id: "generated", status: "GENERATED", payment_id: "pay_1" }),
+      schedule: expect.objectContaining({ schedule_id: "generated", status: "CANCELLED", generated_at: "", payment_id: "", payment_url: "" }),
+    })]) });
     expect(mocks.writeSchedule).toHaveBeenCalledWith(expect.objectContaining({ assignment_kind: "PACKAGE", amount_thb: "1000", package_name: "PIF", due_date: "2026-09-01", notes: "Changed" }));
     expect(mocks.updateClient).toHaveBeenCalledWith(expect.objectContaining({ package_name: "PIF", total_price_thb: "1500", payment_type: "ONE_TIME", default_amount_thb: "1000" }));
     expect(mocks.appendAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "PACKAGE_ASSIGNMENT_CHANGED", metadata: expect.stringContaining('"paidSatang":50000') }));
@@ -403,17 +422,112 @@ describe("existing client billing actions", () => {
   it("does not create replacement rows when paid credit covers a package downgrade", async () => {
     mocks.listClients.mockResolvedValue([client()]);
     mocks.listPackages.mockResolvedValue([{ rowNumber: 4, package_name: "Starter", total_price_thb: "400", payment_type: "ONE_TIME", installment_count: "1", interval_months: "0", active: "TRUE" }]);
-    mocks.listSchedules.mockResolvedValue([
-      schedule({ schedule_id: "paid", status: "PAID", generated_at: "", payment_id: "", payment_url: "" }),
-      schedule({ rowNumber: 3, schedule_id: "later", installment_number: "2" }),
-    ]);
+    mocks.listSchedules.mockResolvedValue([schedule({ schedule_id: "paid-pif", payment_type: "ONE_TIME", installment_number: "1", installment_count: "1", status: "PAID", generated_at: "", payment_id: "", payment_url: "" })]);
 
     await changePackageAssignmentAction("client_1", assignmentForm({ package_name: "Starter", first_due_date: "2026-09-01", notes: "Downgrade" }));
 
     expect(mocks.writeSchedule).not.toHaveBeenCalled();
-    expect(mocks.updateSchedule).toHaveBeenCalledWith(expect.objectContaining({ schedule_id: "later", status: "CANCELLED" }));
+    expect(mocks.updateSchedulesIfUnchanged).toHaveBeenCalledWith({ updates: [expect.objectContaining({
+      expectedSchedule: expect.objectContaining({ schedule_id: "paid-pif", status: "PAID" }),
+      schedule: expect.objectContaining({ schedule_id: "paid-pif", status: "PAID", lifecycle_operation_id: expect.stringMatching(/^change_/) }),
+    })] });
     expect(mocks.updateClient).toHaveBeenCalledWith(expect.objectContaining({ package_name: "Starter", default_amount_thb: "0", next_due_date: "" }));
     expect(mocks.appendAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "PACKAGE_ASSIGNMENT_CHANGED", metadata: expect.stringContaining('"excessCreditSatang":10000') }));
+  });
+
+  it("changes a completed one-row PIF assignment and schedules only its upgrade difference", async () => {
+    mocks.listClients.mockResolvedValue([client()]);
+    mocks.listPackages.mockResolvedValue([{ rowNumber: 4, package_name: "Premium", total_price_thb: "1500", payment_type: "ONE_TIME", installment_count: "1", interval_months: "0", active: "TRUE" }]);
+    mocks.listSchedules.mockResolvedValue([schedule({ schedule_id: "paid-pif", payment_type: "ONE_TIME", installment_number: "1", installment_count: "1", status: "PAID", generated_at: "", payment_id: "", payment_url: "" })]);
+
+    await changePackageAssignmentAction("client_1", assignmentForm({ package_name: "Premium", first_due_date: "2026-09-01", notes: "Upgrade" }));
+
+    expect(mocks.updateSchedulesIfUnchanged).toHaveBeenCalledOnce();
+    expect(mocks.writeSchedule).toHaveBeenCalledOnce();
+    expect(mocks.writeSchedule).toHaveBeenCalledWith(expect.objectContaining({ package_name: "Premium", payment_type: "ONE_TIME", amount_thb: "1000", assignment_id: expect.stringMatching(/^assignment_change_/), lifecycle_operation_id: "" }));
+    expect(mocks.updateClient).toHaveBeenCalledWith(expect.objectContaining({ package_name: "Premium", default_amount_thb: "1000" }));
+  });
+
+  it("fails closed on an invalid paid amount before any package change write", async () => {
+    mocks.listClients.mockResolvedValue([client()]);
+    mocks.listPackages.mockResolvedValue([{ rowNumber: 4, package_name: "Premium", total_price_thb: "1500", payment_type: "ONE_TIME", installment_count: "1", interval_months: "0", active: "TRUE" }]);
+    mocks.listSchedules.mockResolvedValue([schedule({ schedule_id: "paid-pif", payment_type: "ONE_TIME", installment_number: "1", installment_count: "1", status: "PAID", amount_thb: "0", generated_at: "", payment_id: "", payment_url: "" })]);
+
+    await expect(changePackageAssignmentAction("client_1", assignmentForm({ package_name: "Premium", first_due_date: "2026-09-01", notes: "Upgrade" }))).rejects.toThrow("Paid schedule paid-pif has an invalid amount");
+
+    expect(mocks.updatePaymentIfUnchanged).not.toHaveBeenCalled();
+    expect(mocks.updateSchedulesIfUnchanged).not.toHaveBeenCalled();
+    expect(mocks.writeSchedule).not.toHaveBeenCalled();
+    expect(mocks.updateClient).not.toHaveBeenCalled();
+    expect(mocks.appendAudit).not.toHaveBeenCalled();
+  });
+
+  it("retries detachment after its payment was already successfully voided", async () => {
+    const generated = schedule({ status: "GENERATED", generated_at: now, payment_id: "pay_1", payment_url: "https://pay.test/pay_1" });
+    mocks.listClients.mockResolvedValue([client()]);
+    mocks.listPackages.mockResolvedValue([{ package_name: "PT", active: "TRUE" }]);
+    mocks.listSchedules.mockResolvedValue([generated]);
+    mocks.listPayments
+      .mockResolvedValueOnce([payment()])
+      .mockResolvedValueOnce([payment({ status: "VOID", line_slip_expected: "FALSE", line_slip_processing_status: "STOPPED" })]);
+    mocks.updateSchedulesIfUnchanged
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true);
+
+    await expect(pausePackageAssignmentAction("client_1", assignmentForm())).rejects.toThrow("Schedule changed before package lifecycle update");
+    await expect(pausePackageAssignmentAction("client_1", assignmentForm())).resolves.toBeUndefined();
+
+    expect(mocks.updatePaymentIfUnchanged).toHaveBeenCalledOnce();
+    expect(mocks.updateSchedulesIfUnchanged).toHaveBeenCalledTimes(2);
+    expect(mocks.appendAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "PACKAGE_ASSIGNMENT_PAUSED" }));
+  });
+
+  it("allows only one concurrent package change to claim and create a replacement", async () => {
+    mocks.listClients.mockResolvedValue([client()]);
+    mocks.listPackages.mockResolvedValue([{ rowNumber: 4, package_name: "Premium", total_price_thb: "1500", payment_type: "ONE_TIME", installment_count: "1", interval_months: "0", active: "TRUE" }]);
+    mocks.listSchedules.mockResolvedValue([schedule({ payment_type: "ONE_TIME", installment_number: "1", installment_count: "1", amount_thb: "500" })]);
+    mocks.updateSchedulesIfUnchanged.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+    const form = () => assignmentForm({ package_name: "Premium", first_due_date: "2026-09-01", notes: "Upgrade" });
+
+    const results = await Promise.allSettled([
+      changePackageAssignmentAction("client_1", form()),
+      changePackageAssignmentAction("client_1", form()),
+    ]);
+
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
+    expect(mocks.writeSchedule).toHaveBeenCalledOnce();
+  });
+
+  it("reuses deterministic replacement rows after one partial write failure", async () => {
+    const old = schedule({ payment_type: "ONE_TIME", installment_number: "1", installment_count: "1", amount_thb: "500" });
+    const stored: ScheduleRecord[] = [old];
+    mocks.listClients.mockResolvedValue([client()]);
+    mocks.listPackages.mockResolvedValue([{ rowNumber: 4, package_name: "Premium", total_price_thb: "1500", payment_type: "INSTALLMENTS", installment_count: "2", interval_months: "1", active: "TRUE" }]);
+    mocks.listSchedules.mockImplementation(async () => stored);
+    mocks.updateSchedulesIfUnchanged.mockImplementation(async ({ updates }: { updates: Array<{ schedule: ScheduleRecord }> }) => {
+      for (const update of updates) {
+        const index = stored.findIndex((item) => item.schedule_id === update.schedule.schedule_id);
+        stored[index] = update.schedule;
+      }
+      return true;
+    });
+    let writeAttempt = 0;
+    mocks.writeSchedule.mockImplementation(async (row: ScheduleRecord) => {
+      writeAttempt += 1;
+      if (writeAttempt === 2) throw new Error("injected replacement write failure");
+      stored.push({ ...row, rowNumber: stored.length + 2 });
+    });
+    const form = () => assignmentForm({ package_name: "Premium", first_due_date: "2026-09-01", notes: "Upgrade" });
+
+    await expect(changePackageAssignmentAction("client_1", form())).rejects.toThrow("injected replacement write failure");
+    await expect(changePackageAssignmentAction("client_1", form())).resolves.toBeUndefined();
+
+    const replacements = stored.filter((item) => item.assignment_id.startsWith("assignment_change_"));
+    expect(replacements).toHaveLength(2);
+    expect(new Set(replacements.map((item) => item.schedule_id)).size).toBe(2);
+    expect(mocks.writeSchedule).toHaveBeenCalledTimes(3);
+    expect(mocks.writeSchedule.mock.calls[1]?.[0].schedule_id).toBe(mocks.writeSchedule.mock.calls[2]?.[0].schedule_id);
   });
 
   it("pauses, resumes, and ends only outstanding package rows", async () => {
@@ -425,24 +539,26 @@ describe("existing client billing actions", () => {
     ]);
 
     await pausePackageAssignmentAction("client_1", assignmentForm());
-    expect(mocks.updateSchedule).toHaveBeenCalledWith(expect.objectContaining({ schedule_id: "open", status: "PAUSED" }));
-    expect(mocks.updateSchedule).not.toHaveBeenCalledWith(expect.objectContaining({ schedule_id: "paid" }));
+    expect(mocks.updateSchedulesIfUnchanged).toHaveBeenCalledWith({ updates: expect.arrayContaining([
+      expect.objectContaining({ expectedSchedule: expect.objectContaining({ schedule_id: "paid" }), schedule: expect.objectContaining({ schedule_id: "paid", status: "PAID" }) }),
+      expect.objectContaining({ expectedSchedule: expect.objectContaining({ schedule_id: "open" }), schedule: expect.objectContaining({ schedule_id: "open", status: "PAUSED" }) }),
+    ]) });
 
-    mocks.updateSchedule.mockClear();
+    mocks.updateSchedulesIfUnchanged.mockClear();
     mocks.listSchedules.mockResolvedValue([
       schedule({ schedule_id: "paid", status: "PAID", generated_at: "", payment_id: "", payment_url: "" }),
       schedule({ rowNumber: 3, schedule_id: "open", installment_number: "2", status: "PAUSED" }),
     ]);
     await resumePackageAssignmentAction("client_1", assignmentForm());
-    expect(mocks.updateSchedule).toHaveBeenCalledWith(expect.objectContaining({ schedule_id: "open", status: "SCHEDULED" }));
+    expect(mocks.updateSchedulesIfUnchanged).toHaveBeenCalledWith({ updates: expect.arrayContaining([expect.objectContaining({ schedule: expect.objectContaining({ schedule_id: "open", status: "SCHEDULED" }) })]) });
 
-    mocks.updateSchedule.mockClear();
+    mocks.updateSchedulesIfUnchanged.mockClear();
     mocks.listSchedules.mockResolvedValue([
       schedule({ schedule_id: "paid", status: "PAID", generated_at: "", payment_id: "", payment_url: "" }),
       schedule({ rowNumber: 3, schedule_id: "open", installment_number: "2" }),
     ]);
     await endPackageAssignmentAction("client_1", assignmentForm());
-    expect(mocks.updateSchedule).toHaveBeenCalledWith(expect.objectContaining({ schedule_id: "open", status: "CANCELLED" }));
+    expect(mocks.updateSchedulesIfUnchanged).toHaveBeenCalledWith({ updates: expect.arrayContaining([expect.objectContaining({ schedule: expect.objectContaining({ schedule_id: "open", status: "CANCELLED" }) })]) });
   });
 
   it("rejects deleting an assignment with paid history but deletes unpaid rows", async () => {
@@ -458,7 +574,7 @@ describe("existing client billing actions", () => {
 
     mocks.listSchedules.mockResolvedValue([schedule({ status: "SCHEDULED" })]);
     await deletePackageAssignmentAction("client_1", assignmentForm());
-    expect(mocks.updateSchedule).toHaveBeenCalledWith(expect.objectContaining({ status: "DELETED" }));
+    expect(mocks.updateSchedulesIfUnchanged).toHaveBeenCalledWith({ updates: [expect.objectContaining({ schedule: expect.objectContaining({ status: "DELETED" }) })] });
   });
 
   it("rejects deleting an assignment with paid history even when its paid amount is invalid", async () => {
@@ -484,6 +600,6 @@ describe("existing client billing actions", () => {
 
     await expect(pausePackageAssignmentAction("client_1", assignmentForm())).rejects.toThrow("cannot be changed while payment pay_1 is REVIEW");
     expect(mocks.updatePaymentIfUnchanged).not.toHaveBeenCalled();
-    expect(mocks.updateSchedule).not.toHaveBeenCalled();
+    expect(mocks.updateSchedulesIfUnchanged).not.toHaveBeenCalled();
   });
 });

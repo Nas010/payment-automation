@@ -42,4 +42,15 @@ describe("PaymentDetailPage LINE workflow", () => {
     expect(html).toContain("AWAITING");
     expect(html).toContain("Send LINE payment request");
   });
+
+  it("does not present a voided payment as payable or manually confirmable", async () => {
+    mocks.readPaymentClientSnapshot.mockResolvedValue({ payments: [payment({ status: "VOID", line_slip_expected: "FALSE", line_slip_processing_status: "STOPPED" })], clients: [client()] });
+
+    const html = renderToStaticMarkup(await PaymentDetailPage({ params: Promise.resolve({ paymentId: "pay_1" }) }));
+
+    expect(html).toContain("VOID");
+    expect(html).not.toContain("Copy payment link");
+    expect(html).not.toContain("Send LINE payment request");
+    expect(html).not.toContain("Confirm manually");
+  });
 });

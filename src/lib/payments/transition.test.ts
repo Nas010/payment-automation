@@ -6,11 +6,12 @@ const mocks = vi.hoisted(() => ({
   appendAudit: vi.fn(),
   updatePaymentIfUnchanged: vi.fn(),
   updateSchedule: vi.fn(),
+  updateScheduleIfUnchanged: vi.fn(),
   hasPaymentTransitionAudit: vi.fn(),
 }));
 
 vi.mock("@/lib/sheets/payments", () => ({ appendAudit: mocks.appendAudit, updatePaymentIfUnchanged: mocks.updatePaymentIfUnchanged }));
-vi.mock("@/lib/sheets/schedules", () => ({ updateSchedule: mocks.updateSchedule }));
+vi.mock("@/lib/sheets/schedules", () => ({ updateSchedule: mocks.updateSchedule, updateScheduleIfUnchanged: mocks.updateScheduleIfUnchanged }));
 vi.mock("@/lib/sheets/audit", () => ({ hasPaymentTransitionAudit: mocks.hasPaymentTransitionAudit }));
 
 import { persistPaymentTransition, reconcileTerminalPaymentEffects, transitionPayment } from "./transition";
@@ -29,6 +30,10 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.updatePaymentIfUnchanged.mockResolvedValue(true);
   mocks.updateSchedule.mockResolvedValue(undefined);
+  mocks.updateScheduleIfUnchanged.mockImplementation(async ({ schedule: next }) => {
+    await mocks.updateSchedule(next);
+    return true;
+  });
   mocks.appendAudit.mockResolvedValue(undefined);
   mocks.hasPaymentTransitionAudit.mockResolvedValue(false);
 });
@@ -68,6 +73,17 @@ describe("transitionPayment", () => {
     await expect(persistPaymentTransition({ payment: payment({ status: "PENDING" }), schedule: schedule(), nextStatus: "AUTO_RECORDED", source: "LINE_WEBHOOK", reason: "slip", now: "2026-08-10T12:00:00.000Z" })).rejects.toThrow("schedule unavailable");
     expect(mocks.updatePaymentIfUnchanged).toHaveBeenCalledWith(expect.objectContaining({ payment: expect.objectContaining({ status: "AUTO_RECORDED", line_slip_error: "TRANSITION_EFFECTS_PENDING:LINE_WEBHOOK:PENDING" }) }));
     expect(mocks.appendAudit).not.toHaveBeenCalled();
+  });
+
+  it("moves a generated schedule to paid only while its complete expected row is unchanged", async () => {
+    const expectedSchedule = schedule();
+
+    await persistPaymentTransition({ payment: payment({ status: "PENDING" }), schedule: expectedSchedule, nextStatus: "AUTO_RECORDED", source: "LINE_WEBHOOK", reason: "slip", now: "2026-08-10T12:00:00.000Z" });
+
+    expect(mocks.updateScheduleIfUnchanged).toHaveBeenCalledWith({
+      expectedSchedule,
+      schedule: expect.objectContaining({ schedule_id: "schedule_1", status: "PAID" }),
+    });
   });
 
   it("reconciles a terminal payment's missing schedule and one deterministic audit without changing terminal status", async () => {

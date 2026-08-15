@@ -76,7 +76,7 @@ describe("ClientPackageAssignments", () => {
     });
   });
 
-  it("makes deletion unavailable after a recorded payment", () => {
+  it("offers only package replacement for a completed paid-in-full assignment", () => {
     const action = actions();
     render(createElement(ClientPackageAssignments, {
       assignments: [{ ...coaching, state: "COMPLETED", paymentType: "ONE_TIME", paidSatang: 120000, outstandingSatang: 0, nextDueDate: "" }],
@@ -91,6 +91,7 @@ describe("ClientPackageAssignments", () => {
     expect(screen.getByText("Deletion unavailable after a recorded payment.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Delete package" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Pause" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Change package" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "End" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Change package" })).toBeInTheDocument();
   });
 });

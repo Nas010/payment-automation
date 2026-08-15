@@ -50,5 +50,6 @@ export function buildAssignedScheduleRows(input: AssignedScheduleInput): NewSche
     updated_at: input.now,
     assignment_id: input.assignmentId,
     assignment_kind: input.assignmentKind,
+    lifecycle_operation_id: "",
   }));
 }

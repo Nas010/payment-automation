@@ -4,6 +4,11 @@ import { buildPaymentPromptPayPayload, InvalidPaymentAmountError } from "@/lib/p
 import { getPaymentByToken } from "@/lib/sheets/payments";
 
 const QR_OPTIONS = { width: 720, margin: 1, errorCorrectionLevel: "M" as const, color: { dark: "#000000", light: "#FFFFFF" } };
+const NO_STORE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
+
+function textResponse(body: string, status: number): Response {
+  return new Response(body, { status, headers: NO_STORE_HEADERS });
+}
 
 export async function GET(_request: Request, { params }: { params: Promise<{ publicToken: string }> }): Promise<Response> {
   const { publicToken } = await params;
@@ -11,30 +16,30 @@ export async function GET(_request: Request, { params }: { params: Promise<{ pub
   try {
     payment = await getPaymentByToken(publicToken);
   } catch {
-    return new Response("Internal Server Error", { status: 500 });
+    return textResponse("Internal Server Error", 500);
   }
-  if (!payment) return new Response("Not Found", { status: 404 });
-  if (payment.status === "VOID") return new Response("Not Found", { status: 404 });
+  if (!payment) return textResponse("Not Found", 404);
+  if (payment.status === "VOID") return textResponse("Not Found", 404);
 
   let config;
   try {
     config = await runtimeConfig();
   } catch {
-    return new Response("Internal Server Error", { status: 500 });
+    return textResponse("Internal Server Error", 500);
   }
 
   let payload: string;
   try {
     payload = buildPaymentPromptPayPayload(payment, config);
   } catch (error: unknown) {
-    if (error instanceof InvalidPaymentAmountError) return new Response("Not Found", { status: 404 });
-    return new Response("Internal Server Error", { status: 500 });
+    if (error instanceof InvalidPaymentAmountError) return textResponse("Not Found", 404);
+    return textResponse("Internal Server Error", 500);
   }
 
   try {
     const png = await QRCode.toBuffer(payload, QR_OPTIONS);
-    return new Response(new Uint8Array(png), { headers: { "Content-Type": "image/png", "Cache-Control": "public, max-age=300, stale-while-revalidate=3600" } });
+    return new Response(new Uint8Array(png), { headers: { "Content-Type": "image/png", ...NO_STORE_HEADERS } });
   } catch {
-    return new Response("Internal Server Error", { status: 500 });
+    return textResponse("Internal Server Error", 500);
   }
 }
