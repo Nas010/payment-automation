@@ -53,6 +53,18 @@ function reminderConfig(enabled: boolean) {
   return { kind: "VALID" as const, config };
 }
 
+function allDisabledReminderConfig() {
+  const config = structuredClone(DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG);
+  config.enabled = {
+    T_MINUS_7_DAYS: false,
+    T_MINUS_3_DAYS: false,
+    T_MINUS_1_DAY: false,
+    DUE_DATE: false,
+    T_PLUS_1_DAY: false,
+  };
+  return { kind: "VALID" as const, config };
+}
+
 function expectNoDeliveryWork() {
   expect(mocks.getLineChannelAccessToken).not.toHaveBeenCalled();
   expect(mocks.isLinkedLinePaymentRecipient).not.toHaveBeenCalled();
@@ -78,15 +90,21 @@ beforeEach(() => {
 });
 
 describe("sendInstallmentReminderRequests", () => {
-  it("does no delivery work for a disabled scheduled slot", async () => {
-    mocks.getLineInstallmentReminderConfig.mockResolvedValue(reminderConfig(false));
+  it("does not resolve a recipient when all scheduled slots are disabled", async () => {
+    mocks.getLineInstallmentReminderConfig.mockResolvedValue(allDisabledReminderConfig());
+    const clientLookup = vi.spyOn(Map.prototype, "get");
 
-    await expect(sendInstallmentReminderRequests({
-      baseUrl: "https://pay.example",
-      today: "2026-08-16",
-    })).resolves.toEqual([]);
+    try {
+      await expect(sendInstallmentReminderRequests({
+        baseUrl: "https://pay.example",
+        today: "2026-08-16",
+      })).resolves.toEqual([]);
 
-    expectNoDeliveryWork();
+      expect(clientLookup).not.toHaveBeenCalledWith("client_1");
+      expectNoDeliveryWork();
+    } finally {
+      clientLookup.mockRestore();
+    }
   });
 
   it("pauses disabled retries then resumes with their frozen payload", async () => {

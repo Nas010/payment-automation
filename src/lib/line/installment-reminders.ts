@@ -29,6 +29,7 @@ export async function sendInstallmentReminderRequests({ baseUrl, today = bangkok
     try { log = parseReminderDeliveryLog(payment.line_reminder_delivery_log); } catch { continue; }
     const enabledSlots = eligibleReminderSlots({ dueDate: payment.due_date, createdAt: payment.created_at, today, log })
       .filter((slot) => resolved.config.enabled[slot]);
+    if (enabledSlots.length === 0) continue;
     const recipient = clients.get(payment.client_id);
     for (const slot of enabledSlots) {
       if (!isLinkedLinePaymentRecipient(recipient)) {
