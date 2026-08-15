@@ -10,7 +10,7 @@ import {
 } from "@/lib/line/message-profile";
 import { LineInstallmentReminderForm } from "./line-installment-reminder-form";
 
-const toastMocks = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
+const toastMocks = vi.hoisted(() => ({ success: vi.fn(), warning: vi.fn(), error: vi.fn() }));
 vi.mock("sonner", () => ({ toast: toastMocks }));
 
 type Result = {
@@ -134,6 +134,20 @@ describe("LineInstallmentReminderForm", () => {
 
     await waitFor(() => expect(screen.getByRole("switch", { name: "Send 3 days before due date reminder" }).getAttribute("aria-checked")).toBe("true"));
     expect(toastMocks.error).toHaveBeenCalledWith("Workbook unavailable");
+  });
+
+  it("keeps committed reminder switch and announces an audit warning", async () => {
+    const config = structuredClone(DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG);
+    config.enabled.T_MINUS_3_DAYS = false;
+    renderReminderForm({ saveAction: vi.fn().mockResolvedValue({
+      ...result(config, "T_MINUS_3_DAYS"),
+      auditWarning: "Reminder updated, but audit log could not be recorded.",
+    }) });
+
+    fireEvent.click(screen.getByRole("switch", { name: "Send 3 days before due date reminder" }));
+
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Send 3 days before due date reminder" }).getAttribute("aria-checked")).toBe("false"));
+    expect(toastMocks.warning).toHaveBeenCalledWith("Reminder updated, but audit log could not be recorded.");
   });
 
   it("discards a cancelled message draft", () => {

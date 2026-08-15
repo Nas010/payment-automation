@@ -21,7 +21,7 @@ import {
   type ReminderSlot,
 } from "@/lib/line/message-profile";
 
-type Result = { ok: true; slot: ReminderSlot; config: LineInstallmentReminderConfig; preview: string };
+type Result = { ok: true; slot: ReminderSlot; config: LineInstallmentReminderConfig; preview: string; auditWarning?: string };
 type Props = {
   resolved: ResolvedLineInstallmentReminderConfig;
   previewAction: (formData: FormData) => Promise<Result>;
@@ -127,7 +127,8 @@ export function LineInstallmentReminderForm({ resolved, previewAction, saveActio
       try {
         const result = await saveAction(formData);
         setConfig(structuredClone(result.config));
-        toast.success("Reminder updated.");
+        if (result.auditWarning) toast.warning(result.auditWarning);
+        else toast.success("Reminder updated.");
       } catch (error) {
         setConfig(previous);
         toast.error(actionError(error, "Could not update reminder."));
@@ -178,7 +179,8 @@ export function LineInstallmentReminderForm({ resolved, previewAction, saveActio
         setDraftProfile(null);
         setPreviewText("");
         setEditorError("");
-        toast.success("Reminder message saved.");
+        if (result.auditWarning) toast.warning(result.auditWarning);
+        else toast.success("Reminder message saved.");
       } catch (error) {
         setEditorError(actionError(error, "Could not update reminder."));
       } finally {

@@ -107,6 +107,23 @@ describe("sendInstallmentReminderRequests", () => {
     }
   });
 
+  it("delivers an enabled scheduled reminder slot", async () => {
+    await expect(sendInstallmentReminderRequests({
+      baseUrl: "https://pay.example",
+      today: "2026-08-16",
+    })).resolves.toEqual(["pay_1"]);
+
+    expect(mocks.renderLineDueMessageProfile).toHaveBeenCalledWith(
+      DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG.profiles.T_MINUS_7_DAYS,
+      "INSTALLMENTS",
+      {},
+    );
+    expect(mocks.sendLinePushMessage).toHaveBeenCalledWith(expect.objectContaining({
+      to: "Uaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      messages: expect.arrayContaining([{ type: "text", text: "Rendered reminder" }]),
+    }));
+  });
+
   it("pauses disabled retries then resumes with their frozen payload", async () => {
     const retryLog = JSON.stringify({
       version: 1,
