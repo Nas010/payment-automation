@@ -9,17 +9,20 @@ import {
 } from "@/lib/line/message-template";
 import {
   DEFAULT_LINE_DUE_PROFILES,
+  DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG,
   LINE_DUE_PROFILE_SETTING_KEYS,
   LineDueTemplateError,
   parseLineDueMessageProfile,
+  parseLineInstallmentReminderConfig,
   renderLineDueMessageProfile,
   type LineDueMessageProfile,
   type LineDueMessageProfileActionResult,
   type LineDueSystemValues,
   type LinePaymentType,
+  type ReminderSlot,
 } from "@/lib/line/message-profile";
 import { getLineChannelAccessToken, setSecret } from "@/lib/secrets/service";
-import { saveLineDueMessageProfile, upsertOperationalSetting } from "@/lib/sheets/settings";
+import { saveLineDueMessageProfile, saveLineInstallmentReminderConfig, upsertOperationalSetting } from "@/lib/sheets/settings";
 import { appendAudit } from "@/lib/sheets/payments";
 import type { LineCredentialActionResult } from "@/components/admin/line-integration-form";
 import type { LineTemplateActionResult } from "@/components/admin/line-message-template-form";
@@ -130,6 +133,37 @@ export async function resetLineDueMessageProfileAction(formData: FormData): Prom
   await auditProfileChange("LINE_DUE_PROFILE_RESET", paymentType);
   revalidatePath("/admin/settings");
   return profileResult(paymentType, profile);
+}
+
+export type ReminderConfigActionResult = { ok: true; slot: ReminderSlot; config: import("@/lib/line/message-profile").LineInstallmentReminderConfig; preview: string };
+
+function submittedReminderConfig(formData: FormData) {
+  const slot = String(formData.get("slot") ?? "DUE_DATE") as ReminderSlot;
+  const config = parseLineInstallmentReminderConfig(String(formData.get("config") ?? ""));
+  if (!(slot in config.profiles)) throw new LineDueTemplateError("TEMPLATE_INVALID", "Reminder slot is required");
+  return { slot, config };
+}
+
+export async function previewLineInstallmentReminderAction(formData: FormData): Promise<ReminderConfigActionResult> {
+  await requireAdmin();
+  const { slot, config } = submittedReminderConfig(formData);
+  return { ok: true, slot, config, preview: renderLineDueMessageProfile(config.profiles[slot], "INSTALLMENTS", previewValues("INSTALLMENTS")) };
+}
+
+export async function saveLineInstallmentReminderConfigAction(formData: FormData): Promise<ReminderConfigActionResult> {
+  await requireAdmin();
+  const { slot, config } = submittedReminderConfig(formData);
+  await saveLineInstallmentReminderConfig(config);
+  await appendAudit({ paymentId: "", clientId: "", action: "LINE_INSTALLMENT_REMINDER_CONFIG_SAVED", previousStatus: "line_installment_reminder_config", newStatus: "line_installment_reminder_config", reason: "Installment reminder templates updated", source: "ADMIN", metadata: JSON.stringify({ settingKey: "line_installment_reminder_config" }) });
+  revalidatePath("/admin/settings");
+  return { ok: true, slot, config, preview: renderLineDueMessageProfile(config.profiles[slot], "INSTALLMENTS", previewValues("INSTALLMENTS")) };
+}
+
+export async function resetLineInstallmentReminderConfigAction(): Promise<ReminderConfigActionResult> {
+  await requireAdmin();
+  await saveLineInstallmentReminderConfig(DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG);
+  revalidatePath("/admin/settings");
+  return { ok: true, slot: "DUE_DATE", config: DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG, preview: renderLineDueMessageProfile(DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG.profiles.DUE_DATE, "INSTALLMENTS", previewValues("INSTALLMENTS")) };
 }
 
 export async function previewLineWelcomeTemplateAction(formData: FormData): Promise<LineTemplateActionResult> {
