@@ -9,6 +9,12 @@ const mocks = vi.hoisted(() => ({
   updateLineLinkClient: vi.fn(),
   claimLineConnection: vi.fn(),
   appendAudit: vi.fn(),
+  resolveScope: vi.fn(),
+  getTestProfile: vi.fn(),
+  testClaim: vi.fn(),
+  updateTestProfile: vi.fn(),
+  claimTestConnection: vi.fn(),
+  disconnectTestConnection: vi.fn(),
 }));
 
 vi.mock("@/lib/runtime-config", () => ({ runtimeConfig: mocks.runtimeConfig }));
@@ -19,7 +25,14 @@ vi.mock("@/lib/line/liff-verification", () => ({
   verifyLineIdToken: mocks.verifyLineIdToken,
 }));
 vi.mock("@/lib/security/rate-limit", () => ({ lineConnectionLimiter: { allow: mocks.allow } }));
-vi.mock("@/lib/line/connection", () => ({ createLineConnectionService: () => ({ claim: mocks.claim }) }));
+vi.mock("@/lib/line/connection", () => ({ createLineConnectionService: () => ({ claim: mocks.claim }), resolveLineConnectionScope: mocks.resolveScope }));
+vi.mock("@/lib/line/message-test-connection", () => ({ createLineMessageTestConnectionService: () => ({ claim: mocks.testClaim }) }));
+vi.mock("@/lib/sheets/line-message-test-profile", () => ({
+  getLineMessageTestProfile: mocks.getTestProfile,
+  updateLineMessageTestProfileIfUnchanged: mocks.updateTestProfile,
+  claimLineMessageTestConnection: mocks.claimTestConnection,
+  disconnectLineMessageTestConnection: mocks.disconnectTestConnection,
+}));
 vi.mock("@/lib/sheets/clients", () => ({ listClients: mocks.listClients, updateLineLinkClient: mocks.updateLineLinkClient, claimLineConnection: mocks.claimLineConnection }));
 vi.mock("@/lib/sheets/payments", () => ({ appendAudit: mocks.appendAudit }));
 
@@ -44,6 +57,9 @@ beforeEach(() => {
   mocks.verifyLineIdToken.mockResolvedValue({ lineUserId, displayName: "Nisa LINE", pictureUrl: "https://profile.line-scdn.net/avatar/path" });
   mocks.allow.mockReturnValue(true);
   mocks.claim.mockResolvedValue("LINKED");
+  mocks.testClaim.mockResolvedValue("LINKED");
+  mocks.resolveScope.mockReturnValue("CLIENT");
+  mocks.getTestProfile.mockResolvedValue(null);
 });
 
 describe("POST /api/line/connect", () => {
@@ -92,6 +108,27 @@ describe("POST /api/line/connect", () => {
     const temporary = await POST(request({ idToken, connectionToken }));
     expect(temporary.status).toBe(503);
     expect(await temporary.json()).toEqual({ status: "temporary_failure" });
+  });
+
+  it("rejects an unresolved token before LINE verification", async () => {
+    mocks.resolveScope.mockReturnValueOnce("INVALID");
+    const response = await POST(request({ idToken, connectionToken }));
+
+    expect(response.status).toBe(410);
+    expect(await response.json()).toEqual({ status: "expired" });
+    expect(mocks.verifyLineIdToken).not.toHaveBeenCalled();
+    expect(mocks.claim).not.toHaveBeenCalled();
+    expect(mocks.testClaim).not.toHaveBeenCalled();
+  });
+
+  it("routes a test-scoped token through same verified LIFF request", async () => {
+    mocks.resolveScope.mockReturnValueOnce("TEST");
+    const response = await POST(request({ idToken, connectionToken }));
+
+    expect(response.status).toBe(200);
+    expect(mocks.verifyLineIdToken).toHaveBeenCalledOnce();
+    expect(mocks.testClaim).toHaveBeenCalledWith({ token: connectionToken, lineUserId, displayName: "Nisa LINE", pictureUrl: "https://profile.line-scdn.net/avatar/path", now: expect.any(Date) });
+    expect(mocks.claim).not.toHaveBeenCalled();
   });
 
   it.each([

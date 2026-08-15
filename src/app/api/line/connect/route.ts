@@ -1,9 +1,16 @@
 import { z } from "zod";
-import { createLineConnectionService } from "@/lib/line/connection";
+import { createLineConnectionService, resolveLineConnectionScope } from "@/lib/line/connection";
+import { createLineMessageTestConnectionService } from "@/lib/line/message-test-connection";
 import { LineIdTokenVerificationError, verifyLineIdToken } from "@/lib/line/liff-verification";
 import { runtimeConfig } from "@/lib/runtime-config";
 import { lineConnectionLimiter } from "@/lib/security/rate-limit";
 import { claimLineConnection, listClients, updateLineLinkClient } from "@/lib/sheets/clients";
+import {
+  claimLineMessageTestConnection,
+  disconnectLineMessageTestConnection,
+  getLineMessageTestProfile,
+  updateLineMessageTestProfileIfUnchanged,
+} from "@/lib/sheets/line-message-test-profile";
 import { appendAudit } from "@/lib/sheets/payments";
 
 export const runtime = "nodejs";
@@ -40,6 +47,17 @@ export async function POST(request: Request): Promise<Response> {
   }
   if (!lineConnectionLimiter.allow(clientAddress(request))) return json("temporary_failure", 429);
 
+  const now = new Date();
+  let clients;
+  let testProfile;
+  try {
+    [clients, testProfile] = await Promise.all([listClients(), getLineMessageTestProfile()]);
+  } catch {
+    return json("temporary_failure", 503);
+  }
+  const scope = resolveLineConnectionScope({ token: parsed.connectionToken, now, clients, testProfile });
+  if (scope === "INVALID") return json("expired", 410);
+
   let identity;
   try {
     identity = await verifyLineIdToken({ idToken: parsed.idToken, channelId: lineLoginChannelId, fetchFn: fetch });
@@ -49,8 +67,17 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   try {
-    const service = createLineConnectionService({ listClients, updateLineLinkClient, claimLineConnection, appendAudit });
-    const result = await service.claim({ token: parsed.connectionToken, lineUserId: identity.lineUserId, displayName: identity.displayName, pictureUrl: identity.pictureUrl, now: new Date() });
+    const service = scope === "CLIENT"
+      ? createLineConnectionService({ listClients, updateLineLinkClient, claimLineConnection, appendAudit })
+      : createLineMessageTestConnectionService({
+        getProfile: getLineMessageTestProfile,
+        listClients,
+        updateProfileIfUnchanged: updateLineMessageTestProfileIfUnchanged,
+        claimConnection: claimLineMessageTestConnection,
+        disconnectConnection: disconnectLineMessageTestConnection,
+        appendAudit,
+      });
+    const result = await service.claim({ token: parsed.connectionToken, lineUserId: identity.lineUserId, displayName: identity.displayName, pictureUrl: identity.pictureUrl, now });
     if (result === "LINKED") return json("success", 200);
     if (result === "ALREADY_LINKED") return json("already_used", 200);
     if (result === "CONFLICT") return json("conflict", 409);
