@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   getActiveWorkspaceConnection: vi.fn(),
   runtimeConfig: vi.fn(),
   form: vi.fn(),
+  testForm: vi.fn(),
 }));
 
 vi.mock("@/lib/sheets/settings", () => ({
@@ -23,14 +24,17 @@ vi.mock("@/lib/sheets/settings", () => ({
   resolveLineInstallmentReminderConfig: () => ({ kind: "VALID", config: { version: 1, profiles: {
     T_MINUS_7_DAYS: DEFAULT_LINE_DUE_PROFILES.INSTALLMENTS, T_MINUS_3_DAYS: DEFAULT_LINE_DUE_PROFILES.INSTALLMENTS, T_MINUS_1_DAY: DEFAULT_LINE_DUE_PROFILES.INSTALLMENTS, DUE_DATE: DEFAULT_LINE_DUE_PROFILES.INSTALLMENTS, T_PLUS_1_DAY: DEFAULT_LINE_DUE_PROFILES.INSTALLMENTS,
   } } }),
+  resolveLineMessageTestProfile: (_settings: unknown, fallback: unknown) => ({ kind: "VALID", profile: fallback }),
 }));
 vi.mock("@/lib/secrets/service", () => ({ getSecretMetadata: mocks.getSecretMetadata }));
 vi.mock("@/lib/workspace/connection", () => ({ getActiveWorkspaceConnection: mocks.getActiveWorkspaceConnection }));
 vi.mock("@/lib/runtime-config", () => ({ runtimeConfig: mocks.runtimeConfig }));
+vi.mock("@/lib/line/connection-token", () => ({ recoverLineConnectionToken: vi.fn(), buildLineConnectUrl: vi.fn() }));
 vi.mock("@/lib/config", () => ({ googleDriveConfig: () => undefined }));
 vi.mock("@/components/admin/page-ui", () => ({ PageHeader: () => null }));
 vi.mock("@/components/admin/line-integration-form", () => ({ LineIntegrationForm: () => null }));
 vi.mock("@/components/admin/line-due-template-form", () => ({ LineDueTemplateForm: (props: unknown) => { mocks.form(props); return null; } }));
+vi.mock("@/components/admin/line-message-test-form", () => ({ LineMessageTestForm: (props: unknown) => { mocks.testForm(props); return null; } }));
 vi.mock("@/components/admin/line-welcome-template-form", () => ({ LineWelcomeTemplateForm: () => null }));
 vi.mock("@/components/admin/google-drive-connection-card", () => ({ GoogleDriveConnectionCard: () => null }));
 vi.mock("@/components/admin/runtime-config-form", () => ({ RuntimeConfigForm: () => null }));
@@ -50,6 +54,9 @@ vi.mock("./line-actions", () => ({
 }));
 vi.mock("@/app/admin/google-drive/actions", () => ({ activateGoogleDriveFolderAction: vi.fn() }));
 vi.mock("./runtime-actions", () => ({ saveRuntimeConfigAction: vi.fn(), testWorkspaceConnectionAction: vi.fn() }));
+vi.mock("./line-test-actions", () => ({
+  saveLineMessageTestProfileAction: vi.fn(), renewLineMessageTestConnectionAction: vi.fn(), disconnectLineMessageTestConnectionAction: vi.fn(), previewLineMessageTestAction: vi.fn(), sendLineMessageTestAction: vi.fn(),
+}));
 
 import SettingsPage from "./page";
 
@@ -61,7 +68,7 @@ describe("SettingsPage LINE profile loading", () => {
     mocks.listOperationalSettings.mockResolvedValue([{ key: LINE_DUE_PROFILE_SETTING_KEYS.ONE_TIME, value: JSON.stringify(DEFAULT_LINE_DUE_PROFILES.ONE_TIME) }]);
     mocks.getSecretMetadata.mockResolvedValue([]);
     mocks.getActiveWorkspaceConnection.mockResolvedValue(undefined);
-    mocks.runtimeConfig.mockResolvedValue({ publicBaseUrl: "https://pay.example", lineMessagingEnabled: true, lineChatPaymentsEnabled: true });
+    mocks.runtimeConfig.mockResolvedValue({ publicBaseUrl: "https://pay.example", lineLiffId: "1234567890-Test", lineLinkingEnabled: true, lineMessagingEnabled: true, lineChatPaymentsEnabled: true });
   });
 
   afterEach(() => vi.unstubAllGlobals());
@@ -76,5 +83,20 @@ describe("SettingsPage LINE profile loading", () => {
         INSTALLMENTS: { kind: "INVALID" },
       },
     }));
+  });
+
+  it("passes a redacted test profile and LINE feature state from the same settings read", async () => {
+    render(await SettingsPage({}));
+
+    expect(mocks.listOperationalSettings).toHaveBeenCalledOnce();
+    expect(mocks.testForm).toHaveBeenCalledWith(expect.objectContaining({
+      initialProfile: expect.objectContaining({ clientName: "LINE test recipient" }),
+      initialConnectUrl: "",
+      linkingEnabled: true,
+      messagingEnabled: true,
+      saveAction: expect.any(Function),
+      sendAction: expect.any(Function),
+    }));
+    expect(JSON.stringify(mocks.testForm.mock.calls)).not.toContain("lineUserId");
   });
 });

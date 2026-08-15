@@ -2,6 +2,7 @@ import { PageHeader } from "@/components/admin/page-ui";
 import { LineIntegrationForm, type LineCredentialMetadata } from "@/components/admin/line-integration-form";
 import { LineDueTemplateForm } from "@/components/admin/line-due-template-form";
 import { LineInstallmentReminderForm } from "@/components/admin/line-installment-reminder-form";
+import { LineMessageTestForm } from "@/components/admin/line-message-test-form";
 import { LineTermsImageForm } from "@/components/admin/line-terms-image-form";
 import { LineWelcomeTemplateForm } from "@/components/admin/line-welcome-template-form";
 import { GoogleDriveConnectionCard } from "@/components/admin/google-drive-connection-card";
@@ -10,10 +11,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { googleDriveConfig } from "@/lib/config";
 import { DEFAULT_LINE_WELCOME_TEMPLATE } from "@/lib/line/message-template";
+import { buildLineConnectUrl, recoverLineConnectionToken } from "@/lib/line/connection-token";
+import { createDefaultLineMessageTestProfile, LINE_MESSAGE_TEST_SUBJECT_ID, toLineMessageTestAdminView } from "@/lib/line/message-test-profile";
 import { activeLineTermsImageVersion, lineTermsImagePath, parseLineTermsImageState } from "@/lib/line/terms-image";
 import { runtimeConfig } from "@/lib/runtime-config";
 import { getSecretMetadata } from "@/lib/secrets/service";
-import { listOperationalSettings, resolveLineDueMessageProfiles, resolveLineInstallmentReminderConfig } from "@/lib/sheets/settings";
+import { listOperationalSettings, resolveLineDueMessageProfiles, resolveLineInstallmentReminderConfig, resolveLineMessageTestProfile } from "@/lib/sheets/settings";
 import { getActiveWorkspaceConnection } from "@/lib/workspace/connection";
 import {
   previewLineDueMessageProfileAction,
@@ -30,6 +33,13 @@ import {
 import { activateGoogleDriveFolderAction } from "@/app/admin/google-drive/actions";
 import { saveRuntimeConfigAction, testWorkspaceConnectionAction } from "./runtime-actions";
 import { uploadLineTermsImageAction } from "./terms-image-actions";
+import {
+  disconnectLineMessageTestConnectionAction,
+  previewLineMessageTestAction,
+  renewLineMessageTestConnectionAction,
+  saveLineMessageTestProfileAction,
+  sendLineMessageTestAction,
+} from "./line-test-actions";
 
 export default async function SettingsPage({ searchParams }: { searchParams?: Promise<{ workspace?: string; drive_error?: string }> }) {
   const query = await searchParams;
@@ -43,6 +53,8 @@ export default async function SettingsPage({ searchParams }: { searchParams?: Pr
   const validation = validationMetadata(settings.find((item) => item.key === "line_access_token_validation")?.value);
   const dueProfiles = resolveLineDueMessageProfiles(settings);
   const reminderConfig = resolveLineInstallmentReminderConfig(settings);
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Bangkok" });
+  const resolvedTestProfile = resolveLineMessageTestProfile(settings, createDefaultLineMessageTestProfile(today));
   const welcomeTemplate = settings.find((item) => item.key === "line_welcome_message_template")?.value || DEFAULT_LINE_WELCOME_TEMPLATE;
   const driveError = driveErrorMessage(query?.drive_error);
   let termsImage: { previewUrl: string; uploadedAt: string } | null = null;
@@ -56,6 +68,18 @@ export default async function SettingsPage({ searchParams }: { searchParams?: Pr
   } catch {
     termsImageError = "T&S image configuration needs attention.";
   }
+  const testProfile = resolvedTestProfile.kind === "VALID"
+    ? resolvedTestProfile.profile
+    : createDefaultLineMessageTestProfile(today);
+  let testConnectUrl = "";
+  if (testProfile.lineLinkStatus === "LINK_ACTIVE" && testProfile.lineLinkTokenEncrypted && config.lineLiffId) {
+    try {
+      testConnectUrl = buildLineConnectUrl({
+        liffId: config.lineLiffId,
+        token: recoverLineConnectionToken({ clientId: LINE_MESSAGE_TEST_SUBJECT_ID, encryptedToken: testProfile.lineLinkTokenEncrypted }),
+      });
+    } catch {}
+  }
 
   return <div className="flex flex-col gap-6">
     <PageHeader title="Settings" description="Business settings live in your workbook. Google and LINE secrets stay encrypted in the private key safe." />
@@ -66,6 +90,7 @@ export default async function SettingsPage({ searchParams }: { searchParams?: Pr
     <LineWelcomeTemplateForm template={welcomeTemplate} previewAction={previewLineWelcomeTemplateAction} saveAction={saveLineWelcomeTemplateAction} resetAction={resetLineWelcomeTemplateAction} />
     <LineDueTemplateForm profiles={dueProfiles} messagingEnabled={config.lineMessagingEnabled} chatPaymentsEnabled={config.lineChatPaymentsEnabled} previewAction={previewLineDueMessageProfileAction} saveAction={saveLineDueMessageProfileAction} resetAction={resetLineDueMessageProfileAction} />
     <LineInstallmentReminderForm resolved={reminderConfig} previewAction={previewLineInstallmentReminderAction} saveAction={saveLineInstallmentReminderConfigAction} resetAction={resetLineInstallmentReminderConfigAction} />
+    <LineMessageTestForm initialProfile={toLineMessageTestAdminView(testProfile)} initialConnectUrl={testConnectUrl} linkingEnabled={config.lineLinkingEnabled} messagingEnabled={config.lineMessagingEnabled} saveAction={saveLineMessageTestProfileAction} renewAction={renewLineMessageTestConnectionAction} disconnectAction={disconnectLineMessageTestConnectionAction} previewAction={previewLineMessageTestAction} sendAction={sendLineMessageTestAction} />
     <LineTermsImageForm image={termsImage} driveConnected={Boolean(connection)} error={termsImageError} action={uploadLineTermsImageAction} />
   </div>;
 }
