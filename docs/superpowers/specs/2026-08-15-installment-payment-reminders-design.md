@@ -10,7 +10,7 @@ Let the coach configure a global, fixed reminder sequence for unpaid later insta
 ## Scope
 
 - Apply reminders only to installment payments after the initial installment (`installment_number > 1`).
-- Do not create a reminder sequence for one-time payments or initial installment payments. Their immediate-payment workflow remains separate.
+- Do not create a reminder sequence for one-time payments or initial installment payments. Instead, create their payment links and send their payment request (text plus QR) immediately when their schedule is created.
 - Use exactly five Bangkok-calendar slots:
   - `T_MINUS_7_DAYS`
   - `T_MINUS_3_DAYS`
@@ -21,9 +21,13 @@ Let the coach configure a global, fixed reminder sequence for unpaid later insta
 
 ## Timing and Payment Links
 
+When a one-time payment or initial installment schedule is created, the application immediately creates its Payment row, public payment URL, and QR-capable LINE payment request. This is an immediate-payment send, not a reminder, and does not wait for the future due date. It reuses the current one-time or initial-installment message selection, including the applicable first-payment terms image behavior.
+
 For a later installment that is at least seven days away, the scheduled cron run on T-7 creates its Payment row, public payment URL, and QR-capable payment request. That same run sends the T-7 reminder.
 
 For a later installment created fewer than seven days before its due date, the system creates its Payment row and payment URL immediately. It does not send old reminder slots. It sends the next upcoming slot only, if the payment remains unpaid. For example, a payment created two days before its deadline first sends at T-1.
+
+Each installment has exactly one Payment row, public payment URL, and exact-amount QR image. The first creation—at T-7 or immediately for a late-created installment—is canonical. Every reminder in that installment's sequence reuses the same URL, public token, and QR image; no reminder creates or rotates a payment link.
 
 An installment created after T+1 receives no backfilled reminder. All reminder eligibility uses Bangkok date keys and the existing daily cron route.
 
@@ -101,6 +105,7 @@ Add reminder-specific audit actions while preserving current due-message audit c
 - `src/components/admin/line-due-template-form.tsx`: extend existing editor controls for five installment reminder sections; retain one-time editor behavior.
 - `src/app/admin/(protected)/settings/line-actions.ts`: validate, preview, reset, and atomically save reminder configuration.
 - `src/lib/payments/generate.ts` and schedule helpers: make later-installment Payments available at T-7 or immediately when created late, without affecting initial/one-time behavior.
+- Client/package/manual-payment actions: create and send initial/one-time Payments immediately after their schedules are written, while preserving safe missing-recipient and retry behavior.
 - `src/lib/line/due-payments.ts`: choose eligible reminder slots, persist per-slot state, and reuse the established delivery workflow.
 - Sheets record/migration modules: append the Payment log column and preserve all legacy column positions.
 - `src/app/api/cron/generate/route.ts`: retain one daily entry point; call the extended generation and reminder workflow.
@@ -109,7 +114,7 @@ Add reminder-specific audit actions while preserving current due-message audit c
 
 - Fixed-slot calculation using Bangkok dates, including T-7, T-3, T-1, deadline, and T+1.
 - Later installment created at least seven days out creates/sends T-7; one created late generates immediately and starts at next eligible slot; no backfill after T+1.
-- One-time and initial installment payments never enter reminder scheduling.
+- One-time and initial installment schedules create and send their payment link and QR immediately; they never enter reminder scheduling.
 - Each of five profiles validates, previews, and renders independently; all require amount, deadline, and payment URL.
 - Settings save is atomic; legacy installment profile resolves as the deadline fallback until first save.
 - Each slot sends text plus QR once; accepted slots do not duplicate across cron runs.
