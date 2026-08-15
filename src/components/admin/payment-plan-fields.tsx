@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import type { UseFormReturn } from "react-hook-form";
 import { Field as FormField, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { InstallmentPreview } from "@/components/admin/installment-preview";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -22,6 +23,10 @@ export type PaymentPlanValues = {
 export function PaymentPlanFields({ form, packages, idPrefix }: { form: UseFormReturn<PaymentPlanValues>; packages: AdminPackage[]; idPrefix: string }) {
   const selectedPackageName = form.watch("package_name");
   const paymentType = form.watch("payment_type");
+  const totalPriceThb = form.watch("total_price_thb");
+  const firstDueDate = form.watch("first_due_date");
+  const installmentCount = form.watch("installment_count");
+  const intervalMonths = form.watch("interval_months");
   const paymentTypeLabel = paymentType === "ONE_TIME" ? "One-time payment" : "Installments";
 
   useEffect(() => {
@@ -46,6 +51,7 @@ export function PaymentPlanFields({ form, packages, idPrefix }: { form: UseFormR
     <FormField data-invalid={Boolean(form.formState.errors.first_due_date)}><FieldLabel htmlFor={`${idPrefix}_first_due_date`}>First due date</FieldLabel><Input id={`${idPrefix}_first_due_date`} type="date" {...form.register("first_due_date")} aria-invalid={Boolean(form.formState.errors.first_due_date)} /><FieldError>{form.formState.errors.first_due_date?.message}</FieldError></FormField>
     <FormField data-disabled={paymentType === "ONE_TIME"}><FieldLabel htmlFor={`${idPrefix}_installment_count`}>Installments</FieldLabel><Input id={`${idPrefix}_installment_count`} type="number" min="1" readOnly={paymentType === "ONE_TIME"} {...form.register("installment_count")} /><FieldDescription>{paymentType === "ONE_TIME" ? "One-time plans use one installment." : "Number of scheduled payments."}</FieldDescription></FormField>
     <FormField data-disabled={paymentType === "ONE_TIME"}><FieldLabel htmlFor={`${idPrefix}_interval_months`}>Interval months</FieldLabel><Input id={`${idPrefix}_interval_months`} type="number" min="0" readOnly={paymentType === "ONE_TIME"} {...form.register("interval_months")} /><FieldDescription>{paymentType === "ONE_TIME" ? "No interval is needed." : "Time between installments."}</FieldDescription></FormField>
+    <InstallmentPreview paymentType={paymentType} totalPriceThb={totalPriceThb} firstDueDate={firstDueDate} installmentCount={installmentCount} intervalMonths={intervalMonths} />
     <FormField className="sm:col-span-2"><FieldLabel htmlFor={`${idPrefix}_notes`}>Notes</FieldLabel><Textarea id={`${idPrefix}_notes`} {...form.register("notes")} placeholder="Optional coaching or payment notes." /></FormField>
   </FieldGroup>;
 }

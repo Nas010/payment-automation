@@ -75,6 +75,16 @@ describe("ClientBillingActions", () => {
     expect(within(form).getByLabelText("Interval months")).toHaveValue(0);
   });
 
+  it("previews exact installment dates and amounts before assigning a package", async () => {
+    render(createElement(ClientBillingActions, { packages, assignPackageAction: vi.fn(), createManualPaymentAction: vi.fn() }));
+    const form = screen.getByRole("button", { name: "Assign package" }).closest("form")!;
+
+    fireEvent.change(within(form).getByLabelText("First due date"), { target: { value: "2026-01-31" } });
+
+    await waitFor(() => expect(within(form).getByRole("region", { name: "Schedule preview" })).toHaveTextContent("1. 31 Jan 2026 — ฿600.00"));
+    expect(within(form).getByRole("region", { name: "Schedule preview" })).toHaveTextContent("2. 28 Feb 2026 — ฿600.00");
+  });
+
   it("submits safe one-time defaults for a manual payment", async () => {
     const createManualPaymentAction = vi.fn();
     render(createElement(ClientBillingActions, { packages, assignPackageAction: vi.fn(), createManualPaymentAction }));

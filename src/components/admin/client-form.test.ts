@@ -53,4 +53,18 @@ describe("ClientForm", () => {
     expect(screen.queryByText("Identity, package, and billing terms. Package selection fills the default plan.")).toBeNull();
     expect(screen.queryByText("Client details")).toBeNull();
   });
+
+  it("previews every exact installment date and amount before creating a client", async () => {
+    render(createElement(ClientForm, {
+      action: vi.fn(),
+      packages: [{ package_name: "Starter", total_price_thb: "100", payment_type: "INSTALLMENTS", installment_count: "3", interval_months: "1" }],
+    }));
+
+    fireEvent.change(screen.getByLabelText("First due date"), { target: { value: "2026-01-31" } });
+
+    await waitFor(() => expect(screen.getByRole("region", { name: "Schedule preview" }).textContent).toContain("1. 31 Jan 2026 — ฿33.33"));
+    const preview = screen.getByRole("region", { name: "Schedule preview" });
+    expect(preview.textContent).toContain("2. 28 Feb 2026 — ฿33.33");
+    expect(preview.textContent).toContain("3. 31 Mar 2026 — ฿33.34");
+  });
 });
