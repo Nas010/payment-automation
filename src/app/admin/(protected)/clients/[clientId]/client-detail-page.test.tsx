@@ -15,6 +15,11 @@ const mocks = vi.hoisted(() => ({
   runtimeConfig: vi.fn(),
   assignPackageAction: vi.fn(),
   createManualPaymentAction: vi.fn(),
+  changePackageAssignmentAction: vi.fn(),
+  pausePackageAssignmentAction: vi.fn(),
+  resumePackageAssignmentAction: vi.fn(),
+  endPackageAssignmentAction: vi.fn(),
+  deletePackageAssignmentAction: vi.fn(),
   disconnectLineAction: vi.fn(),
   renewLineConnectionAction: vi.fn(),
 }));
@@ -31,6 +36,11 @@ vi.mock("@/lib/runtime-config", () => ({ runtimeConfig: mocks.runtimeConfig }));
 vi.mock("../../actions", () => ({
   assignPackageAction: mocks.assignPackageAction,
   createManualPaymentAction: mocks.createManualPaymentAction,
+  changePackageAssignmentAction: mocks.changePackageAssignmentAction,
+  pausePackageAssignmentAction: mocks.pausePackageAssignmentAction,
+  resumePackageAssignmentAction: mocks.resumePackageAssignmentAction,
+  endPackageAssignmentAction: mocks.endPackageAssignmentAction,
+  deletePackageAssignmentAction: mocks.deletePackageAssignmentAction,
   disconnectLineAction: mocks.disconnectLineAction,
   renewLineConnectionAction: mocks.renewLineConnectionAction,
 }));
@@ -80,5 +90,29 @@ describe("ClientDetailPage LINE connection", () => {
 
     expect(html).toContain("LINE profile picture for Nisa");
     expect(html).toContain("https://profile.line-scdn.net/avatar/path");
+  });
+});
+
+describe("ClientDetailPage package assignments", () => {
+  it("shows package lifecycle controls before New billing without turning manual charges into package cards", async () => {
+    mocks.listSchedules.mockResolvedValue([
+      { rowNumber: 2, schedule_id: "paid", client_id: "client_1", client_name: "Nisa", line_user_id: "", line_display_name: "", package_name: "Coaching", payment_type: "INSTALLMENTS", installment_number: "1", installment_count: "2", amount_thb: "500", due_date: "2026-08-01", status: "PAID", generated_at: "", payment_id: "", payment_url: "", notes: "", created_at: now, updated_at: now, assignment_id: "assignment_1", assignment_kind: "PACKAGE" },
+      { rowNumber: 3, schedule_id: "remaining", client_id: "client_1", client_name: "Nisa", line_user_id: "", line_display_name: "", package_name: "Coaching", payment_type: "INSTALLMENTS", installment_number: "2", installment_count: "2", amount_thb: "500", due_date: "2026-09-01", status: "SCHEDULED", generated_at: "", payment_id: "", payment_url: "", notes: "", created_at: now, updated_at: now, assignment_id: "assignment_1", assignment_kind: "PACKAGE" },
+      { rowNumber: 4, schedule_id: "manual", client_id: "client_1", client_name: "Nisa", line_user_id: "", line_display_name: "", package_name: "Extra session", payment_type: "ONE_TIME", installment_number: "1", installment_count: "1", amount_thb: "200", due_date: "2026-09-02", status: "SCHEDULED", generated_at: "", payment_id: "", payment_url: "", notes: "", created_at: now, updated_at: now, assignment_id: "manual_1", assignment_kind: "MANUAL" },
+    ]);
+    mocks.listPackages.mockResolvedValue([
+      { rowNumber: 2, package_name: "Premium coaching", total_price_thb: "1500", payment_type: "INSTALLMENTS", installment_count: "3", interval_months: "1", active: "TRUE" },
+      { rowNumber: 3, package_name: "Coaching", total_price_thb: "1000", payment_type: "INSTALLMENTS", installment_count: "2", interval_months: "1", active: "TRUE" },
+    ]);
+
+    const html = renderToStaticMarkup(await ClientDetailPage({ params: Promise.resolve({ clientId: "client_1" }) }));
+
+    expect(html).toContain("Package assignments");
+    expect(html).toContain("Coaching");
+    expect(html).toContain("฿500.00");
+    expect(html).toContain("Pause");
+    expect(html).toContain("End");
+    expect(html.indexOf("Package assignments")).toBeLessThan(html.indexOf("New billing"));
+    expect(html).not.toContain('>Extra session</h3>');
   });
 });
