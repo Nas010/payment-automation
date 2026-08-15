@@ -38,7 +38,7 @@
 
 **Interfaces:** Consumes `usePathname`, Next `Link`, Sidebar/Sheet primitives. Produces `SettingsNavigation(): React.ReactElement`.
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```tsx
 vi.mock("next/navigation", () => ({ usePathname: () => "/admin/settings/messages" }));
@@ -59,13 +59,13 @@ it("opens accessible mobile navigation", () => {
 });
 ```
 
-- [ ] **Step 2: Verify red**
+- [x] **Step 2: Verify red**
 
 Run: `npm test -- src/components/admin/settings-navigation.test.tsx`
 
 Expected: FAIL; module absent.
 
-- [ ] **Step 3: Implement minimum navigation**
+- [x] **Step 3: Implement minimum navigation**
 
 ```tsx
 "use client";
@@ -80,13 +80,13 @@ const settingsSections = [
 
 Render Sidebar links via `SidebarMenuButton render={<Link href={section.href} />}`, set `isActive`/`aria-current` on exact pathname match. Desktop wrapper is `hidden lg:block sticky top-6`; mobile trigger is `lg:hidden`, opens Sheet titled `Settings navigation`, contains same links, and closes after link activation.
 
-- [ ] **Step 4: Verify green**
+- [x] **Step 4: Verify green**
 
 Run: `npm test -- src/components/admin/settings-navigation.test.tsx`
 
 Expected: PASS, 2 tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/components/admin/settings-navigation.tsx src/components/admin/settings-navigation.test.tsx && git commit -m "feat: add settings sub-navigation"
