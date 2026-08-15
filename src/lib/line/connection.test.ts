@@ -144,6 +144,14 @@ describe("LINE connection claims", () => {
     expect(deps.claimLineConnection).not.toHaveBeenCalled();
   });
 
+  it("rejects an inactive client before same-user idempotency", async () => {
+    const target = await activeClient({ active: "FALSE", line_user_id: userA, line_link_status: "LINKED", line_link_token_encrypted: "", line_link_token_expires_at: "" });
+    const deps = dependencies([target]);
+
+    await expect(createLineConnectionService(deps).claim({ token: tokenA, lineUserId: userA, displayName: "Nisa", now })).resolves.toEqual({ status: "CLIENT_INACTIVE" });
+    expect(deps.claimLineConnection).not.toHaveBeenCalled();
+  });
+
   it("marks review when consumed token is retried by different user", async () => {
     const target = await activeClient({ line_user_id: userA, line_link_status: "LINKED", line_link_token_encrypted: "", line_link_token_expires_at: "" });
     const deps = dependencies([target]);

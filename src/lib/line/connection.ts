@@ -87,8 +87,8 @@ export function createLineConnectionService(dependencies: LineConnectionDependen
       const clients = await dependencies.listClients();
       const target = clients.find((client) => client.line_link_token_hash === tokenHash);
       if (!target) return { status: "INVALID_OR_EXPIRED" };
-      if (target.line_user_id === lineUserId) return { status: "ALREADY_LINKED", clientId: target.client_id };
       if (!isActiveClient(target)) return { status: "CLIENT_INACTIVE" };
+      if (target.line_user_id === lineUserId) return { status: "ALREADY_LINKED", clientId: target.client_id };
       if (target.line_user_id) {
         await markConflict(dependencies, target, now, lineUserId);
         return { status: "CONFLICT" };
