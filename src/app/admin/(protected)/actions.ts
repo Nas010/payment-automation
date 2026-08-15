@@ -7,9 +7,8 @@ import { requireAdmin } from "@/lib/admin-auth";
 import { DASHBOARD_COLLECTED_DELTA_DISPLAY_KEY, dashboardCollectedDeltaDisplaySchema } from "@/lib/admin/dashboard-metrics";
 import { runtimeConfig } from "@/lib/runtime-config";
 import { sendDueLinePaymentRequests } from "@/lib/line/due-payments";
-import { generateMissingLineConnections, renewLineConnection, type GenerateMissingLineConnectionsResult, type RenewLineConnectionResult } from "@/lib/line/connection";
+import { disconnectLineUser, generateMissingLineConnections, renewLineConnection, type GenerateMissingLineConnectionsResult, type RenewLineConnectionResult } from "@/lib/line/connection";
 import { createLineConnectionTokenFields } from "@/lib/line/connection-token";
-import { disconnectLineUser } from "@/lib/line/linking";
 import { parseSatang } from "@/lib/money";
 import { buildAssignedScheduleRows } from "@/lib/plans/assignment";
 import { buildInstallmentPlan } from "@/lib/plans/schedule";
@@ -123,7 +122,7 @@ export async function createClientAction(formData: FormData): Promise<void> {
   if (paymentType === "INSTALLMENTS" && interval < 1) throw new Error("Installment plans need an interval of at least one month");
   const clientId = `client_${crypto.randomUUID().replaceAll("-", "")}`;
   const now = new Date().toISOString();
-  const lineLinkFields = { line_link_code: "", line_link_code_expires_at: "", line_linked_at: "", line_link_message: "", line_link_error: "", ...createLineConnectionTokenFields({ clientId, now }) };
+  const lineLinkFields = { line_linked_at: "", line_link_error: "", ...createLineConnectionTokenFields({ clientId, now }) };
   const plan = buildInstallmentPlan({ totalSatang, installmentCount: count, intervalMonths: interval, firstDueDate: data.first_due_date });
   if (clients.some((client) => client.client_id === clientId)) throw new Error("Could not allocate a unique client ID");
   await writeClient({ client_id: clientId, active: "TRUE", client_name: data.client_name, line_user_id: "", line_display_name: "", line_picture_url: "", package_name: data.package_name, payment_type: paymentType, total_price_thb: String(totalSatang / 100), installment_count: String(count), interval_months: String(interval), first_due_date: data.first_due_date, default_amount_thb: String(plan[0].amountSatang / 100), billing_frequency: "MANUAL", next_due_date: data.first_due_date, notes: data.notes, created_at: now, updated_at: now, ...lineLinkFields });
@@ -210,7 +209,7 @@ export async function renewLineConnectionAction(clientId: string): Promise<Renew
 
 export async function disconnectLineAction(clientId: string): Promise<boolean> {
   await requireAdmin();
-  const disconnected = await disconnectLineUser({ listClients, updateClient, updateLineLinkClient, appendAudit }, { clientId, now: new Date() });
+  const disconnected = await disconnectLineUser({ listClients, updateLineLinkClient, claimLineConnection, appendAudit }, { clientId, now: new Date() });
   revalidateLinePages(clientId);
   return disconnected;
 }

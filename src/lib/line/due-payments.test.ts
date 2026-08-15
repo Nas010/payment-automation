@@ -51,11 +51,8 @@ function client(overrides: Partial<ClientRecord> = {}): ClientRecord {
     notes: "",
     created_at: "",
     updated_at: "",
-    line_link_code: "",
-    line_link_code_expires_at: "",
     line_link_status: "LINKED",
     line_linked_at: "",
-    line_link_message: "",
     line_link_error: "",
     ...overrides,
   };

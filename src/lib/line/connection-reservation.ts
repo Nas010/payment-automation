@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-export function lineReservationName(kind: "code" | "token" | "user", value: string): string {
+export function lineReservationName(kind: "token" | "user", value: string): string {
   return `line_link_${kind}_${createHash("sha256").update(value).digest("hex")}`;
 }
 
