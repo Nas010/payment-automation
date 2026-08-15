@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- Log fixed outcome labels plus `image=present|missing` only; never log LINE IDs, profile URLs, tokens, message content, spreadsheet data, or raw errors.
+- Log fixed outcome labels plus `image=present|missing|rejected` only; never log LINE IDs, profile URLs, tokens, message content, spreadsheet data, or raw errors.
 - Keep signed-webhook acknowledgement and all payment/slip behavior unchanged.
 - Use test-first regression coverage before route changes.
 

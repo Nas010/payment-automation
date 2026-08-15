@@ -10,14 +10,20 @@ describe("LINE HTTP client", () => {
     const pictureUrl = "https://profile.line-scdn.net/avatar/path";
     const fetchFn = vi.fn(async () => new Response(JSON.stringify({ displayName: "Nisa", userId: "Uprivate", pictureUrl }), { status: 200 }));
 
-    await expect(getLineProfile({ channelAccessToken: token, userId: "Uaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", fetchFn })).resolves.toEqual({ displayName: "Nisa", pictureUrl });
+    await expect(getLineProfile({ channelAccessToken: token, userId: "Uaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", fetchFn })).resolves.toEqual({ displayName: "Nisa", pictureUrl, pictureUrlStatus: "present" });
     expect(fetchFn).toHaveBeenCalledWith("https://api.line.me/v2/bot/profile/Uaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", { headers: { Authorization: `Bearer ${token}` } });
   });
 
   it("removes an unsafe picture URL without rejecting an otherwise valid profile", async () => {
     const fetchFn = vi.fn(async () => new Response(JSON.stringify({ displayName: "Nisa", userId: "Uprivate", pictureUrl: "https://attacker.example/avatar" }), { status: 200 }));
 
-    await expect(getLineProfile({ channelAccessToken: token, userId: "Uaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", fetchFn })).resolves.toEqual({ displayName: "Nisa", pictureUrl: "" });
+    await expect(getLineProfile({ channelAccessToken: token, userId: "Uaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", fetchFn })).resolves.toEqual({ displayName: "Nisa", pictureUrl: "", pictureUrlStatus: "rejected" });
+  });
+
+  it("identifies an omitted LINE profile image without exposing profile data", async () => {
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({ displayName: "Nisa", userId: "Uprivate" }), { status: 200 }));
+
+    await expect(getLineProfile({ channelAccessToken: token, userId: "Uaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", fetchFn })).resolves.toEqual({ displayName: "Nisa", pictureUrl: "", pictureUrlStatus: "missing" });
   });
 
   it("makes reply request with the LINE reply shape", async () => {

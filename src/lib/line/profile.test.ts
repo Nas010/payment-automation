@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeLinePictureUrl } from "./profile";
+import { lineProfilePictureStatus, normalizeLinePictureUrl } from "./profile";
 
 describe("normalizeLinePictureUrl", () => {
   it("keeps HTTPS LINE profile CDN URLs", () => {
@@ -14,5 +14,10 @@ describe("normalizeLinePictureUrl", () => {
     "not-a-url",
   ])("removes unsafe picture value %s", (value) => {
     expect(normalizeLinePictureUrl(value)).toBe("");
+  });
+
+  it("classifies absent and rejected images without returning their value", () => {
+    expect(lineProfilePictureStatus(undefined)).toBe("missing");
+    expect(lineProfilePictureStatus("https://attacker.example/avatar")).toBe("rejected");
   });
 });
