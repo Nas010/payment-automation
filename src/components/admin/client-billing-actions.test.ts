@@ -2,7 +2,7 @@
 
 import React, { createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import { ClientBillingActions } from "./client-billing-actions";
 
@@ -30,25 +30,49 @@ describe("ClientBillingActions", () => {
     expect(screen.getByRole("heading", { name: "Assign package" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Add manual payment" })).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Package" })).toHaveTextContent("Extended coaching");
-    expect(screen.getByLabelText("Package first due date")).toBeInTheDocument();
-    expect(screen.getByLabelText("Description")).toBeInTheDocument();
-    expect(screen.getByLabelText("Amount (THB)")).toBeInTheDocument();
-    expect(screen.getByRole("combobox", { name: "Frequency" })).toHaveTextContent("One-time payment");
-    expect(screen.getByLabelText("Payment count")).toBeInTheDocument();
-    expect(screen.getByLabelText("Interval months")).toBeInTheDocument();
+    expect(screen.getByLabelText("First due date")).toBeInTheDocument();
+    const manualForm = screen.getByRole("button", { name: "Add manual payment" }).closest("form")!;
+    expect(within(manualForm).getByLabelText("Description")).toBeInTheDocument();
+    expect(within(manualForm).getByLabelText("Amount (THB)")).toBeInTheDocument();
+    expect(within(manualForm).getByRole("combobox", { name: "Frequency" })).toHaveTextContent("One-time payment");
+    expect(within(manualForm).getByLabelText("Payment count")).toBeInTheDocument();
+    expect(within(manualForm).getByLabelText("Interval months")).toBeInTheDocument();
   });
 
-  it("submits selected package and first due date", async () => {
+  it("preloads package terms and submits edited package-plan terms", async () => {
     const assignPackageAction = vi.fn();
     render(createElement(ClientBillingActions, { packages, assignPackageAction, createManualPaymentAction: vi.fn() }));
-    fireEvent.change(screen.getByLabelText("Package first due date"), { target: { value: "2026-08-31" } });
+    const form = screen.getByRole("button", { name: "Assign package" }).closest("form")!;
+
+    expect(within(form).getByRole("combobox", { name: "Payment type" })).toHaveTextContent("Installments");
+    expect(within(form).getByLabelText("Total price (THB)")).toHaveValue(1200);
+    expect(within(form).getByLabelText("Installments")).toHaveValue(2);
+    expect(within(form).getByLabelText("Interval months")).toHaveValue(1);
+    fireEvent.change(within(form).getByLabelText("Total price (THB)"), { target: { value: "1800" } });
+    fireEvent.change(within(form).getByLabelText("Installments"), { target: { value: "3" } });
+    fireEvent.change(within(form).getByLabelText("Interval months"), { target: { value: "2" } });
+    fireEvent.change(within(form).getByLabelText("First due date"), { target: { value: "2026-08-31" } });
 
     fireEvent.click(screen.getByRole("button", { name: "Assign package" }));
 
     await waitFor(() => expect(assignPackageAction).toHaveBeenCalledTimes(1));
     const submitted = assignPackageAction.mock.calls[0][0] as FormData;
-    expect(submitted.get("package_name")).toBe("Extended coaching");
-    expect(submitted.get("first_due_date")).toBe("2026-08-31");
+    expect(Object.fromEntries(submitted)).toMatchObject({ package_name: "Extended coaching", payment_type: "INSTALLMENTS", total_price_thb: "1800", installment_count: "3", interval_months: "2", first_due_date: "2026-08-31" });
+  });
+
+  it("replaces assignment terms with the selected package defaults", async () => {
+    render(createElement(ClientBillingActions, { packages: [...packages, { package_name: "Assessment", total_price_thb: "750", payment_type: "ONE_TIME", installment_count: "1", interval_months: "0" }], assignPackageAction: vi.fn(), createManualPaymentAction: vi.fn() }));
+    const form = screen.getByRole("button", { name: "Assign package" }).closest("form")!;
+
+    fireEvent.click(within(form).getByRole("combobox", { name: "Package" }));
+    const option = screen.getByRole("option", { name: "Assessment" });
+    fireEvent.pointerDown(option, { pointerType: "mouse" });
+    fireEvent.click(option, { pointerType: "mouse" });
+
+    await waitFor(() => expect(within(form).getByRole("combobox", { name: "Payment type" })).toHaveTextContent("One-time payment"));
+    expect(within(form).getByLabelText("Total price (THB)")).toHaveValue(750);
+    expect(within(form).getByLabelText("Installments")).toHaveValue(1);
+    expect(within(form).getByLabelText("Interval months")).toHaveValue(0);
   });
 
   it("submits safe one-time defaults for a manual payment", async () => {
