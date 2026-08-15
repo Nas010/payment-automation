@@ -94,6 +94,7 @@ describe("LineInstallmentReminderForm", () => {
   it("shows five compact reminder-name triggers and independent switches", () => {
     renderReminderForm();
 
+    expect(screen.getByText(/disabled reminders are not sent/i)).toBeTruthy();
     for (const name of reminderNames) {
       expect(screen.getByRole("button", { name })).toBeTruthy();
       expect(screen.getByRole("switch", { name: `Send ${name} reminder` })).toBeTruthy();

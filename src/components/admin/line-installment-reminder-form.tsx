@@ -215,7 +215,7 @@ export function LineInstallmentReminderForm({ resolved, previewAction, saveActio
   return <Card>
     <CardHeader>
       <CardTitle>Installment reminders</CardTitle>
-      <CardDescription>Global templates for every later installment. Placeholders are optional; every send includes payment QR.</CardDescription>
+      <CardDescription>Global templates for every later installment. Disabled reminders are not sent. Placeholders are optional; every send includes payment QR.</CardDescription>
     </CardHeader>
     <CardContent className="flex flex-col gap-4">
       <div className="flex flex-col">
