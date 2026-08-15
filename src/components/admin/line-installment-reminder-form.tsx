@@ -245,12 +245,12 @@ export function LineInstallmentReminderForm({ resolved, previewAction, saveActio
       </div>
     </CardContent>
     <Dialog open={activeSlot !== null} onOpenChange={(open) => { if (!open) closeEditor(); }}>
-      <DialogContent showCloseButton={!actionsPending} className="max-h-[calc(100dvh-2rem)] max-w-2xl gap-0 overflow-hidden p-0 sm:max-w-2xl">
+      <DialogContent showCloseButton={!actionsPending} className="h-[calc(100dvh-2rem)] max-w-2xl grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:h-[min(42rem,calc(100dvh-2rem))] sm:max-w-2xl">
         <DialogHeader className="p-4 pr-10">
           <DialogTitle>Edit {activeLabel}</DialogTitle>
           <DialogDescription>Customize this reminder without changing the other send times.</DialogDescription>
         </DialogHeader>
-        <ScrollArea className="max-h-[calc(100dvh-14rem)] px-4">
+        <ScrollArea className="min-h-0 px-4">
           {draftProfile ? <FieldGroup className="pb-4">
             {draftProfile.customPlaceholders.map((definition, index) => {
               const referenced = customIsReferenced(draftProfile, definition.name);
@@ -319,7 +319,7 @@ export function LineInstallmentReminderForm({ resolved, previewAction, saveActio
             <FieldError>{editorError}</FieldError>
           </FieldGroup> : null}
         </ScrollArea>
-        <DialogFooter>
+        <DialogFooter className="mx-0 mb-0">
           <Button type="button" variant="ghost" disabled={actionsPending} onClick={reset}>Restore defaults</Button>
           <Button type="button" variant="outline" disabled={actionsPending} onClick={closeEditor}>Cancel</Button>
           <Button type="button" variant="outline" disabled={actionsPending} onClick={preview}>Preview</Button>
