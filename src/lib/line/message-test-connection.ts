@@ -7,7 +7,6 @@ import {
   hashLineConnectionToken,
   LINE_CONNECTION_TOKEN_PATTERN,
 } from "./connection-token";
-import type { LineConnectionResult } from "./connection";
 import {
   LINE_MESSAGE_TEST_SUBJECT_ID,
   type LineMessageTestProfile,
@@ -32,6 +31,8 @@ export type LineMessageTestConnectionDependencies = {
   appendAudit: (record: PaymentAuditInput) => Promise<void>;
   tokenGenerator?: () => string;
 };
+
+export type LineMessageTestConnectionResult = "LINKED" | "ALREADY_LINKED" | "INVALID_OR_EXPIRED" | "CONFLICT";
 
 function nowIso(now: Date | string): string {
   return new Date(now).toISOString();
@@ -152,7 +153,7 @@ export function createLineMessageTestConnectionService(dependencies: LineMessage
       displayName?: string;
       pictureUrl?: string;
       now: Date | string;
-    }): Promise<LineConnectionResult> {
+    }): Promise<LineMessageTestConnectionResult> {
       if (!LINE_CONNECTION_TOKEN_PATTERN.test(input.token)) return "INVALID_OR_EXPIRED";
       const tokenHash = hashLineConnectionToken(input.token);
       const profile = await dependencies.getProfile();

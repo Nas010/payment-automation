@@ -229,8 +229,10 @@ describe("LineDueTemplateForm", () => {
     expect((screen.getByRole("button", { name: "Save profile" }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Restore default" }));
 
-    await waitFor(() => expect(resetAction).toHaveBeenCalledOnce());
-    expect(screen.queryByRole("alert")).toBeNull();
+    await waitFor(() => {
+      expect(resetAction).toHaveBeenCalledOnce();
+      expect(screen.queryByRole("alert")).toBeNull();
+    });
   });
 
   it("keeps unsaved edits independent while saving or resetting the other tab", async () => {

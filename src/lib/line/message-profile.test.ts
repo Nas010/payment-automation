@@ -77,12 +77,25 @@ describe("LINE due message profiles", () => {
     }, "ONE_TIME")).not.toThrow();
   });
 
-  it("rejects required data reachable only through an unused custom placeholder", () => {
-    expect(() => validateLineDueMessageProfile({
+  it("allows every system placeholder to be omitted", () => {
+    const profile = {
       version: 1,
-      message: "Hello {{client_name}}",
+      message: "Friendly reminder",
+      customPlaceholders: [],
+    } as const;
+
+    expect(() => validateLineDueMessageProfile(profile, "INSTALLMENTS")).not.toThrow();
+    expect(renderLineDueMessageProfile(profile, "INSTALLMENTS", {})).toBe("Friendly reminder");
+  });
+
+  it("requires data only for placeholders used by the message", () => {
+    const profile = {
+      version: 1,
+      message: "Hi {{client_name}}",
       customPlaceholders: [{ name: "unused", template: "{{amount}} {{due_date}} {{payment_url}}" }],
-    }, "ONE_TIME")).toThrow(/requires placeholder: amount/i);
+    } as const;
+
+    expect(renderLineDueMessageProfile(profile, "INSTALLMENTS", { client_name: "Nisa" })).toBe("Hi Nisa");
   });
 
   it.each([

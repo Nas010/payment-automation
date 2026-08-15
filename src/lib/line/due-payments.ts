@@ -115,6 +115,10 @@ function isPaymentCandidate(payment: PaymentRecord, today: string, allowImmediat
     && amountSatang > 0;
 }
 
+export function isDeliverableDueLinePayment(payment: PaymentRecord, today: string): boolean {
+  return deliverableLineStates.has(payment.line_message_status) && isPaymentCandidate(payment, today);
+}
+
 function hasFrozenRetryMessage(payment: PaymentRecord): boolean {
   return Boolean(payment.line_message)
     && Boolean(payment.line_retry_key)
@@ -300,6 +304,9 @@ export async function sendDueLinePaymentRequests(
   const today = options.today ?? bangkokDateKey();
   const now = dependencies.now();
   const selectedIds = options.paymentIds ? new Set(options.paymentIds) : null;
+  const selectedOrder = options.paymentIds
+    ? new Map(options.paymentIds.map((paymentId, index) => [paymentId, index]))
+    : null;
   const result = blankResult(false);
   const { payments, clients, schedules } = await loadPaymentClientSnapshot(dependencies);
   const clientsById = new Map(clients.map((client) => [client.client_id, client]));
@@ -307,8 +314,12 @@ export async function sendDueLinePaymentRequests(
   let profilesPromise: Promise<ResolvedLineDueMessageProfiles> | null = null;
   let termsImageStatePromise: Promise<LineTermsImageState> | null = null;
 
-  for (const originalPayment of payments) {
-    if (selectedIds && !selectedIds.has(originalPayment.payment_id)) continue;
+  const selectedPayments = selectedOrder
+    ? payments.filter((payment) => selectedIds!.has(payment.payment_id))
+      .sort((left, right) => selectedOrder.get(left.payment_id)! - selectedOrder.get(right.payment_id)!)
+    : payments;
+
+  for (const originalPayment of selectedPayments) {
     if (originalPayment.line_message_status === "ACCEPTED") {
       const pendingAudits = acceptedAuditPendingCodes[originalPayment.line_message_error] ?? [];
       if (pendingAudits.length) await reconcileAcceptedAudits(dependencies, originalPayment, pendingAudits, "ACCEPTED", now);

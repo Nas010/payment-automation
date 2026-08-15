@@ -118,7 +118,6 @@ const reminderConfigSchema = z.object({
 }).strict();
 
 const TOKEN = /{{\s*([a-z][a-z0-9_]*)\s*}}/g;
-const REQUIRED = ["amount", "due_date", "payment_url"] as const;
 const CUSTOM_NAME = /^[a-z][a-z0-9_]{0,39}$/;
 
 export function lineDueTemplatePlaceholders(template: string): string[] {
@@ -186,20 +185,6 @@ export function validateLineDueMessageProfile(
     throw new LineDueTemplateError("TEMPLATE_INVALID", `Unsupported LINE placeholder: ${unknown}`);
   }
 
-  const reachable = new Set(mainTokens.filter((name) => system.has(name)));
-  for (const name of mainTokens) {
-    const definition = custom.get(name);
-    if (definition) {
-      for (const nested of lineDueTemplatePlaceholders(definition.template)) {
-        reachable.add(nested);
-      }
-    }
-  }
-  for (const required of REQUIRED) {
-    if (!reachable.has(required)) {
-      throw new LineDueTemplateError("TEMPLATE_INVALID", `LINE profile requires placeholder: ${required}`);
-    }
-  }
 }
 
 function substitute(template: string, values: Partial<Record<string, string>>): string {
@@ -262,8 +247,11 @@ export function renderLineDueMessageProfile(
   systemValues: LineDueSystemValues,
 ): string {
   validateLineDueMessageProfile(profile, paymentType);
+  const referenced = new Set(lineDueTemplatePlaceholders(profile.message));
   const customValues = Object.fromEntries(
-    profile.customPlaceholders.map((definition) => [definition.name, substitute(definition.template, systemValues)]),
+    profile.customPlaceholders
+      .filter((definition) => referenced.has(definition.name))
+      .map((definition) => [definition.name, substitute(definition.template, systemValues)]),
   );
   const rendered = substitute(profile.message, { ...systemValues, ...customValues });
   if (rendered.length < 1 || rendered.length > 5000) {

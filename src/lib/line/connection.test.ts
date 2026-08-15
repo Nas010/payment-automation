@@ -127,7 +127,7 @@ describe("LINE connection claims", () => {
     const deps = dependencies([target]);
     const pictureUrl = "https://profile.line-scdn.net/avatar/path";
 
-    await expect(createLineConnectionService(deps).claim({ token: tokenA, lineUserId: userA, displayName: "Nisa LINE", pictureUrl, now })).resolves.toBe("LINKED");
+    await expect(createLineConnectionService(deps).claim({ token: tokenA, lineUserId: userA, displayName: "Nisa LINE", pictureUrl, now })).resolves.toEqual({ status: "LINKED", clientId: "client_1" });
     expect(deps.claimLineConnection).toHaveBeenCalledWith(expect.objectContaining({
       tokenHash: hashLineConnectionToken(tokenA),
       lineUserId: userA,
@@ -152,8 +152,8 @@ describe("LINE connection claims", () => {
     const deps = dependencies([expired]);
     const service = createLineConnectionService(deps);
 
-    await expect(service.claim({ token: "forged", lineUserId: userA, displayName: "Nisa", now })).resolves.toBe("INVALID_OR_EXPIRED");
-    await expect(service.claim({ token: tokenA, lineUserId: userA, displayName: "Nisa", now })).resolves.toBe("INVALID_OR_EXPIRED");
+    await expect(service.claim({ token: "forged", lineUserId: userA, displayName: "Nisa", now })).resolves.toEqual({ status: "INVALID_OR_EXPIRED" });
+    await expect(service.claim({ token: tokenA, lineUserId: userA, displayName: "Nisa", now })).resolves.toEqual({ status: "INVALID_OR_EXPIRED" });
     expect(deps.claimLineConnection).not.toHaveBeenCalled();
   });
 
@@ -161,7 +161,15 @@ describe("LINE connection claims", () => {
     const target = await activeClient({ line_user_id: userA, line_link_status: "LINKED", line_link_token_encrypted: "", line_link_token_expires_at: "" });
     const deps = dependencies([target]);
 
-    await expect(createLineConnectionService(deps).claim({ token: tokenA, lineUserId: userA, displayName: "Nisa", now })).resolves.toBe("ALREADY_LINKED");
+    await expect(createLineConnectionService(deps).claim({ token: tokenA, lineUserId: userA, displayName: "Nisa", now })).resolves.toEqual({ status: "ALREADY_LINKED", clientId: "client_1" });
+    expect(deps.claimLineConnection).not.toHaveBeenCalled();
+  });
+
+  it("rejects an inactive client before same-user idempotency", async () => {
+    const target = await activeClient({ active: "FALSE", line_user_id: userA, line_link_status: "LINKED", line_link_token_encrypted: "", line_link_token_expires_at: "" });
+    const deps = dependencies([target]);
+
+    await expect(createLineConnectionService(deps).claim({ token: tokenA, lineUserId: userA, displayName: "Nisa", now })).resolves.toEqual({ status: "CLIENT_INACTIVE" });
     expect(deps.claimLineConnection).not.toHaveBeenCalled();
   });
 
@@ -169,7 +177,7 @@ describe("LINE connection claims", () => {
     const target = await activeClient({ line_user_id: userA, line_link_status: "LINKED", line_link_token_encrypted: "", line_link_token_expires_at: "" });
     const deps = dependencies([target]);
 
-    await expect(createLineConnectionService(deps).claim({ token: tokenA, lineUserId: userB, displayName: "Other", now })).resolves.toBe("CONFLICT");
+    await expect(createLineConnectionService(deps).claim({ token: tokenA, lineUserId: userB, displayName: "Other", now })).resolves.toEqual({ status: "CONFLICT" });
     expect(deps.updateLineLinkClient).toHaveBeenCalledWith(expect.objectContaining({ client: expect.objectContaining({ line_link_status: "REVIEW", line_link_error: "LINE user conflict" }) }));
   });
 
@@ -189,7 +197,8 @@ describe("LINE connection claims", () => {
       service.claim({ token: tokenA, lineUserId: userB, displayName: "Other", now }),
     ]);
 
-    expect(results.sort()).toEqual(["CONFLICT", "LINKED"]);
+    expect(results.map((result) => result.status).sort()).toEqual(["CONFLICT", "LINKED"]);
+    expect(results).toContainEqual({ status: "LINKED", clientId: "client_1" });
     expect(deps.claimLineConnection).toHaveBeenCalledTimes(2);
   });
 });

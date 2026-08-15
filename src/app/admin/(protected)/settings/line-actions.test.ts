@@ -1,21 +1,24 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { DEFAULT_LINE_DUE_PROFILES } from "@/lib/line/message-profile";
+import { DEFAULT_LINE_DUE_PROFILES, DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG } from "@/lib/line/message-profile";
 
-const mocks = vi.hoisted(() => ({ requireAdmin: vi.fn(), setSecret: vi.fn(), getLineChannelAccessToken: vi.fn(), upsertOperationalSetting: vi.fn(), saveLineDueMessageProfile: vi.fn(), appendAudit: vi.fn(), revalidatePath: vi.fn(), fetch: vi.fn() }));
+const mocks = vi.hoisted(() => ({ requireAdmin: vi.fn(), setSecret: vi.fn(), getLineChannelAccessToken: vi.fn(), upsertOperationalSetting: vi.fn(), saveLineDueMessageProfile: vi.fn(), saveLineInstallmentReminderConfig: vi.fn(), appendAudit: vi.fn(), revalidatePath: vi.fn(), fetch: vi.fn() }));
 
 vi.mock("@/lib/admin-auth", () => ({ requireAdmin: mocks.requireAdmin }));
 vi.mock("@/lib/secrets/service", () => ({ setSecret: mocks.setSecret, getLineChannelAccessToken: mocks.getLineChannelAccessToken }));
-vi.mock("@/lib/sheets/settings", () => ({ upsertOperationalSetting: mocks.upsertOperationalSetting, saveLineDueMessageProfile: mocks.saveLineDueMessageProfile }));
+vi.mock("@/lib/sheets/settings", () => ({ upsertOperationalSetting: mocks.upsertOperationalSetting, saveLineDueMessageProfile: mocks.saveLineDueMessageProfile, saveLineInstallmentReminderConfig: mocks.saveLineInstallmentReminderConfig }));
 vi.mock("@/lib/sheets/payments", () => ({ appendAudit: mocks.appendAudit }));
 vi.mock("next/cache", () => ({ revalidatePath: mocks.revalidatePath }));
 
 import {
   previewLineDueMessageProfileAction,
+  previewLineInstallmentReminderAction,
   previewLineWelcomeTemplateAction,
   resetLineDueMessageProfileAction,
+  resetLineInstallmentReminderConfigAction,
   resetLineWelcomeTemplateAction,
   saveAndTestLineCredentialsAction,
   saveLineDueMessageProfileAction,
+  saveLineInstallmentReminderConfigAction,
   saveLineWelcomeTemplateAction,
 } from "./line-actions";
 
@@ -30,6 +33,7 @@ beforeEach(() => {
   mocks.getLineChannelAccessToken.mockResolvedValue(accessToken);
   mocks.upsertOperationalSetting.mockResolvedValue(undefined);
   mocks.saveLineDueMessageProfile.mockResolvedValue(undefined);
+  mocks.saveLineInstallmentReminderConfig.mockResolvedValue(undefined);
   mocks.appendAudit.mockResolvedValue(undefined);
   mocks.fetch.mockResolvedValue(new Response("{}", { status: 200 }));
 });
@@ -63,12 +67,12 @@ describe("LINE due-message profile actions", () => {
     expect(JSON.stringify(mocks.appendAudit.mock.calls)).not.toContain(DEFAULT_LINE_DUE_PROFILES.ONE_TIME.message);
   });
 
-  it("rejects invalid profile JSON before persistence or audit", async () => {
+  it("rejects an unknown profile placeholder before persistence or audit", async () => {
     const formData = new FormData();
     formData.set("payment_type", "ONE_TIME");
-    formData.set("profile", JSON.stringify({ version: 1, message: "{{amount}} {{due_date}}", customPlaceholders: [] }));
+    formData.set("profile", JSON.stringify({ version: 1, message: "{{bank_name}}", customPlaceholders: [] }));
 
-    await expect(saveLineDueMessageProfileAction(formData)).rejects.toThrow(/payment_url/);
+    await expect(saveLineDueMessageProfileAction(formData)).rejects.toThrow(/bank_name/);
     expect(mocks.saveLineDueMessageProfile).not.toHaveBeenCalled();
     expect(mocks.appendAudit).not.toHaveBeenCalled();
   });
@@ -82,6 +86,65 @@ describe("LINE due-message profile actions", () => {
     expect(mocks.saveLineDueMessageProfile).toHaveBeenCalledWith("INSTALLMENTS", DEFAULT_LINE_DUE_PROFILES.INSTALLMENTS);
     expect(result.profile).toEqual(DEFAULT_LINE_DUE_PROFILES.INSTALLMENTS);
     expect(mocks.appendAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "LINE_DUE_PROFILE_RESET" }));
+  });
+});
+
+describe("LINE installment reminder actions", () => {
+  it("previews only the selected reminder profile", async () => {
+    const formData = new FormData();
+    formData.set("slot", "T_MINUS_3_DAYS");
+    formData.set("profile", JSON.stringify({ version: 1, message: "Three-day reminder", customPlaceholders: [] }));
+
+    await expect(previewLineInstallmentReminderAction(formData)).resolves.toMatchObject({
+      ok: true,
+      slot: "T_MINUS_3_DAYS",
+      preview: "Three-day reminder",
+    });
+    expect(mocks.saveLineInstallmentReminderConfig).not.toHaveBeenCalled();
+  });
+
+  it("saves the complete reminder configuration atomically", async () => {
+    const config = structuredClone(DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG);
+    config.profiles.T_MINUS_7_DAYS.message = "Seven-day reminder";
+    const formData = new FormData();
+    formData.set("slot", "DUE_DATE");
+    formData.set("config", JSON.stringify(config));
+
+    await saveLineInstallmentReminderConfigAction(formData);
+
+    expect(mocks.saveLineInstallmentReminderConfig).toHaveBeenCalledOnce();
+    expect(mocks.saveLineInstallmentReminderConfig).toHaveBeenCalledWith(config);
+    expect(mocks.appendAudit).toHaveBeenCalledWith(expect.objectContaining({
+      action: "LINE_INSTALLMENT_REMINDER_CONFIG_SAVED",
+      metadata: JSON.stringify({ settingKey: "line_installment_reminder_config" }),
+    }));
+    expect(JSON.stringify(mocks.appendAudit.mock.calls)).not.toContain("Seven-day reminder");
+  });
+
+  it("rejects an invalid complete configuration before persistence", async () => {
+    const config = structuredClone(DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG);
+    config.profiles.T_PLUS_1_DAY.message = "Unknown {{payment_label}}";
+    const formData = new FormData();
+    formData.set("slot", "DUE_DATE");
+    formData.set("config", JSON.stringify(config));
+
+    await expect(saveLineInstallmentReminderConfigAction(formData)).rejects.toThrow(/payment_label/);
+    expect(mocks.saveLineInstallmentReminderConfig).not.toHaveBeenCalled();
+    expect(mocks.appendAudit).not.toHaveBeenCalled();
+  });
+
+  it("requires admin access before parsing a reminder preview", async () => {
+    mocks.requireAdmin.mockRejectedValueOnce(new Error("Unauthorized"));
+
+    await expect(previewLineInstallmentReminderAction(new FormData())).rejects.toThrow("Unauthorized");
+    expect(mocks.saveLineInstallmentReminderConfig).not.toHaveBeenCalled();
+  });
+
+  it("restores the complete documented reminder configuration", async () => {
+    const result = await resetLineInstallmentReminderConfigAction();
+
+    expect(mocks.saveLineInstallmentReminderConfig).toHaveBeenCalledWith(DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG);
+    expect(result.config).toEqual(DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG);
   });
 });
 

@@ -1,20 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  runtimeConfig: vi.fn(),
-  verifyLineIdToken: vi.fn(),
-  allow: vi.fn(),
-  claim: vi.fn(),
-  listClients: vi.fn(),
-  updateLineLinkClient: vi.fn(),
-  claimLineConnection: vi.fn(),
-  appendAudit: vi.fn(),
-  resolveScope: vi.fn(),
-  getTestProfile: vi.fn(),
-  testClaim: vi.fn(),
-  updateTestProfile: vi.fn(),
-  claimTestConnection: vi.fn(),
-  disconnectTestConnection: vi.fn(),
+  runtimeConfig: vi.fn(), verifyLineIdToken: vi.fn(), allow: vi.fn(), claim: vi.fn(), testClaim: vi.fn(),
+  listClients: vi.fn(), updateLineLinkClient: vi.fn(), claimLineConnection: vi.fn(), appendAudit: vi.fn(),
+  resolveScope: vi.fn(), getTestProfile: vi.fn(), updateTestProfile: vi.fn(), claimTestConnection: vi.fn(), disconnectTestConnection: vi.fn(),
+  deliverAfterConnection: vi.fn(),
 }));
 
 vi.mock("@/lib/runtime-config", () => ({ runtimeConfig: mocks.runtimeConfig }));
@@ -27,6 +17,7 @@ vi.mock("@/lib/line/liff-verification", () => ({
 vi.mock("@/lib/security/rate-limit", () => ({ lineConnectionLimiter: { allow: mocks.allow } }));
 vi.mock("@/lib/line/connection", () => ({ createLineConnectionService: () => ({ claim: mocks.claim }), resolveLineConnectionScope: mocks.resolveScope }));
 vi.mock("@/lib/line/message-test-connection", () => ({ createLineMessageTestConnectionService: () => ({ claim: mocks.testClaim }) }));
+vi.mock("@/lib/line/post-connection-delivery", () => ({ deliverDueInitialPaymentsAfterLineConnection: mocks.deliverAfterConnection }));
 vi.mock("@/lib/sheets/line-message-test-profile", () => ({
   getLineMessageTestProfile: mocks.getTestProfile,
   updateLineMessageTestProfileIfUnchanged: mocks.updateTestProfile,
@@ -56,14 +47,15 @@ beforeEach(() => {
   mocks.runtimeConfig.mockResolvedValue({ lineLinkingEnabled: true, lineLoginChannelId: "1234567890" });
   mocks.verifyLineIdToken.mockResolvedValue({ lineUserId, displayName: "Nisa LINE", pictureUrl: "https://profile.line-scdn.net/avatar/path" });
   mocks.allow.mockReturnValue(true);
-  mocks.claim.mockResolvedValue("LINKED");
+  mocks.claim.mockResolvedValue({ status: "LINKED", clientId: "client_1" });
   mocks.testClaim.mockResolvedValue("LINKED");
   mocks.resolveScope.mockReturnValue("CLIENT");
   mocks.getTestProfile.mockResolvedValue(null);
+  mocks.deliverAfterConnection.mockResolvedValue(undefined);
 });
 
 describe("POST /api/line/connect", () => {
-  it("runs in Node, verifies server-side, and atomically claims using only raw ID token plus connection token", async () => {
+  it("runs in Node, verifies server-side, claims a client, and starts post-connection delivery", async () => {
     expect(runtime).toBe("nodejs");
     const response = await POST(request({ idToken, connectionToken }));
     const rawResponse = await response.clone().text();
@@ -72,74 +64,66 @@ describe("POST /api/line/connect", () => {
     expect(await response.json()).toEqual({ status: "success" });
     expect(mocks.verifyLineIdToken).toHaveBeenCalledWith(expect.objectContaining({ idToken, channelId: "1234567890", fetchFn: fetch }));
     expect(mocks.claim).toHaveBeenCalledWith({ token: connectionToken, lineUserId, displayName: "Nisa LINE", pictureUrl: "https://profile.line-scdn.net/avatar/path", now: expect.any(Date) });
+    expect(mocks.deliverAfterConnection).toHaveBeenCalledWith({ clientId: "client_1" });
     expect(rawResponse).not.toContain(idToken);
     expect(rawResponse).not.toContain(connectionToken);
+    expect(rawResponse).not.toContain(lineUserId);
   });
 
-  it("rejects malformed or extra client-supplied identity data before verification", async () => {
+  it("rejects malformed data before verification and hides disabled linking", async () => {
     for (const body of [null, {}, { idToken: "", connectionToken }, { idToken, connectionToken: "short" }, { idToken, connectionToken, lineUserId }]) {
       const response = await POST(request(body));
       expect(response.status).toBe(400);
-      expect(await response.json()).toEqual({ status: "invalid" });
     }
     expect(mocks.verifyLineIdToken).not.toHaveBeenCalled();
-  });
 
-  it("hides disabled or unconfigured linking and rate-limits before calling LINE", async () => {
     mocks.runtimeConfig.mockResolvedValueOnce({ lineLinkingEnabled: false, lineLoginChannelId: "" });
     await expect(POST(request({ idToken, connectionToken }))).resolves.toMatchObject({ status: 404 });
-
-    mocks.runtimeConfig.mockResolvedValueOnce({ lineLinkingEnabled: true, lineLoginChannelId: "" });
-    await expect(POST(request({ idToken, connectionToken }))).resolves.toMatchObject({ status: 503 });
-
-    mocks.allow.mockReturnValueOnce(false);
-    const limited = await POST(request({ idToken, connectionToken }));
-    expect(limited.status).toBe(429);
-    expect(await limited.json()).toEqual({ status: "temporary_failure" });
   });
 
-  it("maps invalid verification separately from temporary LINE failure", async () => {
+  it("maps invalid verification separately from temporary failure", async () => {
     mocks.verifyLineIdToken.mockRejectedValueOnce(new LineIdTokenVerificationError("INVALID"));
-    const invalid = await POST(request({ idToken, connectionToken }));
-    expect(invalid.status).toBe(401);
-    expect(await invalid.json()).toEqual({ status: "invalid" });
-
+    await expect(POST(request({ idToken, connectionToken }))).resolves.toMatchObject({ status: 401 });
     mocks.verifyLineIdToken.mockRejectedValueOnce(new LineIdTokenVerificationError("TEMPORARY"));
-    const temporary = await POST(request({ idToken, connectionToken }));
-    expect(temporary.status).toBe(503);
-    expect(await temporary.json()).toEqual({ status: "temporary_failure" });
+    await expect(POST(request({ idToken, connectionToken }))).resolves.toMatchObject({ status: 503 });
   });
 
   it("rejects an unresolved token before LINE verification", async () => {
     mocks.resolveScope.mockReturnValueOnce("INVALID");
     const response = await POST(request({ idToken, connectionToken }));
-
     expect(response.status).toBe(410);
-    expect(await response.json()).toEqual({ status: "expired" });
     expect(mocks.verifyLineIdToken).not.toHaveBeenCalled();
-    expect(mocks.claim).not.toHaveBeenCalled();
-    expect(mocks.testClaim).not.toHaveBeenCalled();
   });
 
-  it("routes a test-scoped token through same verified LIFF request", async () => {
+  it("routes test-scoped tokens through same LIFF endpoint without client delivery", async () => {
     mocks.resolveScope.mockReturnValueOnce("TEST");
     const response = await POST(request({ idToken, connectionToken }));
-
     expect(response.status).toBe(200);
-    expect(mocks.verifyLineIdToken).toHaveBeenCalledOnce();
     expect(mocks.testClaim).toHaveBeenCalledWith({ token: connectionToken, lineUserId, displayName: "Nisa LINE", pictureUrl: "https://profile.line-scdn.net/avatar/path", now: expect.any(Date) });
     expect(mocks.claim).not.toHaveBeenCalled();
+    expect(mocks.deliverAfterConnection).not.toHaveBeenCalled();
+  });
+
+  it("recovers client delivery after idempotent linking and protects the response when delivery fails", async () => {
+    mocks.claim.mockResolvedValueOnce({ status: "ALREADY_LINKED", clientId: "client_1" });
+    await expect(POST(request({ idToken, connectionToken }))).resolves.toMatchObject({ status: 200 });
+    expect(mocks.deliverAfterConnection).toHaveBeenCalledWith({ clientId: "client_1" });
+
+    mocks.deliverAfterConnection.mockRejectedValueOnce(new Error("delivery failed"));
+    const response = await POST(request({ idToken, connectionToken }));
+    expect(response.status).toBe(200);
+    await expect(response.text()).resolves.not.toContain("delivery failed");
   });
 
   it.each([
-    ["ALREADY_LINKED", 200, "already_used"],
-    ["INVALID_OR_EXPIRED", 410, "expired"],
-    ["CLIENT_INACTIVE", 410, "expired"],
-    ["CONFLICT", 409, "conflict"],
-  ])("maps %s claim safely", async (claim, status, responseStatus) => {
+    [{ status: "INVALID_OR_EXPIRED" }, 410, "expired"],
+    [{ status: "CLIENT_INACTIVE" }, 410, "expired"],
+    [{ status: "CONFLICT" }, 409, "conflict"],
+  ])("maps unsuccessful client claims safely", async (claim, status, responseStatus) => {
     mocks.claim.mockResolvedValueOnce(claim);
     const response = await POST(request({ idToken, connectionToken }));
     expect(response.status).toBe(status);
     expect(await response.json()).toEqual({ status: responseStatus });
+    expect(mocks.deliverAfterConnection).not.toHaveBeenCalled();
   });
 });

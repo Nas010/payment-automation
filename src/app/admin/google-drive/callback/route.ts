@@ -18,7 +18,7 @@ function parseIntent(value: string | undefined): OAuthIntent {
 }
 
 function flowRedirect(request: NextRequest, intent: OAuthIntent, error?: string, complete = false): NextResponse {
-  const url = new URL(intent === "reconnect" || complete ? "/admin/settings" : error ? "/admin/login" : "/admin/setup", request.url);
+  const url = new URL(intent === "reconnect" || complete ? "/admin/settings/workspace" : error ? "/admin/login" : "/admin/setup", request.url);
   if (error) url.searchParams.set(intent === "reconnect" ? "drive_error" : "error", error);
   else if (intent === "reconnect" || complete) url.searchParams.set("workspace", "reconnect_pending");
   return NextResponse.redirect(url);
