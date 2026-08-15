@@ -97,11 +97,11 @@ async function buildPreview(
 }
 
 export async function previewLineMessageTest(
-  input: { scenario: LineMessageTestScenario; baseUrl: string },
+  input: { scenario: LineMessageTestScenario; baseUrl: string; profile?: LineMessageTestProfile },
   injectedDependencies?: LineMessageTestDeliveryDependencies,
 ): Promise<LineMessageTestPreview> {
   const dependencies = injectedDependencies ?? await runtimeDependencies();
-  const profile = await dependencies.getProfile();
+  const profile = input.profile ?? await dependencies.getProfile();
   if (!profile) throw new Error("LINE_MESSAGE_TEST_PROFILE_MISSING");
   return buildPreview({ ...input, profile, now: dependencies.now() }, dependencies);
 }
@@ -147,11 +147,11 @@ async function appendTestAudit(
 }
 
 export async function sendLineMessageTest(
-  input: { scenario: LineMessageTestScenario; baseUrl: string },
+  input: { scenario: LineMessageTestScenario; baseUrl: string; profile?: LineMessageTestProfile },
   injectedDependencies?: LineMessageTestDeliveryDependencies,
 ): Promise<LineMessageTestSendResult> {
   const dependencies = injectedDependencies ?? await runtimeDependencies();
-  const profile = await dependencies.getProfile();
+  const profile = input.profile ?? await dependencies.getProfile();
   if (!profile) return { outcome: "FAILED", requestCode: "PROFILE_MISSING" };
 
   let result: LineMessageTestSendResult;
