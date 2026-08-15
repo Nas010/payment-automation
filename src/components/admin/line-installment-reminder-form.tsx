@@ -65,6 +65,7 @@ export function LineInstallmentReminderForm({ resolved, previewAction, saveActio
       <CardContent>Stored reminder setup is invalid.</CardContent>
     </Card>;
   }
+  const currentConfig = config;
 
   function updateProfile(slot: ReminderSlot, update: (profile: LineDueMessageProfile) => LineDueMessageProfile): void {
     revisions.current[slot] += 1;
@@ -124,7 +125,7 @@ export function LineInstallmentReminderForm({ resolved, previewAction, saveActio
     setOutcomeBySlot((current) => ({ ...current, [slot]: "" }));
     const formData = new FormData();
     formData.set("slot", slot);
-    formData.set("profile", JSON.stringify(config.profiles[slot]));
+    formData.set("profile", JSON.stringify(currentConfig.profiles[slot]));
     void (async () => {
       try {
         const result = await previewAction(formData);
@@ -153,7 +154,7 @@ export function LineInstallmentReminderForm({ resolved, previewAction, saveActio
     const submittedRevisions = { ...revisions.current };
     const formData = new FormData();
     formData.set("slot", "DUE_DATE");
-    formData.set("config", JSON.stringify(config));
+    formData.set("config", JSON.stringify(currentConfig));
     void (async () => {
       try {
         const result = await saveAction(formData);
