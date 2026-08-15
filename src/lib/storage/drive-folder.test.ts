@@ -1,5 +1,9 @@
-import { describe, expect, it, vi } from "vitest";
-import { getSlipStorageFolder, parseDriveFolderId, selectSlipStorageFolderId, serviceAccountEmail } from "./drive-folder";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({ getActiveWorkspaceConnection: vi.fn() }));
+vi.mock("@/lib/workspace/connection", () => ({ getActiveWorkspaceConnection: mocks.getActiveWorkspaceConnection }));
+
+import { getSlipStorageFolder, parseDriveFolderId } from "./drive-folder";
 
 describe("parseDriveFolderId", () => {
   it("accepts a raw folder ID and a Drive folder URL", () => {
@@ -15,48 +19,17 @@ describe("parseDriveFolderId", () => {
   });
 });
 
-describe("serviceAccountEmail", () => {
-  it("returns only a valid service-account email", () => {
-    expect(serviceAccountEmail(JSON.stringify({ client_email: "payments@example.iam.gserviceaccount.com", private_key: "private" }))).toBe("payments@example.iam.gserviceaccount.com");
-    expect(() => serviceAccountEmail("{}")).toThrow("Google service account is not configured correctly.");
-    expect(() => serviceAccountEmail("not-json")).toThrow("Google service account is not configured correctly.");
-  });
-});
-
-describe("selectSlipStorageFolderId", () => {
-  it("prefers workbook configuration over environment fallback", () => {
-    expect(selectSlipStorageFolderId([{ key: "slip_storage_folder_id", value: "workbook-folder" }], { SLIP_STORAGE_FOLDER_ID: "environment-folder" })).toEqual({ folderId: "workbook-folder", source: "workbook" });
-    expect(selectSlipStorageFolderId([], { SLIP_STORAGE_FOLDER_ID: "environment-folder" })).toEqual({ folderId: "environment-folder", source: "environment" });
-    expect(selectSlipStorageFolderId([], { SLIP_STORAGE_FOLDER_ID: "CONFIG_REQUIRED" })).toBeNull();
-  });
-});
-
 describe("getSlipStorageFolder", () => {
-  it("prefers an active OAuth connection over workbook and environment folders", async () => {
-    await expect(getSlipStorageFolder({
-      getGoogleDriveConnection: vi.fn().mockResolvedValue({ refreshToken: "refresh-secret", accountEmail: "coach@example.com", folderId: "oauth-folder-12345", folderName: "OAuth folder", validatedAt: "2026-08-11T12:00:00.000Z" }),
-      listSettings: vi.fn().mockResolvedValue([{ rowNumber: 2, key: "slip_storage_folder_id", value: "workbook-folder" }]),
-      environment: { SLIP_STORAGE_FOLDER_ID: "environment-folder" },
-    })).resolves.toEqual({ folderId: "oauth-folder-12345", source: "oauth", folderName: "OAuth folder" });
+  beforeEach(() => vi.clearAllMocks());
+
+  it("uses only the active owner Workspace folder", async () => {
+    mocks.getActiveWorkspaceConnection.mockResolvedValue({ folderId: "oauth-folder-12345", folderName: "Private slips" });
+    await expect(getSlipStorageFolder()).resolves.toEqual({ folderId: "oauth-folder-12345", source: "oauth", folderName: "Private slips" });
   });
 
-  it("uses workbook settings when readable", async () => {
-    await expect(getSlipStorageFolder({
-      getGoogleDriveConnection: vi.fn().mockResolvedValue(null),
-      listSettings: vi.fn().mockResolvedValue([{ rowNumber: 2, key: "slip_storage_folder_id", value: "workbook-folder" }]),
-      environment: { SLIP_STORAGE_FOLDER_ID: "environment-folder" },
-    })).resolves.toEqual({ folderId: "workbook-folder", source: "workbook" });
-  });
-
-  it("falls back to environment when Settings cannot be read", async () => {
-    await expect(getSlipStorageFolder({
-      getGoogleDriveConnection: vi.fn().mockResolvedValue(null),
-      listSettings: vi.fn().mockRejectedValue(new Error("Sheets unavailable")),
-      environment: { SLIP_STORAGE_FOLDER_ID: "environment-folder" },
-    })).resolves.toEqual({ folderId: "environment-folder", source: "environment" });
-  });
-
-  it("rejects missing workbook and environment configuration", async () => {
-    await expect(getSlipStorageFolder({ listSettings: vi.fn().mockResolvedValue([]), environment: {} })).rejects.toThrow("Slip storage folder is not configured.");
+  it("rejects missing active Workspace instead of using environment fallbacks", async () => {
+    vi.stubEnv("SLIP_STORAGE_FOLDER_ID", "environment-folder");
+    mocks.getActiveWorkspaceConnection.mockResolvedValue(null);
+    await expect(getSlipStorageFolder()).rejects.toThrow("Slip storage folder is not configured.");
   });
 });

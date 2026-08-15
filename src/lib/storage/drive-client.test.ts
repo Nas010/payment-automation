@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createDriveSlipFile, testDriveFolderWrite, validateDriveFolder, type DriveClientLike } from "./drive-client";
+import { createDriveFolder, createDriveSlipFile, testDriveFolderWrite, validateDriveFolder, type DriveClientLike } from "./drive-client";
 
 function driveWith({ folder, getError, createdId = "file-12345", deleteError }: { folder?: Record<string, unknown>; getError?: unknown; createdId?: string | null; deleteError?: unknown } = {}) {
   const get = vi.fn().mockImplementation(async () => {
@@ -34,10 +34,10 @@ describe("validateDriveFolder", () => {
   });
 
   it("returns stable errors for unavailable and invalid folder states", async () => {
-    await expect(validateDriveFolder("folder-12345", { drive: driveWith({ getError: { code: 404, message: "private Google body" } }).drive })).rejects.toThrow("Folder not found. Share it with the service-account email and try again.");
+    await expect(validateDriveFolder("folder-12345", { drive: driveWith({ getError: { code: 404, message: "private Google body" } }).drive })).rejects.toThrow("Folder not found");
     await expect(validateDriveFolder("folder-12345", { drive: driveWith({ folder: { ...writableFolder, mimeType: "image/png" } }).drive })).rejects.toThrow("Selected Drive item is not a folder.");
     await expect(validateDriveFolder("folder-12345", { drive: driveWith({ folder: { ...writableFolder, trashed: true } }).drive })).rejects.toThrow("Selected Drive folder is in trash.");
-    await expect(validateDriveFolder("folder-12345", { drive: driveWith({ folder: { ...writableFolder, capabilities: { canAddChildren: false } } }).drive })).rejects.toThrow("Service account needs Editor access to this folder.");
+    await expect(validateDriveFolder("folder-12345", { drive: driveWith({ folder: { ...writableFolder, capabilities: { canAddChildren: false } } }).drive })).rejects.toThrow("Connected Google account needs Editor access to this folder.");
   });
 
   it("sanitizes unexpected Google failures", async () => {
@@ -56,6 +56,14 @@ describe("createDriveSlipFile", () => {
       fields: "id",
       supportsAllDrives: true,
     }));
+  });
+});
+
+describe("createDriveFolder", () => {
+  it("creates the recommended folder in the connected account", async () => {
+    const { drive, create } = driveWith({ createdId: "folder-12345" });
+    await expect(createDriveFolder("Coaching Payment Slips", drive)).resolves.toEqual({ folderId: "folder-12345", folderName: "Coaching Payment Slips", folderUrl: "https://drive.google.com/drive/folders/folder-12345" });
+    expect(create).toHaveBeenCalledWith({ requestBody: { name: "Coaching Payment Slips", mimeType: "application/vnd.google-apps.folder" }, fields: "id", supportsAllDrives: true });
   });
 });
 

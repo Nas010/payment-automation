@@ -1,14 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { DEFAULT_LINE_DUE_PROFILES } from "@/lib/line/message-profile";
 
-const mocks = vi.hoisted(() => ({ requireAdmin: vi.fn(), setSecret: vi.fn(), getLineChannelAccessToken: vi.fn(), upsertOperationalSetting: vi.fn(), appendAudit: vi.fn(), revalidatePath: vi.fn(), fetch: vi.fn() }));
+const mocks = vi.hoisted(() => ({ requireAdmin: vi.fn(), setSecret: vi.fn(), getLineChannelAccessToken: vi.fn(), upsertOperationalSetting: vi.fn(), saveLineDueMessageProfile: vi.fn(), appendAudit: vi.fn(), revalidatePath: vi.fn(), fetch: vi.fn() }));
 
 vi.mock("@/lib/admin-auth", () => ({ requireAdmin: mocks.requireAdmin }));
 vi.mock("@/lib/secrets/service", () => ({ setSecret: mocks.setSecret, getLineChannelAccessToken: mocks.getLineChannelAccessToken }));
-vi.mock("@/lib/sheets/settings", () => ({ upsertOperationalSetting: mocks.upsertOperationalSetting }));
+vi.mock("@/lib/sheets/settings", () => ({ upsertOperationalSetting: mocks.upsertOperationalSetting, saveLineDueMessageProfile: mocks.saveLineDueMessageProfile }));
 vi.mock("@/lib/sheets/payments", () => ({ appendAudit: mocks.appendAudit }));
 vi.mock("next/cache", () => ({ revalidatePath: mocks.revalidatePath }));
 
-import { previewLineDueTemplateAction, resetLineDueTemplateAction, saveAndTestLineCredentialsAction, saveLineDueTemplateAction } from "./line-actions";
+import { previewLineDueMessageProfileAction, previewLineDueTemplateAction, resetLineDueMessageProfileAction, resetLineDueTemplateAction, saveAndTestLineCredentialsAction, saveLineDueMessageProfileAction, saveLineDueTemplateAction } from "./line-actions";
 
 const accessToken = "line-access-token-value-1234567890";
 const channelSecret = "A".repeat(32);
@@ -20,8 +21,60 @@ beforeEach(() => {
   mocks.setSecret.mockResolvedValue(undefined);
   mocks.getLineChannelAccessToken.mockResolvedValue(accessToken);
   mocks.upsertOperationalSetting.mockResolvedValue(undefined);
+  mocks.saveLineDueMessageProfile.mockResolvedValue(undefined);
   mocks.appendAudit.mockResolvedValue(undefined);
   mocks.fetch.mockResolvedValue(new Response("{}", { status: 200 }));
+});
+
+describe("LINE due-message profile actions", () => {
+  it("previews an installment profile with safe server sample data", async () => {
+    const formData = new FormData();
+    formData.set("payment_type", "INSTALLMENTS");
+    formData.set("profile", JSON.stringify(DEFAULT_LINE_DUE_PROFILES.INSTALLMENTS));
+
+    await expect(previewLineDueMessageProfileAction(formData)).resolves.toMatchObject({
+      ok: true,
+      paymentType: "INSTALLMENTS",
+      preview: expect.stringContaining("2nd payment out of 3"),
+    });
+    expect(mocks.saveLineDueMessageProfile).not.toHaveBeenCalled();
+  });
+
+  it("saves one profile and audits only its key and payment type", async () => {
+    const formData = new FormData();
+    formData.set("payment_type", "ONE_TIME");
+    formData.set("profile", JSON.stringify(DEFAULT_LINE_DUE_PROFILES.ONE_TIME));
+
+    await saveLineDueMessageProfileAction(formData);
+
+    expect(mocks.saveLineDueMessageProfile).toHaveBeenCalledWith("ONE_TIME", DEFAULT_LINE_DUE_PROFILES.ONE_TIME);
+    expect(mocks.appendAudit).toHaveBeenCalledWith(expect.objectContaining({
+      action: "LINE_DUE_PROFILE_SAVED",
+      metadata: JSON.stringify({ settingKey: "line_due_message_profile_one_time", paymentType: "ONE_TIME" }),
+    }));
+    expect(JSON.stringify(mocks.appendAudit.mock.calls)).not.toContain(DEFAULT_LINE_DUE_PROFILES.ONE_TIME.message);
+  });
+
+  it("rejects invalid profile JSON before persistence or audit", async () => {
+    const formData = new FormData();
+    formData.set("payment_type", "ONE_TIME");
+    formData.set("profile", JSON.stringify({ version: 1, message: "{{amount}} {{due_date}}", customPlaceholders: [] }));
+
+    await expect(saveLineDueMessageProfileAction(formData)).rejects.toThrow(/payment_url/);
+    expect(mocks.saveLineDueMessageProfile).not.toHaveBeenCalled();
+    expect(mocks.appendAudit).not.toHaveBeenCalled();
+  });
+
+  it("resets only the selected profile to its documented default", async () => {
+    const formData = new FormData();
+    formData.set("payment_type", "INSTALLMENTS");
+
+    const result = await resetLineDueMessageProfileAction(formData);
+
+    expect(mocks.saveLineDueMessageProfile).toHaveBeenCalledWith("INSTALLMENTS", DEFAULT_LINE_DUE_PROFILES.INSTALLMENTS);
+    expect(result.profile).toEqual(DEFAULT_LINE_DUE_PROFILES.INSTALLMENTS);
+    expect(mocks.appendAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "LINE_DUE_PROFILE_RESET" }));
+  });
 });
 
 describe("LINE due-message template actions", () => {

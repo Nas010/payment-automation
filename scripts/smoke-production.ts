@@ -1,12 +1,12 @@
 async function main(): Promise<void> {
-  const baseUrl = process.env.PRODUCTION_BASE_URL?.replace(/\/$/, "");
+  const baseUrl = process.env.SMOKE_BASE_URL?.replace(/\/$/, "");
 
-  if (!baseUrl) throw new Error("Set PRODUCTION_BASE_URL before running the production smoke check");
+  if (!baseUrl) throw new Error("Set SMOKE_BASE_URL before running the production smoke check");
 
   const healthResponse = await fetch(`${baseUrl}/api/health`);
   if (!healthResponse.ok) throw new Error(`Health endpoint returned ${healthResponse.status}`);
-  const health = await healthResponse.json() as { status?: string; missing?: string[] };
-  if (health.status !== "ready") throw new Error(`Production is not configured: ${(health.missing ?? []).join(", ")}`);
+  const health = await healthResponse.json() as { status?: string; checks?: Record<string, string> };
+  if (health.status !== "ready") throw new Error(`Production is not configured: ${JSON.stringify(health.checks ?? {})}`);
 
   const token = process.env.SMOKE_PAYMENT_TOKEN;
   if (!token) {

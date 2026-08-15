@@ -2,12 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getPaymentByToken: vi.fn(),
-  serverConfig: vi.fn(),
+  runtimeConfig: vi.fn(),
   toBuffer: vi.fn(),
 }));
 
 vi.mock("@/lib/sheets/payments", () => ({ getPaymentByToken: mocks.getPaymentByToken }));
-vi.mock("@/lib/config", () => ({ serverConfig: mocks.serverConfig }));
+vi.mock("@/lib/runtime-config", () => ({ runtimeConfig: mocks.runtimeConfig }));
 vi.mock("qrcode", () => ({ default: { toBuffer: mocks.toBuffer } }));
 
 import { GET } from "./route";
@@ -26,7 +26,7 @@ describe("GET /api/payments/[publicToken]/promptpay-qr.png", () => {
 
   it("returns a cacheable high-contrast 720px PNG for the exact website PromptPay payload", async () => {
     mocks.getPaymentByToken.mockResolvedValue({ amount_thb: "฿3,000.00" });
-    mocks.serverConfig.mockReturnValue({ promptPayIdentifier: "0812345678", promptPayType: "phone" });
+    mocks.runtimeConfig.mockResolvedValue({ promptPayIdentifier: "0812345678", promptPayType: "phone" });
     mocks.toBuffer.mockResolvedValue(new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]));
 
     const response = await GET(new Request("https://pay.example/api/payments/token_1/promptpay-qr.png"), { params: Promise.resolve({ publicToken: "token_1" }) });
@@ -40,7 +40,7 @@ describe("GET /api/payments/[publicToken]/promptpay-qr.png", () => {
 
   it("returns not found for a payment with an invalid amount", async () => {
     mocks.getPaymentByToken.mockResolvedValue({ amount_thb: "invalid" });
-    mocks.serverConfig.mockReturnValue({ promptPayIdentifier: "0812345678", promptPayType: "phone" });
+    mocks.runtimeConfig.mockResolvedValue({ promptPayIdentifier: "0812345678", promptPayType: "phone" });
 
     await expect(GET(new Request("https://pay.example/api/payments/token_1/promptpay-qr.png"), { params: Promise.resolve({ publicToken: "token_1" }) })).resolves.toMatchObject({ status: 404 });
     expect(mocks.toBuffer).not.toHaveBeenCalled();
@@ -48,7 +48,7 @@ describe("GET /api/payments/[publicToken]/promptpay-qr.png", () => {
 
   it("returns a sanitized server error when PromptPay configuration is unavailable, distinct from invalid payment input", async () => {
     mocks.getPaymentByToken.mockResolvedValue({ amount_thb: "3000" });
-    mocks.serverConfig.mockImplementation(() => { throw new Error("private configuration failure"); });
+    mocks.runtimeConfig.mockRejectedValue(new Error("private configuration failure"));
 
     const response = await GET(new Request("https://pay.example/api/payments/private-token/promptpay-qr.png"), { params: Promise.resolve({ publicToken: "private-token" }) });
 
@@ -59,7 +59,7 @@ describe("GET /api/payments/[publicToken]/promptpay-qr.png", () => {
 
   it("returns a sanitized server error when a malformed PromptPay configuration cannot build a payload", async () => {
     mocks.getPaymentByToken.mockResolvedValue({ amount_thb: "3000" });
-    mocks.serverConfig.mockReturnValue({ promptPayIdentifier: "not-a-valid-phone", promptPayType: "phone" });
+    mocks.runtimeConfig.mockResolvedValue({ promptPayIdentifier: "not-a-valid-phone", promptPayType: "phone" });
 
     const response = await GET(new Request("https://pay.example/api/payments/private-token/promptpay-qr.png"), { params: Promise.resolve({ publicToken: "private-token" }) });
 

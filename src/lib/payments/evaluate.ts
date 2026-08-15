@@ -1,3 +1,5 @@
+import { bangkokDateKey } from "@/lib/date";
+
 export type Decision = "AUTO_RECORDED" | "REVIEW" | "FLAGGED";
 
 export interface EvaluationPayment {
@@ -44,9 +46,8 @@ function plausibleDate(value: string | null, createdAt: string): boolean {
   if (!value) return false;
   const transaction = new Date(value);
   const created = new Date(createdAt);
-  if (Number.isNaN(transaction.getTime())) return false;
-  const daysBeforeCreation = (created.getTime() - transaction.getTime()) / 86_400_000;
-  return daysBeforeCreation <= 3 && transaction.getTime() <= Date.now() + 86_400_000;
+  if (Number.isNaN(transaction.getTime()) || Number.isNaN(created.getTime())) return false;
+  return bangkokDateKey(transaction) >= bangkokDateKey(created) && transaction.getTime() <= Date.now() + 86_400_000;
 }
 
 export function evaluatePayment(payment: EvaluationPayment, signals: SlipSignals): Evaluation {

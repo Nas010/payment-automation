@@ -1,0 +1,6 @@
+.next/
+.next-dev/
+node_modules/
+coverage/
+playwright-report/
+test-results/

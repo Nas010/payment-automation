@@ -1,4 +1,4 @@
-import { serverConfig } from "@/lib/config";
+import { runtimeConfig } from "@/lib/runtime-config";
 import { detectTransactionDuplicate } from "@/lib/payments/duplicates";
 import { evaluatePayment, sendToReviewForStorageFailure, type Evaluation } from "@/lib/payments/evaluate";
 import { persistPaymentTransition, type PaymentStatus, type TransitionSource } from "@/lib/payments/transition";
@@ -40,17 +40,17 @@ export type SlipProcessResult = {
   payment: PaymentRecord;
 };
 
-function defaultDependencies(): SlipProcessDependencies {
-  const config = serverConfig();
+async function defaultDependencies(): Promise<SlipProcessDependencies> {
+  const config = await runtimeConfig();
   return {
-    analyzeSlip,
+    analyzeSlip: (bytes, declaredType, receiverAliases) => analyzeSlip(bytes, declaredType, receiverAliases, { ocrEnabled: config.ocrEnabled }),
     listPayments,
     listSchedules,
     evaluatePayment,
     persistPaymentTransition,
     shouldRetainSlip: (status) => shouldRetainSlip(status, config.slipRetentionDays),
     storeExceptionSlip,
-    receiverAliases: config.receiverAliases,
+    receiverAliases: [config.recipientNameEn, config.recipientNameTh, ...config.recipientAliases].filter(Boolean),
     now: () => new Date().toISOString(),
   };
 }
@@ -120,7 +120,7 @@ function terminalOrReplayed(payment: PaymentRecord, source: SlipSource): boolean
 
 /** Processes one submitted slip without depending on an HTTP transport. */
 export async function processSlipImage(input: ProcessSlipImageInput, injected?: SlipProcessDependencies): Promise<SlipProcessResult> {
-  const dependencies = injected ?? defaultDependencies();
+  const dependencies = injected ?? await defaultDependencies();
   let history = await dependencies.listPayments();
   let payment = authoritativePayment(history, input.expectedPayment.payment_id);
   assertLineAssociation(payment, input.source);

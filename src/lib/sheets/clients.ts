@@ -32,7 +32,7 @@ function isReservationConflict(error: unknown): boolean {
 }
 
 async function clientSheetMetadata(): Promise<{ sheetId: number; namedRanges: Array<{ name?: string | null; namedRangeId?: string | null }> }> {
-  const { sheets, spreadsheetId } = getGoogleSheets();
+  const { sheets, spreadsheetId } = await getGoogleSheets();
   const response = await sheets.spreadsheets.get({ spreadsheetId, fields: "sheets(properties(sheetId,title)),namedRanges(namedRangeId,name)" });
   const sheetId = response.data.sheets?.find((sheet) => sheet.properties?.title === "Clients")?.properties?.sheetId;
   if (sheetId === undefined || sheetId === null) throw new Error("Clients sheet is required");
@@ -53,7 +53,7 @@ function lineLinkCellUpdates(client: ClientRecord, sheetId: number) {
 
 export async function listClients(): Promise<ClientRecord[]> {
   await ensureClientSchema();
-  const { sheets, spreadsheetId } = getGoogleSheets();
+  const { sheets, spreadsheetId } = await getGoogleSheets();
   const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: "Clients!A:W" });
   return (response.data.values ?? []).slice(1).map((row, index) => ({ ...rowToRecord(CLIENT_HEADERS, row), rowNumber: index + 2 }) as ClientRecord).filter((row) => row.client_id);
 }
@@ -61,7 +61,7 @@ export async function listClients(): Promise<ClientRecord[]> {
 /** Writes to the first physical blank ID row, avoiding append-only sheet bloat. */
 export async function writeClient(client: NewClientRecord): Promise<void> {
   await ensureClientSchema();
-  const { sheets, spreadsheetId } = getGoogleSheets();
+  const { sheets, spreadsheetId } = await getGoogleSheets();
   const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: "Clients!A:W" });
   const rowNumber = firstEmptyIdRow((response.data.values ?? []).slice(1));
   await sheets.spreadsheets.values.update({
@@ -75,7 +75,7 @@ export async function writeClient(client: NewClientRecord): Promise<void> {
 export async function updateClient(client: ClientRecord): Promise<void> {
   if (!Number.isInteger(client.rowNumber) || client.rowNumber < 2) throw new Error("Client physical row is required");
   await ensureClientSchema();
-  const { sheets, spreadsheetId } = getGoogleSheets();
+  const { sheets, spreadsheetId } = await getGoogleSheets();
   await sheets.spreadsheets.values.update({
     spreadsheetId,
     range: `Clients!A${client.rowNumber}:W${client.rowNumber}`,
@@ -88,7 +88,7 @@ export async function updateClient(client: ClientRecord): Promise<void> {
 export async function updateLineLinkClient({ client, expectedClient, releaseLineUserId }: LineLinkUpdateInput): Promise<boolean> {
   if (!Number.isInteger(client.rowNumber) || client.rowNumber < 2) throw new Error("Client physical row is required");
   await ensureClientSchema();
-  const { sheets, spreadsheetId } = getGoogleSheets();
+  const { sheets, spreadsheetId } = await getGoogleSheets();
   const { sheetId, namedRanges } = await clientSheetMetadata();
   const rowStart = client.rowNumber - 1;
   const reservationRange = { sheetId, startRowIndex: rowStart, endRowIndex: rowStart + 1, startColumnIndex: 0, endColumnIndex: 1 };
@@ -116,7 +116,7 @@ export async function updateLineLinkClient({ client, expectedClient, releaseLine
 export async function claimLineLink({ client, expectedClient, code, lineUserId }: LineLinkClaimInput): Promise<LineLinkClaimResult> {
   if (!Number.isInteger(client.rowNumber) || client.rowNumber < 2) throw new Error("Client physical row is required");
   await ensureClientSchema();
-  const { sheets, spreadsheetId } = getGoogleSheets();
+  const { sheets, spreadsheetId } = await getGoogleSheets();
   const sheetId = await clientSheetId();
   const rowStart = client.rowNumber - 1;
   const reservationRange = { sheetId, startRowIndex: rowStart, endRowIndex: rowStart + 1, startColumnIndex: 0, endColumnIndex: 1 };

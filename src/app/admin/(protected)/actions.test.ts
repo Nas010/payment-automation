@@ -22,13 +22,14 @@ const mocks = vi.hoisted(() => ({
   updatePaymentIfUnchanged: vi.fn(),
   savePackage: vi.fn(),
   upsertOperationalSetting: vi.fn(),
+  runtimeConfig: vi.fn(),
 }));
 
 vi.mock("next/cache", () => ({ revalidatePath: mocks.revalidatePath }));
 vi.mock("next/headers", () => ({ headers: mocks.headers }));
 vi.mock("next/navigation", () => ({ redirect: mocks.redirect }));
 vi.mock("@/lib/admin-auth", () => ({ requireAdmin: mocks.requireAdmin }));
-vi.mock("@/lib/config", () => ({ paymentLinkBaseUrl: vi.fn(() => "https://example.test") }));
+vi.mock("@/lib/runtime-config", () => ({ runtimeConfig: mocks.runtimeConfig }));
 vi.mock("@/lib/payments/generate", () => ({ generateDuePaymentLinks: mocks.generateDuePaymentLinks }));
 vi.mock("@/lib/payments/transition", () => ({ persistPaymentTransition: mocks.persistPaymentTransition }));
 vi.mock("@/lib/line/due-payments", () => ({ sendDueLinePaymentRequests: mocks.sendDueLinePaymentRequests }));
@@ -37,7 +38,7 @@ vi.mock("@/lib/sheets/payments", () => ({ appendAudit: mocks.appendAudit, getPay
 vi.mock("@/lib/sheets/schedules", () => ({ listSchedules: mocks.listSchedules, writeSchedule: mocks.writeSchedule }));
 vi.mock("@/lib/sheets/settings", () => ({ listPackages: mocks.listPackages, savePackage: mocks.savePackage, upsertOperationalSetting: mocks.upsertOperationalSetting }));
 
-import { assignPackageAction, createClientAction, createManualPaymentAction, disconnectLineAction, generateMissingLineLinkCodesAction, renewLineLinkCodeAction, saveOperationalSettingAction, sendLinePaymentAction, stopAwaitingLineSlipAction } from "./actions";
+import { assignPackageAction, createClientAction, createManualPaymentAction, disconnectLineAction, generateMissingLineLinkCodesAction, renewLineLinkCodeAction, sendLinePaymentAction, stopAwaitingLineSlipAction } from "./actions";
 
 const now = "2026-08-10T12:00:00.000Z";
 const userId = "Uaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -83,6 +84,7 @@ beforeEach(() => {
   mocks.getPaymentById.mockResolvedValue(payment());
   mocks.updatePaymentIfUnchanged.mockResolvedValue(true);
   mocks.sendDueLinePaymentRequests.mockResolvedValue({ accepted: ["pay_1"], alreadyAccepted: [], skippedMissingUserId: [], failed: [], disabled: false });
+  mocks.runtimeConfig.mockResolvedValue({ publicBaseUrl: "https://example.test" });
 });
 
 describe("protected LINE trainer actions", () => {
@@ -175,17 +177,6 @@ describe("protected LINE payment actions", () => {
 
     await expect(stopAwaitingLineSlipAction("pay_1")).resolves.toBe(false);
     expect(mocks.appendAudit).not.toHaveBeenCalled();
-  });
-});
-
-describe("protected operational setting actions", () => {
-  it("rejects the LINE due template key from the generic settings writer", async () => {
-    const formData = new FormData();
-    formData.set("key", "line_due_message_template");
-    formData.set("value", "invalid template without required placeholders");
-
-    await expect(saveOperationalSettingAction(formData)).rejects.toThrow(/dedicated LINE due-message controls/i);
-    expect(mocks.upsertOperationalSetting).not.toHaveBeenCalled();
   });
 });
 

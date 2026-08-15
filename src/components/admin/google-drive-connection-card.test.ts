@@ -47,7 +47,7 @@ describe("GoogleDriveConnectionCard", () => {
     render(createElement(GoogleDriveConnectionCard, props()));
 
     expect(screen.getByText("Connect Google Drive")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Connect Google Drive" })).toHaveAttribute("href", "/admin/google-drive/connect");
+    expect(screen.getByRole("link", { name: "Connect Google Drive" })).toHaveAttribute("href", "/admin/google-drive/connect?intent=setup");
     expect(screen.queryByText(/service account/i)).toBeNull();
   });
 
@@ -57,7 +57,7 @@ describe("GoogleDriveConnectionCard", () => {
     expect(screen.getByText("coach@example.com")).toBeTruthy();
     expect(screen.getByText("Private slips")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Change folder" })).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Reconnect account" })).toHaveAttribute("href", "/admin/google-drive/connect");
+    expect(screen.getByRole("link", { name: "Reconnect account" })).toHaveAttribute("href", "/admin/google-drive/connect?intent=reconnect");
   });
 
   it("reports a failed activation without exposing identifiers", async () => {

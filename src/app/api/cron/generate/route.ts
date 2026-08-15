@@ -1,13 +1,18 @@
 import { NextRequest } from "next/server";
-import { serverConfig } from "@/lib/config";
+import { cronSecret } from "@/lib/config";
+import { runtimeConfig } from "@/lib/runtime-config";
+import { getInstallation } from "@/lib/installation/repository";
 import { generateDuePaymentLinks } from "@/lib/payments/generate";
 import { reconcileManualConfirmations } from "@/lib/sheets/payments";
 import { sendDueLinePaymentRequests } from "@/lib/line/due-payments";
 
 export async function GET(request: NextRequest): Promise<Response> {
-  const config = serverConfig();
-  if (!config.cronSecret || request.headers.get("authorization") !== `Bearer ${config.cronSecret}`) return Response.json({ error: "Unauthorized" }, { status: 401 });
-  const baseUrl = config.baseUrl || request.nextUrl.origin;
+  const secret = cronSecret();
+  if (!secret || request.headers.get("authorization") !== `Bearer ${secret}`) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  if ((await getInstallation())?.setupStatus !== "COMPLETE") return Response.json({ error: "Setup incomplete" }, { status: 503 });
+  let config;
+  try { config = await runtimeConfig(); } catch { return Response.json({ error: "Setup incomplete" }, { status: 503 }); }
+  const baseUrl = config.publicBaseUrl;
   const generated = await generateDuePaymentLinks({ baseUrl });
   const reconciled = await reconcileManualConfirmations();
   const line = await sendDueLinePaymentRequests({ baseUrl });

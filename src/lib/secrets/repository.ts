@@ -1,4 +1,4 @@
-import { getGoogleSheets } from "@/lib/sheets/client";
+import { getBootstrapSheets } from "@/lib/sheets/bootstrap-client";
 import type { EncryptedSecretRecord, SecretKeyName, SecretMetadata } from "./types";
 import { SECRET_KEY_NAMES } from "./types";
 
@@ -21,10 +21,10 @@ function isSecretKeyName(value: string): value is SecretKeyName {
   return (SECRET_KEY_NAMES as readonly string[]).includes(value);
 }
 
-let schemaSetupInFlight: Promise<void> | null = null;
+let schemaSetup: Promise<void> | null = null;
 
 async function provisionIntegrationSecretsSchema(): Promise<void> {
-  const { sheets, spreadsheetId } = getGoogleSheets();
+  const { sheets, spreadsheetId } = getBootstrapSheets();
   const metadata = await sheets.spreadsheets.get({ spreadsheetId, fields: "sheets(properties(sheetId,title,gridProperties(columnCount)))" });
   const integrationSheet = metadata.data.sheets?.find((sheet) => sheet.properties?.title === SHEET_TITLE);
   if (!integrationSheet) {
@@ -46,19 +46,18 @@ async function provisionIntegrationSecretsSchema(): Promise<void> {
 }
 
 async function ensureIntegrationSecretsSchema(): Promise<void> {
-  if (schemaSetupInFlight) return schemaSetupInFlight;
-  const setup = provisionIntegrationSecretsSchema();
-  schemaSetupInFlight = setup;
-  try {
-    await setup;
-  } finally {
-    if (schemaSetupInFlight === setup) schemaSetupInFlight = null;
-  }
+  if (schemaSetup) return schemaSetup;
+  const cached = provisionIntegrationSecretsSchema().catch((error) => {
+    if (schemaSetup === cached) schemaSetup = null;
+    throw error;
+  });
+  schemaSetup = cached;
+  return cached;
 }
 
 async function listEncryptedSecretRecords(): Promise<EncryptedSecretRecord[]> {
   await ensureIntegrationSecretsSchema();
-  const { sheets, spreadsheetId } = getGoogleSheets();
+  const { sheets, spreadsheetId } = getBootstrapSheets();
   const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: SHEET_RANGE });
   return (response.data.values ?? []).slice(1).map((row, index) => {
     const keyName = String(row[0] ?? "");
@@ -87,10 +86,11 @@ export async function listSecretMetadata(): Promise<SecretMetadata[]> {
 }
 
 export async function upsertSecretRecord(record: Omit<EncryptedSecretRecord, "rowNumber">): Promise<void> {
-  const existing = await getSecretRecord(record.keyName);
-  const rowNumber = existing?.rowNumber ?? Math.max(2, ...(await listEncryptedSecretRecords()).map((item) => item.rowNumber + 1));
+  const records = await listEncryptedSecretRecords();
+  const existing = records.find((item) => item.keyName === record.keyName);
+  const rowNumber = existing?.rowNumber ?? Math.max(2, ...records.map((item) => item.rowNumber + 1));
   const createdAt = existing?.createdAt || record.createdAt;
-  const { sheets, spreadsheetId } = getGoogleSheets();
+  const { sheets, spreadsheetId } = getBootstrapSheets();
   await sheets.spreadsheets.values.update({
     spreadsheetId,
     range: `${SHEET_TITLE}!A${rowNumber}:K${rowNumber}`,

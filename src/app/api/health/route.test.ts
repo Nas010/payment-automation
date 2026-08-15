@@ -1,31 +1,48 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ getSlipStorageFolder: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  requiredConfiguration: vi.fn(),
+  getInstallation: vi.fn(),
+  getActiveWorkspaceConnection: vi.fn(),
+  getGoogleSheets: vi.fn(),
+  createOAuthDriveClient: vi.fn(),
+  validateDriveFolder: vi.fn(),
+  runtimeConfig: vi.fn(),
+  workbookGet: vi.fn(),
+}));
 
-vi.mock("@/lib/storage/drive-folder", () => ({ getSlipStorageFolder: mocks.getSlipStorageFolder }));
+vi.mock("@/lib/config", () => ({ requiredConfiguration: mocks.requiredConfiguration }));
+vi.mock("@/lib/installation/repository", () => ({ getInstallation: mocks.getInstallation }));
+vi.mock("@/lib/workspace/connection", () => ({ getActiveWorkspaceConnection: mocks.getActiveWorkspaceConnection }));
+vi.mock("@/lib/sheets/client", () => ({ getGoogleSheets: mocks.getGoogleSheets }));
+vi.mock("@/lib/storage/drive-client", () => ({ createOAuthDriveClient: mocks.createOAuthDriveClient, validateDriveFolder: mocks.validateDriveFolder }));
+vi.mock("@/lib/runtime-config", () => ({ runtimeConfig: mocks.runtimeConfig }));
 
 import { GET } from "./route";
 
+beforeEach(() => {
+  vi.clearAllMocks();
+  mocks.requiredConfiguration.mockReturnValue([]);
+  mocks.getInstallation.mockResolvedValue({ setupStatus: "COMPLETE" });
+  mocks.getActiveWorkspaceConnection.mockResolvedValue({ spreadsheetId: "sheet-id", folderId: "folder-id" });
+  mocks.getGoogleSheets.mockResolvedValue({ spreadsheetId: "sheet-id", sheets: { spreadsheets: { get: mocks.workbookGet } } });
+  mocks.workbookGet.mockResolvedValue({});
+  mocks.createOAuthDriveClient.mockReturnValue({});
+  mocks.validateDriveFolder.mockResolvedValue({});
+  mocks.runtimeConfig.mockResolvedValue({ businessDisplayName: "Coach Bee" });
+});
+
 describe("health route", () => {
-  beforeEach(() => {
-    vi.stubEnv("SPREADSHEET_ID", "sheet");
-    vi.stubEnv("GOOGLE_SERVICE_ACCOUNT_JSON", "{}");
-    vi.stubEnv("PROMPTPAY_IDENTIFIER", "0812345678");
-    vi.stubEnv("RECIPIENT_NAME_EN", "Receiver");
-    mocks.getSlipStorageFolder.mockResolvedValue({ folderId: "folder-12345", source: "workbook" });
+  it("reports only safe ready categories", async () => {
+    const response = await GET();
+    await expect(response.json()).resolves.toEqual({ ok: true, status: "ready", checks: { bootstrap: "ready", owner: "ready", workspace: "ready", workbook: "ready", folder: "ready", business: "ready" } });
   });
 
-  afterEach(() => vi.unstubAllEnvs());
-
-  it("reports ready when storage resolves from workbook settings", async () => {
-    const response = await GET();
-    await expect(response.json()).resolves.toEqual({ ok: true, status: "ready", missing: [] });
-  });
-
-  it("reports missing storage without exposing configuration values", async () => {
-    mocks.getSlipStorageFolder.mockRejectedValue(new Error("Slip storage folder is not configured."));
-    const response = await GET();
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ ok: true, status: "needs_configuration", missing: ["SLIP_STORAGE_FOLDER_ID"] });
+  it("reports a revoked folder connection without exposing IDs or vendor errors", async () => {
+    mocks.validateDriveFolder.mockRejectedValue(new Error("private folder-id response"));
+    const body = await (await GET()).json();
+    expect(body).toMatchObject({ status: "needs_configuration", checks: { folder: "attention" } });
+    expect(JSON.stringify(body)).not.toContain("folder-id");
+    expect(JSON.stringify(body)).not.toContain("private");
   });
 });

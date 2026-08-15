@@ -2,7 +2,7 @@ import { replyLineMessage, getLineMessageContent } from "@/lib/line/client";
 import { getLineChannelAccessToken } from "@/lib/secrets/service";
 import { resolveLinePaymentCandidate } from "@/lib/line/payment-match";
 import { persistPaymentTransition, reconcileTerminalPaymentEffects } from "@/lib/payments/transition";
-import { configuredReceiverAliases, lineChatPaymentsEnabled } from "@/lib/config";
+import { runtimeConfig } from "@/lib/runtime-config";
 import { sha256 } from "@/lib/slip/hash";
 import { processSlipImage, type SlipProcessResult } from "@/lib/slip/process";
 import { analyzeSlip, type SlipAnalysis } from "@/lib/slip/analyze";
@@ -41,8 +41,9 @@ export type LineSlipDependencies = {
   now: () => string;
 };
 
-function defaultDependencies(): LineSlipDependencies {
-  return { listClients, listPayments, listSchedules, updatePayment, updatePaymentIfUnchanged, appendAudit, persistPaymentTransition, reconcileTerminalPaymentEffects, lineChatPaymentsEnabled, receiverAliases: configuredReceiverAliases, getLineChannelAccessToken, getLineMessageContent, hashSlipImage: sha256, analyzeSlip, resolveLinePaymentCandidate, processSlipImage, replyLineMessage, now: () => new Date().toISOString() };
+async function defaultDependencies(): Promise<LineSlipDependencies> {
+  const config = await runtimeConfig();
+  return { listClients, listPayments, listSchedules, updatePayment, updatePaymentIfUnchanged, appendAudit, persistPaymentTransition, reconcileTerminalPaymentEffects, lineChatPaymentsEnabled: () => config.lineChatPaymentsEnabled, receiverAliases: () => [config.recipientNameEn, config.recipientNameTh, ...config.recipientAliases].filter(Boolean), getLineChannelAccessToken, getLineMessageContent, hashSlipImage: sha256, analyzeSlip: (bytes, declaredType, aliases) => analyzeSlip(bytes, declaredType, aliases, { ocrEnabled: config.ocrEnabled }), resolveLinePaymentCandidate, processSlipImage, replyLineMessage, now: () => new Date().toISOString() };
 }
 
 function linkedClient(clients: ClientRecord[], lineUserId: string): ClientRecord | null {
@@ -167,7 +168,8 @@ async function recoverAmbiguousFailure(dependencies: LineSlipDependencies, owner
 
 /** Handles one eligible direct-user LINE image after signature verification. */
 export async function processLineSlipEvent(event: LineSlipEvent, injected?: LineSlipDependencies): Promise<LineSlipResult> {
-  const dependencies = injected ?? defaultDependencies();
+  let dependencies: LineSlipDependencies;
+  try { dependencies = injected ?? await defaultDependencies(); } catch { return { kind: "ignored" }; }
   if (!dependencies.lineChatPaymentsEnabled()) return { kind: "ignored" };
   const client = linkedClient(await dependencies.listClients(), event.lineUserId);
   if (!client) return { kind: "ignored" };

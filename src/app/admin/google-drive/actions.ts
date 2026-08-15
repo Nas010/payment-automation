@@ -1,16 +1,15 @@
 "use server";
 
-import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/admin-auth";
+import { setInstallationStatus } from "@/lib/installation/repository";
 import { appendAudit } from "@/lib/sheets/payments";
 import { parseDriveFolderId } from "@/lib/storage/drive-folder";
 import { createOAuthDriveClient, testDriveFolderWrite, validateDriveFolder } from "@/lib/storage/drive-client";
-import {
-  decodeDriveCandidate,
-  googleDriveConfig,
-} from "@/lib/storage/google-drive-auth";
-import { getGoogleDriveConnection, saveGoogleDriveConnection } from "@/lib/storage/google-drive-connection";
+import { googleDriveConfig } from "@/lib/storage/google-drive-auth";
+import { getPendingGoogleSheets } from "@/lib/sheets/client";
+import { activatePendingWorkspaceConnection, getActiveWorkspaceConnection, getPendingWorkspaceConnection, savePendingWorkspaceConnection } from "@/lib/workspace/connection";
+import { validateOperationalWorkbook } from "@/lib/workspace/workbook";
 
 export type GoogleDriveConnectionActionResult = {
   ok: boolean;
@@ -58,18 +57,15 @@ function failure(message: string): GoogleDriveConnectionActionResult {
 }
 
 export async function activateGoogleDriveFolderAction(formData: FormData): Promise<GoogleDriveConnectionActionResult> {
-  await requireAdmin();
+  const session = await requireAdmin();
   const attemptedAt = new Date().toISOString();
-  const cookieStore = await cookies();
   try {
     const folderId = parseDriveFolderId(String(formData.get("folder_id") ?? ""));
     const folderName = String(formData.get("folder_name") ?? "").trim();
     if (!folderName) return failure("Selected Drive item is not a folder.");
 
-    const candidateCookie = cookieStore.get("google_drive_candidate")?.value;
-    const candidate = candidateCookie ? decodeDriveCandidate(candidateCookie) : null;
-    const active = candidate ? null : await getGoogleDriveConnection();
-    const authorization = candidate ?? active;
+    const [pending, active] = await Promise.all([getPendingWorkspaceConnection(), getActiveWorkspaceConnection()]);
+    const authorization = pending ?? active;
     if (!authorization) return failure("Google Drive connection is not connected.");
 
     const config = googleDriveConfig();
@@ -78,14 +74,21 @@ export async function activateGoogleDriveFolderAction(formData: FormData): Promi
     const validation = await validateDriveFolder(folderId, { drive, permissionMessage: "Connected Google account needs Editor access to this folder." });
     await testDriveFolderWrite(folderId, drive);
 
-    await saveGoogleDriveConnection({
-      refreshToken: authorization.refreshToken,
-      accountEmail: authorization.accountEmail,
+    const staged = {
+      ...(active ?? {}),
+      ...authorization,
       folderId: validation.folderId,
       folderName: validation.folderName,
-      validatedAt: validation.validatedAt,
-    });
-    if (candidateCookie) cookieStore.delete("google_drive_candidate");
+      folderUrl: `https://drive.google.com/drive/folders/${validation.folderId}`,
+    };
+    await savePendingWorkspaceConnection(staged);
+    if (active && staged.spreadsheetId) {
+      const pendingSheets = await getPendingGoogleSheets();
+      await validateOperationalWorkbook(staged.spreadsheetId, pendingSheets.sheets);
+      await activatePendingWorkspaceConnection({ workbookProbePassed: true, folderProbePassed: true });
+    } else if (staged.spreadsheetId) {
+      await setInstallationStatus(session.sub, "WORKSPACE_CONNECTED");
+    }
     await auditDrive(true, validation.validatedAt);
     revalidatePath("/admin/settings");
     return { ok: true, status: "CONNECTED", message: "Google Drive folder connected.", accountEmail: authorization.accountEmail, folderName: validation.folderName, validatedAt: validation.validatedAt };

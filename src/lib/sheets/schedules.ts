@@ -26,7 +26,7 @@ export type ScheduleRecord = {
 export type NewScheduleRecord = Omit<ScheduleRecord, "rowNumber">;
 
 export async function listSchedules(): Promise<ScheduleRecord[]> {
-  const { sheets, spreadsheetId } = getGoogleSheets();
+  const { sheets, spreadsheetId } = await getGoogleSheets();
   const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: "Installment Schedule!A:R" });
   return (response.data.values ?? [])
     .slice(1)
@@ -35,7 +35,7 @@ export async function listSchedules(): Promise<ScheduleRecord[]> {
 }
 
 export async function writeSchedule(schedule: NewScheduleRecord): Promise<void> {
-  const { sheets, spreadsheetId } = getGoogleSheets();
+  const { sheets, spreadsheetId } = await getGoogleSheets();
   const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: "Installment Schedule!A:R" });
   const rowNumber = firstEmptyIdRow((response.data.values ?? []).slice(1));
   await sheets.spreadsheets.values.update({
@@ -48,7 +48,7 @@ export async function writeSchedule(schedule: NewScheduleRecord): Promise<void> 
 
 export async function updateSchedule(schedule: ScheduleRecord): Promise<void> {
   if (!Number.isInteger(schedule.rowNumber) || schedule.rowNumber < 2) throw new Error("Schedule physical row is required");
-  const { sheets, spreadsheetId } = getGoogleSheets();
+  const { sheets, spreadsheetId } = await getGoogleSheets();
   await sheets.spreadsheets.values.update({
     spreadsheetId,
     range: `Installment Schedule!A${schedule.rowNumber}:R${schedule.rowNumber}`,

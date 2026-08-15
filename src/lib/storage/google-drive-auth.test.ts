@@ -1,9 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createOAuthState, createPkceChallenge, createPkceVerifier, decodeDriveCandidate, encodeDriveCandidate, googleDriveScopes, isEqualOAuthState } from "./google-drive-auth";
+import { createOAuthNonce, createOAuthState, createPkceChallenge, createPkceVerifier, googleDriveScopes, isEqualOAuthState, verifyGoogleIdentity } from "./google-drive-auth";
 
 const encryptionKey = Buffer.alloc(32, 7).toString("base64");
-const candidate = { refreshToken: "refresh-secret", accountEmail: "coach@example.com", folderId: "folder-12345", folderName: "Private slips", validatedAt: "2026-08-11T12:00:00.000Z" };
-
 beforeEach(() => {
   vi.stubEnv("SETTINGS_ENCRYPTION_KEY", encryptionKey);
 });
@@ -15,6 +13,7 @@ describe("Google Drive OAuth primitives", () => {
 
   it("creates random state and PKCE verifier values", () => {
     expect(createOAuthState()).toHaveLength(43);
+    expect(createOAuthNonce()).toHaveLength(43);
     expect(createPkceVerifier()).toHaveLength(86);
   });
 
@@ -28,14 +27,24 @@ describe("Google Drive OAuth primitives", () => {
     expect(isEqualOAuthState(undefined, "same")).toBe(false);
   });
 
-  it("round-trips encrypted candidate authorization without exposing plaintext fields", () => {
-    const encoded = encodeDriveCandidate(candidate);
-    expect(encoded).not.toContain(candidate.refreshToken);
-    expect(encoded).not.toContain(candidate.folderId);
-    expect(decodeDriveCandidate(encoded)).toEqual(candidate);
+  it("accepts only a verified ID token with matching nonce and audience", async () => {
+    const client = {
+      verifyIdToken: vi.fn().mockResolvedValue({ getPayload: () => ({ sub: "google-sub-1", email: "OWNER@example.com", email_verified: true, nonce: "nonce-value" }) }),
+    };
+
+    await expect(verifyGoogleIdentity(client as never, {
+      idToken: "id-token",
+      expectedNonce: "nonce-value",
+      clientId: "oauth-client-id",
+    })).resolves.toEqual({ googleSub: "google-sub-1", email: "owner@example.com" });
+    expect(client.verifyIdToken).toHaveBeenCalledWith({ idToken: "id-token", audience: "oauth-client-id" });
   });
 
-  it("rejects malformed candidate cookies", () => {
-    expect(() => decodeDriveCandidate("not-a-candidate")).toThrow("Google Drive connection is invalid.");
+  it("rejects an ID token with an invalid nonce or unverified email", async () => {
+    const invalidNonce = { verifyIdToken: vi.fn().mockResolvedValue({ getPayload: () => ({ sub: "sub", email: "owner@example.com", email_verified: true, nonce: "wrong" }) }) };
+    const unverifiedEmail = { verifyIdToken: vi.fn().mockResolvedValue({ getPayload: () => ({ sub: "sub", email: "owner@example.com", email_verified: false, nonce: "nonce" }) }) };
+
+    await expect(verifyGoogleIdentity(invalidNonce as never, { idToken: "token", expectedNonce: "nonce", clientId: "client" })).rejects.toThrow("Google identity could not be verified.");
+    await expect(verifyGoogleIdentity(unverifiedEmail as never, { idToken: "token", expectedNonce: "nonce", clientId: "client" })).rejects.toThrow("Google identity could not be verified.");
   });
 });

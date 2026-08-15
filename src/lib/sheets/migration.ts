@@ -14,7 +14,7 @@ function columnName(column: number): string {
 
 /** Adds blank header cells without replacing any existing workbook values. */
 async function ensureSheetSchema(title: string, headers: readonly string[], firstHeaderToFill = 0): Promise<void> {
-  const { sheets, spreadsheetId } = getGoogleSheets();
+  const { sheets, spreadsheetId } = await getGoogleSheets();
   const metadata = await sheets.spreadsheets.get({ spreadsheetId, fields: "sheets(properties(sheetId,title,gridProperties(columnCount)))" });
   const sheet = metadata.data.sheets?.find((item) => item.properties?.title === title);
   const properties = sheet?.properties;

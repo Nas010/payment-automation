@@ -1,13 +1,15 @@
 import { NextRequest } from "next/server";
 import { activeClientSnapshotKey, previousMonth } from "@/lib/admin/dashboard-metrics";
 import { bangkokDateKey } from "@/lib/date";
-import { serverConfig } from "@/lib/config";
+import { cronSecret } from "@/lib/config";
+import { getInstallation } from "@/lib/installation/repository";
 import { listClients } from "@/lib/sheets/clients";
 import { upsertOperationalSetting } from "@/lib/sheets/settings";
 
 export async function GET(request: NextRequest): Promise<Response> {
-  const config = serverConfig();
-  if (!config.cronSecret || request.headers.get("authorization") !== `Bearer ${config.cronSecret}`) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const secret = cronSecret();
+  if (!secret || request.headers.get("authorization") !== `Bearer ${secret}`) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  if ((await getInstallation())?.setupStatus !== "COMPLETE") return Response.json({ error: "Setup incomplete" }, { status: 503 });
 
   const today = bangkokDateKey();
   if (!today.endsWith("-01")) return Response.json({ skipped: true });

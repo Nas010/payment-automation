@@ -12,7 +12,7 @@ export type PaymentClientSnapshot = {
 /** Reads the two mutable admin ledgers in one Sheets quota request. */
 export async function readPaymentClientSnapshot(): Promise<PaymentClientSnapshot> {
   await Promise.all([ensurePaymentSchema(), ensureClientSchema()]);
-  const { sheets, spreadsheetId } = getGoogleSheets();
+  const { sheets, spreadsheetId } = await getGoogleSheets();
   const response = await sheets.spreadsheets.values.batchGet({
     spreadsheetId,
     ranges: ["Payments!A:AR", "Clients!A:W"],

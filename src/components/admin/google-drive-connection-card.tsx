@@ -87,12 +87,14 @@ export function GoogleDriveConnectionCard({
   autoOpenPicker,
   initialError,
   activateAction,
+  authorizationReady = false,
 }: {
   status: GoogleDriveStatus;
   canConnect: boolean;
   autoOpenPicker: boolean;
   initialError: string;
   activateAction: GoogleDriveConnectionAction;
+  authorizationReady?: boolean;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -165,11 +167,11 @@ export function GoogleDriveConnectionCard({
         <p className="text-muted-foreground">Last validated: {status.validatedAt}</p>
         <div className="flex flex-wrap gap-3">
           <Button type="button" variant="outline" onClick={() => void openPicker()} disabled={!canConnect || pending}>{pending ? "Working…" : "Change folder"}</Button>
-          <DriveLink href="/admin/google-drive/connect" variant="outline">Reconnect account</DriveLink>
+          <DriveLink href="/admin/google-drive/connect?intent=reconnect" variant="outline">Reconnect account</DriveLink>
         </div>
       </div> : <div className="space-y-3">
         <p className="text-sm text-muted-foreground">Google Drive is not connected. Connect an account to select your private slip folder.</p>
-        {canConnect ? <DriveLink href="/admin/google-drive/connect">Connect Google Drive</DriveLink> : <p className="text-sm text-destructive">Google Drive connection is not configured.</p>}
+        {canConnect && authorizationReady ? <Button type="button" onClick={() => void openPicker()} disabled={pending}>{pending ? "Working…" : "Select folder"}</Button> : canConnect ? <DriveLink href="/admin/google-drive/connect?intent=setup">Connect Google Drive</DriveLink> : <p className="text-sm text-destructive">Google Drive connection is not configured.</p>}
       </div>}
       {error ? <p className={error.includes("connected") || error.includes("configured") ? "mt-4 text-sm text-muted-foreground" : "mt-4 text-sm text-destructive"}>{error}</p> : null}
     </CardContent>

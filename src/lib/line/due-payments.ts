@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { bangkokDateKey } from "@/lib/date";
 import { formatThb, parseSatang } from "@/lib/money";
-import { lineMessagingEnabled } from "@/lib/config";
+import { runtimeConfig } from "@/lib/runtime-config";
 import { getLineChannelAccessToken } from "@/lib/secrets/service";
 import { listClients, type ClientRecord } from "@/lib/sheets/clients";
 import { hasLineAuditEvent, type LineAuditEventIdentity } from "@/lib/sheets/audit";
@@ -44,20 +44,23 @@ export type SendDueLinePaymentRequestsResult = {
   disabled: boolean;
 };
 
-const defaultDependencies: LineDueDependencies = {
-  listPayments,
-  listClients,
-  readPaymentClientSnapshot,
-  updatePayment,
-  appendAudit,
-  hasAuditEvent: hasLineAuditEvent,
-  getLineDueTemplate,
-  getLineChannelAccessToken,
-  sendPush: (input) => sendLinePushMessage({ ...input, fetchFn: fetch }),
-  lineMessagingEnabled,
-  createRetryKey: randomUUID,
-  now: () => new Date().toISOString(),
-};
+async function runtimeDependencies(): Promise<LineDueDependencies> {
+  const config = await runtimeConfig();
+  return {
+    listPayments,
+    listClients,
+    readPaymentClientSnapshot,
+    updatePayment,
+    appendAudit,
+    hasAuditEvent: hasLineAuditEvent,
+    getLineDueTemplate,
+    getLineChannelAccessToken,
+    sendPush: (input) => sendLinePushMessage({ ...input, fetchFn: fetch }),
+    lineMessagingEnabled: () => config.lineMessagingEnabled,
+    createRetryKey: randomUUID,
+    now: () => new Date().toISOString(),
+  };
+}
 
 const retryableLineStates = new Set(["SENDING", "FAILED_RETRYABLE"]);
 const deliverableLineStates = new Set(["", "PENDING", "SKIPPED_MISSING_USER_ID", "FAILED_RETRYABLE", "SENDING"]);
@@ -241,8 +244,10 @@ async function loadPaymentClientSnapshot(dependencies: LineDueDependencies) {
 /** Sends due LINE payment requests sequentially so one row's outcome is persisted before the next request. */
 export async function sendDueLinePaymentRequests(
   options: SendDueLinePaymentRequestsOptions,
-  dependencies: LineDueDependencies = defaultDependencies,
+  injectedDependencies?: LineDueDependencies,
 ): Promise<SendDueLinePaymentRequestsResult> {
+  let dependencies: LineDueDependencies;
+  try { dependencies = injectedDependencies ?? await runtimeDependencies(); } catch { return blankResult(true); }
   if (!dependencies.lineMessagingEnabled()) return blankResult(true);
 
   const today = options.today ?? bangkokDateKey();

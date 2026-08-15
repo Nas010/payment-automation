@@ -2,13 +2,15 @@ import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  serverConfig: vi.fn(),
+  cronSecret: vi.fn(),
+  getInstallation: vi.fn(),
   listClients: vi.fn(),
   upsertOperationalSetting: vi.fn(),
   bangkokDateKey: vi.fn(),
 }));
 
-vi.mock("@/lib/config", () => ({ serverConfig: mocks.serverConfig }));
+vi.mock("@/lib/config", () => ({ cronSecret: mocks.cronSecret }));
+vi.mock("@/lib/installation/repository", () => ({ getInstallation: mocks.getInstallation }));
 vi.mock("@/lib/sheets/clients", () => ({ listClients: mocks.listClients }));
 vi.mock("@/lib/sheets/settings", () => ({ upsertOperationalSetting: mocks.upsertOperationalSetting }));
 vi.mock("@/lib/date", () => ({ bangkokDateKey: mocks.bangkokDateKey }));
@@ -27,7 +29,8 @@ function request(authorized = true): NextRequest {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.serverConfig.mockReturnValue({ cronSecret: "cron-secret" });
+  mocks.cronSecret.mockReturnValue("cron-secret");
+  mocks.getInstallation.mockResolvedValue({ setupStatus: "COMPLETE" });
   mocks.bangkokDateKey.mockReturnValue("2026-08-01");
   mocks.listClients.mockResolvedValue([{ active: "TRUE" }, { active: "FALSE" }, { active: "true" }]);
   mocks.upsertOperationalSetting.mockResolvedValue(undefined);
@@ -53,6 +56,13 @@ describe("GET /api/cron/dashboard-metrics", () => {
     const response = await route.GET(request());
 
     await expect(response.json()).resolves.toEqual({ skipped: true });
+    expect(mocks.listClients).not.toHaveBeenCalled();
+    expect(mocks.upsertOperationalSetting).not.toHaveBeenCalled();
+  });
+
+  it("returns 503 without workbook writes before setup completes", async () => {
+    mocks.getInstallation.mockResolvedValue({ setupStatus: "CLAIMED" });
+    await expect((await loadRoute())!.GET(request())).resolves.toMatchObject({ status: 503 });
     expect(mocks.listClients).not.toHaveBeenCalled();
     expect(mocks.upsertOperationalSetting).not.toHaveBeenCalled();
   });
