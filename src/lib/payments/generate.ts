@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { buildPaymentForSchedule, planTotalSatangForSchedule, selectDueSchedules } from "@/lib/plans/schedule";
+import { buildPaymentForSchedule, planTotalSatangForSchedule, selectPaymentGenerationSchedules } from "@/lib/plans/schedule";
 import { appendAudit, appendPayment, listPayments, type NewPaymentRecord } from "@/lib/sheets/payments";
 import { listSchedules, updateSchedule, type ScheduleRecord } from "@/lib/sheets/schedules";
 import { createPublicToken } from "./token";
@@ -29,7 +29,7 @@ export async function generateDuePaymentLinks(options: GenerateDuePaymentLinksOp
   const today = options.today ?? bangkokDate();
   const now = options.now ?? new Date().toISOString();
   const [schedules, payments] = await Promise.all([listSchedules(), listPayments()]);
-  const candidates = selectDueSchedules(schedules, today);
+  const candidates = selectPaymentGenerationSchedules(schedules, today);
   const existing = schedules.filter((schedule) => schedule.due_date <= today && (schedule.status !== "SCHEDULED" || Boolean(schedule.payment_id)));
   const result: DuePaymentGenerationResult = { created: [], existing, failed: [] };
 

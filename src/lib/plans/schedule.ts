@@ -81,6 +81,24 @@ export function selectDueSchedules<T extends DueSchedule>(schedules: readonly T[
   return schedules.filter((schedule) => schedule.status === "SCHEDULED" && !schedule.payment_id && schedule.due_date <= today);
 }
 
+type PaymentGenerationSchedule = DueSchedule & { payment_type: string; installment_number: string };
+
+function addCalendarDays(date: string, days: number): string {
+  const parsed = parseDateOnly(date);
+  parsed.setUTCDate(parsed.getUTCDate() + days);
+  return formatDateOnly(parsed);
+}
+
+/** Selects normal due rows plus later installments whose T-7 generation date has arrived. */
+export function selectPaymentGenerationSchedules<T extends PaymentGenerationSchedule>(schedules: readonly T[], today: string): T[] {
+  parseDateOnly(today);
+  const sevenDaysAhead = addCalendarDays(today, 7);
+  return schedules.filter((schedule) => schedule.status === "SCHEDULED" && !schedule.payment_id && (
+    schedule.due_date <= today
+    || (schedule.payment_type === "INSTALLMENTS" && Number(schedule.installment_number) > 1 && schedule.due_date <= sevenDaysAhead)
+  ));
+}
+
 export function planTotalSatangForSchedule(target: PlanSchedule, schedules: readonly PlanSchedule[]): number {
   const expectedCount = Number(target.installment_count);
   if (!Number.isSafeInteger(expectedCount) || expectedCount < 1) throw new Error("Schedule installment count is invalid");
