@@ -102,7 +102,7 @@ git add src/components/admin/settings-navigation.tsx src/components/admin/settin
 
 **Interfaces:** Consumes `SettingsNavigation`, `PageHeader`, `Separator`, `redirect`. Produces shared Settings frame and root redirect.
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```tsx
 it("redirects legacy Settings URL to Business", async () => {
@@ -117,13 +117,13 @@ it("renders child content beside settings navigation", () => {
 });
 ```
 
-- [ ] **Step 2: Verify red**
+- [x] **Step 2: Verify red**
 
 Run: `npm test -- src/app/admin/(protected)/settings/page.test.tsx src/app/admin/(protected)/settings/layout.test.tsx`
 
 Expected: FAIL; current root page renders settings cards.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```tsx
 export default function SettingsLayout({ children }: { children: React.ReactNode }) {
@@ -139,13 +139,13 @@ export default function SettingsPage() { redirect("/admin/settings/business"); }
 
 No route-level wrapper Card: child forms own their existing Cards.
 
-- [ ] **Step 4: Verify green**
+- [x] **Step 4: Verify green**
 
 Run: `npm test -- src/app/admin/(protected)/settings/page.test.tsx src/app/admin/(protected)/settings/layout.test.tsx`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/app/admin/(protected)/settings/layout.tsx src/app/admin/(protected)/settings/layout.test.tsx src/app/admin/(protected)/settings/page.tsx src/app/admin/(protected)/settings/page.test.tsx && git commit -m "feat: add settings route layout"
