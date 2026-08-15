@@ -4,6 +4,7 @@ import { lineProfilePictureStatus, normalizeLinePictureUrl } from "./profile";
 describe("normalizeLinePictureUrl", () => {
   it("keeps HTTPS LINE profile CDN URLs", () => {
     expect(normalizeLinePictureUrl("https://profile.line-scdn.net/avatar/path?size=large")).toBe("https://profile.line-scdn.net/avatar/path?size=large");
+    expect(normalizeLinePictureUrl("https://obs.line-apps.com/avatar/path")).toBe("https://obs.line-apps.com/avatar/path");
   });
 
   it.each([

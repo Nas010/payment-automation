@@ -1,4 +1,4 @@
-const LINE_PROFILE_IMAGE_HOST = "profile.line-scdn.net";
+const LINE_PROFILE_IMAGE_HOSTS = new Set(["profile.line-scdn.net", "obs.line-apps.com"]);
 
 export type LineProfilePictureStatus = "present" | "missing" | "rejected";
 
@@ -6,7 +6,7 @@ export function normalizeLinePictureUrl(value: unknown): string {
   if (typeof value !== "string" || value.length > 2048) return "";
   try {
     const url = new URL(value);
-    return url.protocol === "https:" && url.hostname === LINE_PROFILE_IMAGE_HOST ? url.toString() : "";
+    return url.protocol === "https:" && LINE_PROFILE_IMAGE_HOSTS.has(url.hostname) ? url.toString() : "";
   } catch {
     return "";
   }
