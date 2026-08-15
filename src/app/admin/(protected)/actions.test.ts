@@ -461,6 +461,21 @@ describe("existing client billing actions", () => {
     expect(mocks.updateSchedule).toHaveBeenCalledWith(expect.objectContaining({ status: "DELETED" }));
   });
 
+  it("rejects deleting an assignment with paid history even when its paid amount is invalid", async () => {
+    mocks.listClients.mockResolvedValue([client()]);
+    mocks.listPackages.mockResolvedValue([{ package_name: "PT", active: "TRUE" }]);
+    mocks.listSchedules.mockResolvedValue([
+      schedule({ schedule_id: "paid", status: "PAID", amount_thb: "not-an-amount", generated_at: "", payment_id: "", payment_url: "" }),
+      schedule({ rowNumber: 3, schedule_id: "open", installment_number: "2" }),
+    ]);
+
+    await expect(deletePackageAssignmentAction("client_1", assignmentForm())).rejects.toThrow("cannot be deleted after a payment");
+
+    expect(mocks.updateSchedule).not.toHaveBeenCalled();
+    expect(mocks.updatePaymentIfUnchanged).not.toHaveBeenCalled();
+    expect(mocks.appendAudit).not.toHaveBeenCalled();
+  });
+
   it("blocks lifecycle writes when generated payment is under review", async () => {
     mocks.listClients.mockResolvedValue([client()]);
     mocks.listPackages.mockResolvedValue([{ package_name: "PT", active: "TRUE" }]);

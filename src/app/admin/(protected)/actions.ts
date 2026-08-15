@@ -331,7 +331,7 @@ export async function deletePackageAssignmentAction(clientId: string, formData: 
   const data = assignmentIdSchema.parse(values(formData));
   const context = await loadPackageLifecycleContext(clientId, data.assignment_id);
   requireAssignmentState(context.assignment, ["ACTIVE", "PAUSED"], "delete");
-  if (context.assignment.paidSatang > 0) throw new Error("Package assignment cannot be deleted after a payment has been recorded");
+  if (context.assignment.schedules.some((schedule) => schedule.status === "PAID")) throw new Error("Package assignment cannot be deleted after a payment has been recorded");
   await updateLifecycleSchedules(outstandingAssignmentSchedules(context.assignment), "DELETED", context.payments, new Date().toISOString());
   await recordPackageLifecycleAction({ clientId, assignment: context.assignment, action: "PACKAGE_ASSIGNMENT_DELETED", newStatus: "DELETED", reason: "Package assignment deleted by admin" });
   await finishPackageLifecycleAction(clientId);
