@@ -21,7 +21,7 @@ import { listSchedules, writeSchedule } from "@/lib/sheets/schedules";
 import { listPackages, savePackage, upsertOperationalSetting } from "@/lib/sheets/settings";
 
 const clientSchema = z.object({ client_name: z.string().trim().min(1), package_name: z.string().trim().min(1), payment_type: z.enum(["ONE_TIME", "INSTALLMENTS"]), total_price_thb: z.string(), installment_count: z.coerce.number().int().min(1), interval_months: z.coerce.number().int().min(0), first_due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), notes: z.string().trim() });
-const assignPackageSchema = z.object({ package_name: z.string().trim().min(1), first_due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), notes: z.string().trim() });
+const assignPackageSchema = z.object({ package_name: z.string().trim().min(1), payment_type: z.enum(["ONE_TIME", "INSTALLMENTS"]), total_price_thb: z.string(), installment_count: z.coerce.number().int().min(1), interval_months: z.coerce.number().int().min(0), first_due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), notes: z.string().trim() });
 const manualPaymentSchema = z.object({ description: z.string().trim().min(1), amount_thb: z.string(), frequency: z.enum(["ONE_TIME", "RECURRING"]), payment_count: z.coerce.number().int().min(1), interval_months: z.coerce.number().int().min(0), first_due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), notes: z.string().trim() });
 
 function values(formData: FormData) { return Object.fromEntries([...formData.entries()].map(([key, value]) => [key, String(value)])); }
@@ -143,12 +143,12 @@ export async function assignPackageAction(clientId: string, formData: FormData):
   if (!client) throw new Error("Client was not found");
   const selectedPackage = packages.find((item) => item.package_name === data.package_name && item.active.toUpperCase() === "TRUE");
   if (!selectedPackage) throw new Error("Choose an active package");
-  const totalSatang = parseSatang(selectedPackage.total_price_thb);
-  if (!totalSatang || totalSatang <= 0 || !Number.isSafeInteger(totalSatang)) throw new Error("Package price must be a positive THB amount");
-  const paymentType = selectedPackage.payment_type === "INSTALLMENTS" ? "INSTALLMENTS" : selectedPackage.payment_type === "ONE_TIME" ? "ONE_TIME" : null;
-  if (!paymentType) throw new Error("Package payment type is invalid");
-  const paymentCount = paymentType === "ONE_TIME" ? 1 : Number(selectedPackage.installment_count);
-  const intervalMonths = paymentType === "ONE_TIME" ? 0 : Number(selectedPackage.interval_months);
+  const totalSatang = parseSatang(data.total_price_thb);
+  if (!totalSatang || totalSatang <= 0 || !Number.isSafeInteger(totalSatang)) throw new Error("Total price must be a positive THB amount");
+  const paymentType = data.payment_type;
+  const paymentCount = paymentType === "ONE_TIME" ? 1 : data.installment_count;
+  const intervalMonths = paymentType === "ONE_TIME" ? 0 : data.interval_months;
+  if (paymentType === "INSTALLMENTS" && (paymentCount < 2 || intervalMonths < 1)) throw new Error("Installment plans need at least two payments and a one-month interval");
   const now = new Date().toISOString();
   const schedules = buildAssignedScheduleRows({ client, label: selectedPackage.package_name, paymentType, totalSatang, paymentCount, intervalMonths, firstDueDate: data.first_due_date, notes: data.notes, now, createScheduleId: newScheduleId });
 

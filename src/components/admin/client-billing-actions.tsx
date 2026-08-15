@@ -5,7 +5,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { bangkokDateKey } from "@/lib/date";
-import { formatThb, parseSatang } from "@/lib/money";
+import { PaymentPlanFields, type AdminPackage } from "@/components/admin/payment-plan-fields";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel, FieldSet } from "@/components/ui/field";
@@ -13,18 +13,16 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 
-export type BillingPackage = {
-  package_name: string;
-  total_price_thb: string;
-  payment_type: string;
-  installment_count: string;
-  interval_months: string;
-};
+export type BillingPackage = AdminPackage;
 
 type BillingAction = (formData: FormData) => void | Promise<void>;
 
 const packageSchema = z.object({
   package_name: z.string().min(1, "Choose a package"),
+  payment_type: z.enum(["ONE_TIME", "INSTALLMENTS"]),
+  total_price_thb: z.coerce.number().positive("Price must be positive"),
+  installment_count: z.coerce.number().int().min(1),
+  interval_months: z.coerce.number().int().min(0),
   first_due_date: z.string().min(1, "First due date is required"),
   notes: z.string(),
 });
@@ -64,19 +62,17 @@ function AssignPackageForm({ packages, action }: { packages: BillingPackage[]; a
   const [pending, startTransition] = useTransition();
   const form = useForm<PackageValues>({
     resolver: zodResolver(packageSchema),
-    defaultValues: { package_name: packages[0]?.package_name ?? "", first_due_date: bangkokDateKey(), notes: "" },
+    defaultValues: { package_name: packages[0]?.package_name ?? "", payment_type: packages[0]?.payment_type === "INSTALLMENTS" ? "INSTALLMENTS" : "ONE_TIME", total_price_thb: Number(packages[0]?.total_price_thb ?? 0), installment_count: Number(packages[0]?.installment_count ?? 1), interval_months: Number(packages[0]?.interval_months ?? 0), first_due_date: bangkokDateKey(), notes: "" },
   });
   const selectedPackageName = form.watch("package_name");
   const selectedPackage = packages.find((item) => item.package_name === selectedPackageName);
 
   return <Card>
-    <CardHeader><CardTitle><h3>Assign package</h3></CardTitle><CardDescription>Add another program using an active package&apos;s saved terms.</CardDescription></CardHeader>
+    <CardHeader><CardTitle><h3>Assign package</h3></CardTitle><CardDescription>Add another program and adjust its payment-plan terms before scheduling.</CardDescription></CardHeader>
     <CardContent><form ref={formRef} onSubmit={form.handleSubmit(() => { const data = new FormData(formRef.current!); startTransition(() => { void action(data); }); })}>
       <FieldSet><FieldGroup>
-        <Field data-invalid={Boolean(form.formState.errors.package_name)}><FieldLabel htmlFor="package_name">Package</FieldLabel><Select name="package_name" value={selectedPackageName} onValueChange={(value) => form.setValue("package_name", String(value), { shouldValidate: true })}><SelectTrigger id="package_name" className="w-full" aria-invalid={Boolean(form.formState.errors.package_name)}><SelectValue placeholder="Choose a package" /></SelectTrigger><SelectContent><SelectGroup>{packages.map((item) => <SelectItem key={item.package_name} value={item.package_name}>{item.package_name}</SelectItem>)}</SelectGroup></SelectContent></Select><FieldError>{form.formState.errors.package_name?.message}</FieldError></Field>
-        <Field data-invalid={Boolean(form.formState.errors.first_due_date)}><FieldLabel htmlFor="package_first_due_date">Package first due date</FieldLabel><Input id="package_first_due_date" type="date" {...form.register("first_due_date")} aria-invalid={Boolean(form.formState.errors.first_due_date)} /><FieldError>{form.formState.errors.first_due_date?.message}</FieldError></Field>
-        <Field><FieldLabel htmlFor="package_notes">Notes</FieldLabel><Textarea id="package_notes" {...form.register("notes")} placeholder="Optional notes for this extension." /></Field>
-        {selectedPackage ? <FieldDescription>{packageSummary(selectedPackage)}</FieldDescription> : <FieldDescription>No active package is available. Add or activate one in Packages first.</FieldDescription>}
+        <PaymentPlanFields form={form} packages={packages} idPrefix="assigned_package" />
+        {!selectedPackage ? <FieldDescription>No active package is available. Add or activate one in Packages first.</FieldDescription> : null}
         <Button type="submit" disabled={pending || !selectedPackage}>{pending ? "Assigning…" : "Assign package"}</Button>
       </FieldGroup></FieldSet>
     </form></CardContent>
@@ -112,12 +108,4 @@ function ManualPaymentForm({ action }: { action: BillingAction }) {
       </FieldGroup></FieldSet>
     </form></CardContent>
   </Card>;
-}
-
-function packageSummary(item: BillingPackage): string {
-  const total = formatThb(parseSatang(item.total_price_thb) ?? 0);
-  if (item.payment_type !== "INSTALLMENTS") return `${total} · one payment`;
-  const count = Number(item.installment_count);
-  const interval = Number(item.interval_months);
-  return `${total} · ${count} payments · every ${interval} month${interval === 1 ? "" : "s"}`;
 }

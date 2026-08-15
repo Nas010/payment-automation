@@ -202,30 +202,35 @@ describe("existing client billing actions", () => {
     }]);
     const formData = new FormData();
     formData.set("package_name", "Extended coaching");
+    formData.set("payment_type", "INSTALLMENTS");
+    formData.set("total_price_thb", "1800");
+    formData.set("installment_count", "3");
+    formData.set("interval_months", "2");
     formData.set("first_due_date", "2026-08-31");
     formData.set("notes", "Second program");
 
     await assignPackageAction("client_1", formData);
 
     expect(mocks.requireAdmin).toHaveBeenCalledTimes(1);
-    expect(mocks.writeSchedule).toHaveBeenCalledTimes(2);
+    expect(mocks.writeSchedule).toHaveBeenCalledTimes(3);
     expect(mocks.writeSchedule).toHaveBeenNthCalledWith(1, expect.objectContaining({
       client_id: "client_1",
       line_user_id: userId,
       package_name: "Extended coaching",
       installment_number: "1",
-      installment_count: "2",
+      installment_count: "3",
       amount_thb: "600",
       due_date: "2026-08-31",
     }));
-    expect(mocks.writeSchedule).toHaveBeenNthCalledWith(2, expect.objectContaining({ due_date: "2026-09-30", amount_thb: "600" }));
+    expect(mocks.writeSchedule).toHaveBeenNthCalledWith(2, expect.objectContaining({ due_date: "2026-10-31", amount_thb: "600" }));
+    expect(mocks.writeSchedule).toHaveBeenNthCalledWith(3, expect.objectContaining({ due_date: "2026-12-31", amount_thb: "600" }));
     expect(mocks.updateClient).toHaveBeenCalledWith(expect.objectContaining({
       client_id: "client_1",
       package_name: "Extended coaching",
       payment_type: "INSTALLMENTS",
-      total_price_thb: "1200",
-      installment_count: "2",
-      interval_months: "1",
+      total_price_thb: "1800",
+      installment_count: "3",
+      interval_months: "2",
       first_due_date: "2026-08-31",
       default_amount_thb: "600",
       next_due_date: "2026-08-31",
@@ -234,10 +239,37 @@ describe("existing client billing actions", () => {
       clientId: "client_1",
       action: "PACKAGE_ASSIGNED",
       source: "ADMIN",
-      metadata: JSON.stringify({ packageName: "Extended coaching", installmentCount: 2, intervalMonths: 1 }),
+      metadata: JSON.stringify({ packageName: "Extended coaching", installmentCount: 3, intervalMonths: 2 }),
     }));
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/admin/clients/client_1");
     expect(mocks.redirect).toHaveBeenCalledWith("/admin/clients/client_1");
+  });
+
+  it("normalizes a one-time package assignment even when extra installment values are submitted", async () => {
+    mocks.listClients.mockResolvedValue([client()]);
+    mocks.listPackages.mockResolvedValue([{ rowNumber: 4, package_name: "Extended coaching", total_price_thb: "1200", payment_type: "INSTALLMENTS", installment_count: "2", interval_months: "1", active: "TRUE" }]);
+    const formData = new FormData();
+    for (const [key, value] of [["package_name", "Extended coaching"], ["payment_type", "ONE_TIME"], ["total_price_thb", "750"], ["installment_count", "9"], ["interval_months", "9"], ["first_due_date", "2026-08-31"], ["notes", ""]]) formData.set(key, value);
+
+    await assignPackageAction("client_1", formData);
+
+    expect(mocks.writeSchedule).toHaveBeenCalledTimes(1);
+    expect(mocks.writeSchedule).toHaveBeenCalledWith(expect.objectContaining({ payment_type: "ONE_TIME", installment_count: "1", installment_number: "1", amount_thb: "750" }));
+    expect(mocks.updateClient).toHaveBeenCalledWith(expect.objectContaining({ payment_type: "ONE_TIME", total_price_thb: "750", installment_count: "1", interval_months: "0" }));
+    expect(mocks.appendAudit).toHaveBeenCalledWith(expect.objectContaining({ metadata: JSON.stringify({ packageName: "Extended coaching", installmentCount: 1, intervalMonths: 0 }) }));
+  });
+
+  it("rejects an installment package assignment without two payments and a monthly interval", async () => {
+    mocks.listClients.mockResolvedValue([client()]);
+    mocks.listPackages.mockResolvedValue([{ rowNumber: 4, package_name: "Extended coaching", total_price_thb: "1200", payment_type: "INSTALLMENTS", installment_count: "2", interval_months: "1", active: "TRUE" }]);
+    const formData = new FormData();
+    for (const [key, value] of [["package_name", "Extended coaching"], ["payment_type", "INSTALLMENTS"], ["total_price_thb", "750"], ["installment_count", "1"], ["interval_months", "0"], ["first_due_date", "2026-08-31"], ["notes", ""]]) formData.set(key, value);
+
+    await expect(assignPackageAction("client_1", formData)).rejects.toThrow("Installment plans need at least two payments and a one-month interval");
+
+    expect(mocks.writeSchedule).not.toHaveBeenCalled();
+    expect(mocks.updateClient).not.toHaveBeenCalled();
+    expect(mocks.appendAudit).not.toHaveBeenCalled();
   });
 
   it("rejects an inactive package before writing client data", async () => {
@@ -253,6 +285,10 @@ describe("existing client billing actions", () => {
     }]);
     const formData = new FormData();
     formData.set("package_name", "Retired package");
+    formData.set("payment_type", "ONE_TIME");
+    formData.set("total_price_thb", "1000");
+    formData.set("installment_count", "1");
+    formData.set("interval_months", "0");
     formData.set("first_due_date", "2026-08-31");
     formData.set("notes", "");
 
