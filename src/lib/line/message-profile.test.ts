@@ -91,6 +91,28 @@ describe("LINE due message profiles", () => {
     expect(() => validateLineDueMessageProfile(profile as never, "ONE_TIME")).toThrow(LineDueTemplateError);
   });
 
+  it.each([
+    "{{{amount}}} {{due_date}} {{payment_url}}",
+    "{{amount}}} {{due_date}} {{payment_url}}",
+  ])("rejects malformed brace structure in a main placeholder: %s", (message) => {
+    expect(() => validateLineDueMessageProfile({
+      version: 1,
+      message,
+      customPlaceholders: [],
+    }, "ONE_TIME")).toThrow(LineDueTemplateError);
+  });
+
+  it.each(["{{{client_name}}}", "{{client_name}}}"])(
+    "rejects malformed brace structure in a custom placeholder: %s",
+    (template) => {
+      expect(() => validateLineDueMessageProfile({
+        version: 1,
+        message: "{{amount}} {{due_date}} {{payment_url}}",
+        customPlaceholders: [{ name: "label", template }],
+      }, "ONE_TIME")).toThrow(LineDueTemplateError);
+    },
+  );
+
   it("rejects more than twenty custom placeholders and overlong content", () => {
     const many = Array.from({ length: 21 }, (_, index) => ({ name: `label_${index}`, template: "text" }));
     expect(() => validateLineDueMessageProfile({ version: 1, message: "{{amount}} {{due_date}} {{payment_url}}", customPlaceholders: many }, "ONE_TIME")).toThrow(/20/);
