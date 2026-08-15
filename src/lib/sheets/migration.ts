@@ -1,16 +1,5 @@
 import { getGoogleSheets } from "./client";
-import { CLIENT_HEADERS, PAYMENT_HEADERS } from "./records";
-
-function columnName(column: number): string {
-  let value = column;
-  let name = "";
-  while (value > 0) {
-    value -= 1;
-    name = String.fromCharCode(65 + (value % 26)) + name;
-    value = Math.floor(value / 26);
-  }
-  return name;
-}
+import { CLIENT_HEADERS, PAYMENT_HEADERS, sheetColumnName } from "./records";
 
 /** Adds blank header cells without replacing any existing workbook values. */
 async function ensureSheetSchema(title: string, headers: readonly string[], firstHeaderToFill = 0): Promise<void> {
@@ -27,14 +16,14 @@ async function ensureSheetSchema(title: string, headers: readonly string[], firs
       requestBody: { requests: [{ appendDimension: { sheetId, dimension: "COLUMNS", length: headers.length - columnCount } }] },
     });
   }
-  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${title}!A1:${columnName(headers.length)}1` });
+  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${title}!A1:${sheetColumnName(headers.length)}1` });
   const currentHeaders = response.data.values?.[0] ?? [];
 
   await Promise.all(headers.map(async (header, index) => {
     if (index < firstHeaderToFill || String(currentHeaders[index] ?? "").trim()) return;
     await sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: `${title}!${columnName(index + 1)}1`,
+      range: `${title}!${sheetColumnName(index + 1)}1`,
       valueInputOption: "USER_ENTERED",
       requestBody: { values: [[header]] },
     });

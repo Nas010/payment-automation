@@ -22,8 +22,8 @@ describe("ensureClientSchema", () => {
 
     await ensureClientSchema();
 
-    expect(get).toHaveBeenCalledWith({ spreadsheetId: "spreadsheet_1", range: "Clients!A1:Z1" });
-    expect(update).toHaveBeenCalledTimes(7);
+    expect(get).toHaveBeenCalledWith({ spreadsheetId: "spreadsheet_1", range: "Clients!A1:AA1" });
+    expect(update).toHaveBeenCalledTimes(8);
     expect(update).toHaveBeenNthCalledWith(1, expect.objectContaining({ range: "Clients!S1", requestBody: { values: [["line_link_code_expires_at"]] } }));
     expect(update).toHaveBeenNthCalledWith(2, expect.objectContaining({ range: "Clients!U1", requestBody: { values: [["line_linked_at"]] } }));
     expect(update).toHaveBeenNthCalledWith(3, expect.objectContaining({ range: "Clients!V1", requestBody: { values: [["line_link_message"]] } }));
@@ -31,6 +31,7 @@ describe("ensureClientSchema", () => {
     expect(update).toHaveBeenNthCalledWith(5, expect.objectContaining({ range: "Clients!X1", requestBody: { values: [["line_link_token_hash"]] } }));
     expect(update).toHaveBeenNthCalledWith(6, expect.objectContaining({ range: "Clients!Y1", requestBody: { values: [["line_link_token_encrypted"]] } }));
     expect(update).toHaveBeenNthCalledWith(7, expect.objectContaining({ range: "Clients!Z1", requestBody: { values: [["line_link_token_expires_at"]] } }));
+    expect(update).toHaveBeenNthCalledWith(8, expect.objectContaining({ range: "Clients!AA1", requestBody: { values: [["line_picture_url"]] } }));
   });
 
   it("does not write when every header cell already has a value", async () => {
@@ -42,7 +43,7 @@ describe("ensureClientSchema", () => {
     expect(update).not.toHaveBeenCalled();
   });
 
-  it("expands legacy 17-column Clients grid before reading or writing through Z", async () => {
+  it("expands legacy 17-column Clients grid before reading or writing through AA", async () => {
     const { ensureClientSchema } = await import("./migration");
     spreadsheetGet.mockResolvedValueOnce({ data: { sheets: [{ properties: { sheetId: 9, title: "Clients", gridProperties: { columnCount: 17 } } }] } });
     get.mockResolvedValueOnce({ data: { values: [[...CLIENT_HEADERS.slice(0, 17)]] } });
@@ -51,7 +52,7 @@ describe("ensureClientSchema", () => {
 
     await ensureClientSchema();
 
-    expect(batchUpdate).toHaveBeenCalledWith({ spreadsheetId: "spreadsheet_1", requestBody: { requests: [{ appendDimension: { sheetId: 9, dimension: "COLUMNS", length: 9 } }] } });
+    expect(batchUpdate).toHaveBeenCalledWith({ spreadsheetId: "spreadsheet_1", requestBody: { requests: [{ appendDimension: { sheetId: 9, dimension: "COLUMNS", length: 10 } }] } });
     expect(batchUpdate.mock.invocationCallOrder[0]).toBeLessThan(get.mock.invocationCallOrder[0] ?? Infinity);
   });
 });

@@ -22,7 +22,7 @@ function payment(overrides: Partial<PaymentRecord> = {}): PaymentRecord {
 
 function client(overrides: Partial<ClientRecord> = {}): ClientRecord {
   return {
-    rowNumber: 2, client_id: "client_1", active: "FALSE", client_name: "Nisa", line_user_id: "Uaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", line_display_name: "Nisa LINE", line_link_status: "LINKED",
+    rowNumber: 2, client_id: "client_1", active: "FALSE", client_name: "Nisa", line_user_id: "Uaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", line_display_name: "Nisa LINE", line_picture_url: "", line_link_status: "LINKED",
     ...overrides,
   } as ClientRecord;
 }
