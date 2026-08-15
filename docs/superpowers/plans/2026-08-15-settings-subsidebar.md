@@ -162,7 +162,7 @@ git add src/app/admin/(protected)/settings/layout.tsx src/app/admin/(protected)/
 
 **Interfaces:** Consumes current runtime/workspace/Drive/secret services and existing actions. Produces focused server pages with unchanged component props.
 
-- [ ] **Step 1: Write failing boundary tests**
+- [x] **Step 1: Write failing boundary tests**
 
 ```tsx
 it("passes reconnect state and Drive error to Workspace", async () => {
@@ -176,13 +176,13 @@ it("passes encrypted metadata and validation to LINE channel", async () => {
 });
 ```
 
-- [ ] **Step 2: Verify red**
+- [x] **Step 2: Verify red**
 
 Run: `npm test -- src/app/admin/(protected)/settings/workspace/page.test.tsx src/app/admin/(protected)/settings/line/page.test.tsx`
 
 Expected: FAIL; focused pages absent.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Business calls `runtimeConfig()` and `getSecretMetadata()`, then renders existing RuntimeConfig Card/Form with `saveRuntimeConfigAction` and `allowLineFeatures={credentials.every((credential) => credential.configured)}`. Workspace moves workbook links, test form, Drive card, `activateGoogleDriveFolderAction`, exact `driveErrorMessage` mapping. LINE moves secret read, validation setting parse, `lineCredentialMetadata`, `validationMetadata`, and existing `LineIntegrationForm`/action.
 
@@ -192,13 +192,13 @@ const validation = validationMetadata(settings.find((item) => item.key === "line
 return <LineIntegrationForm credentials={lineCredentialMetadata(secretMetadata)} validation={validation} action={saveAndTestLineCredentialsAction} />;
 ```
 
-- [ ] **Step 4: Verify green**
+- [x] **Step 4: Verify green**
 
 Run: `npm test -- src/app/admin/(protected)/settings/workspace/page.test.tsx src/app/admin/(protected)/settings/line/page.test.tsx`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/app/admin/(protected)/settings/business src/app/admin/(protected)/settings/workspace src/app/admin/(protected)/settings/line && git commit -m "feat: split core settings pages"
