@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG,
   DEFAULT_LINE_DUE_PROFILES,
   LINE_DUE_PROFILE_SETTING_KEYS,
   LineDueTemplateError,
   legacyLineDueMessageProfile,
+  parseLineInstallmentReminderConfig,
   renderLineDueMessageProfile,
   validateLineDueMessageProfile,
 } from "./message-profile";
@@ -33,6 +35,11 @@ describe("LINE due message profiles", () => {
     });
     expect(DEFAULT_LINE_DUE_PROFILES.ONE_TIME.customPlaceholders).toContainEqual({ name: "payment_label", template: "{{package_name}} payment" });
     expect(DEFAULT_LINE_DUE_PROFILES.INSTALLMENTS.customPlaceholders).toContainEqual({ name: "payment_label", template: "{{installment_ordinal}} payment out of {{installment_count}} for {{package_name}}" });
+  });
+
+  it("requires a valid installment profile for each fixed reminder slot", () => {
+    expect(() => parseLineInstallmentReminderConfig({ version: 1, profiles: {} })).toThrow(/T_MINUS_7_DAYS/);
+    expect(parseLineInstallmentReminderConfig(DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG)).toEqual(DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG);
   });
 
   it("renders a custom placeholder from protected installment values", () => {

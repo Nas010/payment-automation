@@ -414,6 +414,20 @@ https://pay.example/p/token_1`,
     expect(deps.sendPush).toHaveBeenCalledTimes(1);
   });
 
+  it("sends an explicitly requested future initial payment but not a later installment", async () => {
+    const deps = dependencies([
+      payment({ payment_id: "future-initial", due_date: "2026-08-11", payment_type: "INSTALLMENTS", installment_number: "1", installment_count: "2" }),
+      payment({ payment_id: "future-later", due_date: "2026-08-11", payment_type: "INSTALLMENTS", installment_number: "2", installment_count: "2", rowNumber: 3 }),
+    ]);
+
+    await expect(sendDueLinePaymentRequests({
+      baseUrl: "https://pay.example",
+      today: "2026-08-10",
+      paymentIds: ["future-initial", "future-later"],
+    }, deps)).resolves.toMatchObject({ accepted: ["future-initial"] });
+    expect(deps.sendPush).toHaveBeenCalledTimes(1);
+  });
+
   it("sends requested payment IDs in the caller's deterministic order", async () => {
     const deps = dependencies([
       payment({ payment_id: "newer", due_date: "2026-08-10", created_at: "2026-08-02T00:00:00.000Z" }),

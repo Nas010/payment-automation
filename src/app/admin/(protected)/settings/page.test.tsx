@@ -20,6 +20,9 @@ vi.mock("@/lib/sheets/settings", () => ({
     ONE_TIME: { kind: "VALID", profile: JSON.parse(settings.find((setting) => setting.key === LINE_DUE_PROFILE_SETTING_KEYS.ONE_TIME)?.value ?? JSON.stringify(DEFAULT_LINE_DUE_PROFILES.ONE_TIME)) },
     INSTALLMENTS: { kind: "INVALID" },
   } satisfies ResolvedLineDueMessageProfiles),
+  resolveLineInstallmentReminderConfig: () => ({ kind: "VALID", config: { version: 1, profiles: {
+    T_MINUS_7_DAYS: DEFAULT_LINE_DUE_PROFILES.INSTALLMENTS, T_MINUS_3_DAYS: DEFAULT_LINE_DUE_PROFILES.INSTALLMENTS, T_MINUS_1_DAY: DEFAULT_LINE_DUE_PROFILES.INSTALLMENTS, DUE_DATE: DEFAULT_LINE_DUE_PROFILES.INSTALLMENTS, T_PLUS_1_DAY: DEFAULT_LINE_DUE_PROFILES.INSTALLMENTS,
+  } } }),
 }));
 vi.mock("@/lib/secrets/service", () => ({ getSecretMetadata: mocks.getSecretMetadata }));
 vi.mock("@/lib/workspace/connection", () => ({ getActiveWorkspaceConnection: mocks.getActiveWorkspaceConnection }));
@@ -36,11 +39,14 @@ vi.mock("@/components/ui/button", () => ({ Button: () => null }));
 vi.mock("./line-actions", () => ({
   previewLineDueMessageProfileAction: vi.fn(),
   previewLineWelcomeTemplateAction: vi.fn(),
+  previewLineInstallmentReminderAction: vi.fn(),
   resetLineDueMessageProfileAction: vi.fn(),
   resetLineWelcomeTemplateAction: vi.fn(),
+  resetLineInstallmentReminderConfigAction: vi.fn(),
   saveAndTestLineCredentialsAction: vi.fn(),
   saveLineDueMessageProfileAction: vi.fn(),
   saveLineWelcomeTemplateAction: vi.fn(),
+  saveLineInstallmentReminderConfigAction: vi.fn(),
 }));
 vi.mock("@/app/admin/google-drive/actions", () => ({ activateGoogleDriveFolderAction: vi.fn() }));
 vi.mock("./runtime-actions", () => ({ saveRuntimeConfigAction: vi.fn(), testWorkspaceConnectionAction: vi.fn() }));

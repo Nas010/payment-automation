@@ -86,6 +86,7 @@ beforeEach(() => {
   mocks.appendAudit.mockResolvedValue(undefined);
   mocks.listPackages.mockResolvedValue([{ package_name: "PT", active: "TRUE" }]);
   mocks.writeSchedule.mockResolvedValue(undefined);
+  mocks.generateDuePaymentLinks.mockResolvedValue({ created: [], existing: [], failed: [] });
   mocks.getPaymentById.mockResolvedValue(payment());
   mocks.updatePaymentIfUnchanged.mockResolvedValue(true);
   mocks.sendDueLinePaymentRequests.mockResolvedValue({ accepted: ["pay_1"], alreadyAccepted: [], skippedMissingUserId: [], failed: [], disabled: false });

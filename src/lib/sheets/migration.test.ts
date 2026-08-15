@@ -72,8 +72,8 @@ describe("ensurePaymentSchema", () => {
 
     await ensurePaymentSchema();
 
-    expect(batchUpdate).toHaveBeenCalledWith({ spreadsheetId: "spreadsheet_1", requestBody: { requests: [{ appendDimension: { sheetId: 12, dimension: "COLUMNS", length: 20 } }] } });
-    expect(get).toHaveBeenCalledWith({ spreadsheetId: "spreadsheet_1", range: "Payments!A1:AX1" });
+    expect(batchUpdate).toHaveBeenCalledWith({ spreadsheetId: "spreadsheet_1", requestBody: { requests: [{ appendDimension: { sheetId: 12, dimension: "COLUMNS", length: 21 } }] } });
+    expect(get).toHaveBeenCalledWith({ spreadsheetId: "spreadsheet_1", range: "Payments!A1:AY1" });
     expect(update).toHaveBeenCalledWith(expect.objectContaining({ range: "Payments!AE1", requestBody: { values: [["line_message_status"]] } }));
     expect(update).toHaveBeenCalledWith(expect.objectContaining({ range: "Payments!AR1", requestBody: { values: [["line_reply_at"]] } }));
     expect(update).toHaveBeenCalledWith(expect.objectContaining({ range: "Payments!AS1", requestBody: { values: [["package_name"]] } }));
@@ -90,7 +90,7 @@ describe("ensurePaymentSchema", () => {
 
     await ensurePaymentSchema();
 
-    expect(update).toHaveBeenCalledTimes(18);
+    expect(update).toHaveBeenCalledTimes(19);
     expect(update).toHaveBeenCalledWith(expect.objectContaining({ range: "Payments!AF1", requestBody: { values: [["line_retry_key"]] } }));
     expect(update).not.toHaveBeenCalledWith(expect.objectContaining({ range: "Payments!AE1" }));
     expect(update).not.toHaveBeenCalledWith(expect.objectContaining({ range: "Payments!AG1" }));

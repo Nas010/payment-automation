@@ -103,11 +103,11 @@ function validPublicToken(value: string): boolean {
   return /^[A-Za-z0-9_-]+$/.test(value);
 }
 
-function isPaymentCandidate(payment: PaymentRecord, today: string): boolean {
+function isPaymentCandidate(payment: PaymentRecord, today: string, allowImmediate = false): boolean {
   const amountSatang = parseSatang(payment.amount_thb);
   return payment.status === "PENDING"
     && validDateKey(payment.due_date)
-    && payment.due_date <= today
+    && (payment.due_date <= today || (allowImmediate && (payment.payment_type === "ONE_TIME" || payment.installment_number === "1")))
     && validPublicToken(payment.public_token)
     && validHttpsUrl(payment.payment_url)
     && amountSatang !== null
@@ -365,7 +365,7 @@ export async function sendDueLinePaymentRequests(
       result.alreadyAccepted.push(originalPayment.payment_id);
       continue;
     }
-    if (!isDeliverableDueLinePayment(originalPayment, today)) continue;
+    if (!deliverableLineStates.has(originalPayment.line_message_status) || !isPaymentCandidate(originalPayment, today, Boolean(selectedIds))) continue;
 
     let payment = originalPayment;
     const previousStatus = payment.line_message_status;

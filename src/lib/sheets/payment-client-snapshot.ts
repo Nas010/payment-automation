@@ -3,7 +3,7 @@ import type { ClientRecord } from "./clients";
 import { ensureClientSchema, ensurePaymentSchema } from "./migration";
 import type { PaymentRecord } from "./payments";
 import type { ScheduleRecord } from "./schedules";
-import { CLIENT_HEADERS, PAYMENT_HEADERS, rowToRecord, SCHEDULE_HEADERS } from "./records";
+import { CLIENT_HEADERS, PAYMENT_HEADERS, rowToRecord, SCHEDULE_HEADERS, sheetColumnName } from "./records";
 
 export type PaymentClientSnapshot = {
   payments: PaymentRecord[];
@@ -17,7 +17,7 @@ export async function readPaymentClientSnapshot(): Promise<PaymentClientSnapshot
   const { sheets, spreadsheetId } = await getGoogleSheets();
   const response = await sheets.spreadsheets.values.batchGet({
     spreadsheetId,
-    ranges: ["Payments!A:AX", "Clients!A:AA", "Installment Schedule!A:R"],
+    ranges: [`Payments!A:${sheetColumnName(PAYMENT_HEADERS.length)}`, "Clients!A:AA", "Installment Schedule!A:R"],
   });
   const [paymentRange, clientRange, scheduleRange] = response.data.valueRanges ?? [];
   const payments = (paymentRange?.values ?? [])
