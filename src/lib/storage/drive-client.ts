@@ -14,7 +14,10 @@ type DriveFolderMetadata = {
 
 export type DriveClientLike = {
   files: {
-    get: (input: { fileId: string; fields?: string; supportsAllDrives?: boolean; alt?: string }) => Promise<{ data: DriveFolderMetadata | ArrayBuffer | Uint8Array; headers?: Record<string, string | undefined> }>;
+    get: (
+      input: { fileId: string; fields?: string; supportsAllDrives?: boolean; alt?: string },
+      options?: { responseType: "arraybuffer" },
+    ) => Promise<{ data: DriveFolderMetadata | ArrayBuffer | Uint8Array; headers?: Record<string, string | undefined> }>;
     create: (input: {
       requestBody: { name: string; parents?: string[]; mimeType: string };
       media?: { mimeType: string; body: Readable };
@@ -152,7 +155,10 @@ export async function createDriveTermsImageFile(input: {
 export async function readDriveTermsImageFile(fileId: string, { drive }: { drive?: DriveClientLike } = {}): Promise<{ bytes: Uint8Array; declaredMimeType: string }> {
   try {
     const configuredDrive = drive ?? await getConfiguredDriveClient();
-    const file = await configuredDrive.files.get({ fileId, alt: "media", supportsAllDrives: true });
+    const file = await configuredDrive.files.get(
+      { fileId, alt: "media", supportsAllDrives: true },
+      { responseType: "arraybuffer" },
+    );
     const bytes = file.data instanceof ArrayBuffer
       ? new Uint8Array(file.data)
       : file.data instanceof Uint8Array
