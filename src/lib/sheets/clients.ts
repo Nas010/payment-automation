@@ -3,19 +3,20 @@ import { getGoogleSheets } from "./client";
 import { ensureClientSchema } from "./migration";
 import { CLIENT_HEADERS, firstEmptyIdRow, recordToRow, rowToRecord } from "./records";
 
-type LineLinkFields = { line_link_code: string; line_link_code_expires_at: string; line_link_status: string; line_linked_at: string; line_link_message: string; line_link_error: string };
+type LineLinkFields = { line_link_code: string; line_link_code_expires_at: string; line_link_status: string; line_linked_at: string; line_link_message: string; line_link_error: string; line_link_token_hash: string; line_link_token_encrypted: string; line_link_token_expires_at: string };
 export type ClientRecord = { rowNumber: number; client_id: string; active: string; client_name: string; line_user_id: string; line_display_name: string; package_name: string; payment_type: string; total_price_thb: string; installment_count: string; interval_months: string; first_due_date: string; default_amount_thb: string; billing_frequency: string; next_due_date: string; notes: string; created_at: string; updated_at: string } & LineLinkFields;
 export type NewClientRecord = Omit<ClientRecord, "rowNumber" | keyof LineLinkFields> & Partial<LineLinkFields>;
 export type LineLinkClaimInput = { client: ClientRecord; expectedClient: ClientRecord; code: string; lineUserId: string };
+export type LineConnectionClaimInput = { client: ClientRecord; expectedClient: ClientRecord; tokenHash: string; lineUserId: string };
 export type LineLinkClaimResult = "CLAIMED" | "ALREADY_LINKED" | "CONFLICT" | "STALE";
 export type LineLinkUpdateInput = { client: ClientRecord; expectedClient: ClientRecord; releaseLineUserId?: string };
 
-function lineReservationName(kind: "code" | "user", value: string): string {
+function lineReservationName(kind: "code" | "token" | "user", value: string): string {
   return `line_link_${kind}_${createHash("sha256").update(value).digest("hex")}`;
 }
 
 function lineStateReservationName(client: ClientRecord): string {
-  const state = [client.client_id, client.active, client.line_user_id, client.line_display_name, client.line_link_code, client.line_link_code_expires_at, client.line_link_status, client.line_linked_at, client.line_link_message, client.line_link_error, client.updated_at];
+  const state = [client.client_id, client.active, client.line_user_id, client.line_display_name, client.line_link_code, client.line_link_code_expires_at, client.line_link_status, client.line_linked_at, client.line_link_message, client.line_link_error, client.line_link_token_hash, client.line_link_token_encrypted, client.line_link_token_expires_at, client.updated_at];
   return `line_link_state_${createHash("sha256").update(JSON.stringify(state)).digest("hex")}`;
 }
 
@@ -47,14 +48,14 @@ function lineLinkCellUpdates(client: ClientRecord, sheetId: number) {
   const rowStart = client.rowNumber - 1;
   return [
     { updateCells: { range: { sheetId, startRowIndex: rowStart, endRowIndex: rowStart + 1, startColumnIndex: 3, endColumnIndex: 5 }, rows: [{ values: [claimCell(client.line_user_id), claimCell(client.line_display_name)] }], fields: "userEnteredValue" } },
-    { updateCells: { range: { sheetId, startRowIndex: rowStart, endRowIndex: rowStart + 1, startColumnIndex: 16, endColumnIndex: 23 }, rows: [{ values: [claimCell(client.updated_at), claimCell(client.line_link_code), claimCell(client.line_link_code_expires_at), claimCell(client.line_link_status), claimCell(client.line_linked_at), claimCell(client.line_link_message), claimCell(client.line_link_error)] }], fields: "userEnteredValue" } },
+    { updateCells: { range: { sheetId, startRowIndex: rowStart, endRowIndex: rowStart + 1, startColumnIndex: 16, endColumnIndex: 26 }, rows: [{ values: [claimCell(client.updated_at), claimCell(client.line_link_code), claimCell(client.line_link_code_expires_at), claimCell(client.line_link_status), claimCell(client.line_linked_at), claimCell(client.line_link_message), claimCell(client.line_link_error), claimCell(client.line_link_token_hash), claimCell(client.line_link_token_encrypted), claimCell(client.line_link_token_expires_at)] }], fields: "userEnteredValue" } },
   ];
 }
 
 export async function listClients(): Promise<ClientRecord[]> {
   await ensureClientSchema();
   const { sheets, spreadsheetId } = await getGoogleSheets();
-  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: "Clients!A:W" });
+  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: "Clients!A:Z" });
   return (response.data.values ?? []).slice(1).map((row, index) => ({ ...rowToRecord(CLIENT_HEADERS, row), rowNumber: index + 2 }) as ClientRecord).filter((row) => row.client_id);
 }
 
@@ -62,11 +63,11 @@ export async function listClients(): Promise<ClientRecord[]> {
 export async function writeClient(client: NewClientRecord): Promise<void> {
   await ensureClientSchema();
   const { sheets, spreadsheetId } = await getGoogleSheets();
-  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: "Clients!A:W" });
+  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: "Clients!A:Z" });
   const rowNumber = firstEmptyIdRow((response.data.values ?? []).slice(1));
   await sheets.spreadsheets.values.update({
     spreadsheetId,
-    range: `Clients!A${rowNumber}:W${rowNumber}`,
+    range: `Clients!A${rowNumber}:Z${rowNumber}`,
     valueInputOption: "USER_ENTERED",
     requestBody: { values: [recordToRow(CLIENT_HEADERS, client)] },
   });
@@ -78,7 +79,7 @@ export async function updateClient(client: ClientRecord): Promise<void> {
   const { sheets, spreadsheetId } = await getGoogleSheets();
   await sheets.spreadsheets.values.update({
     spreadsheetId,
-    range: `Clients!A${client.rowNumber}:W${client.rowNumber}`,
+    range: `Clients!A${client.rowNumber}:Z${client.rowNumber}`,
     valueInputOption: "USER_ENTERED",
     requestBody: { values: [recordToRow(CLIENT_HEADERS, client)] },
   });
@@ -139,6 +140,36 @@ export async function claimLineLink({ client, expectedClient, code, lineUserId }
     const clients = await listClients();
     if (clients.some((item) => item.client_id === client.client_id && item.line_user_id === lineUserId && item.line_link_status === "LINKED")) return "ALREADY_LINKED";
     if (clients.some((item) => item.line_user_id === lineUserId)) return "CONFLICT";
+    return "STALE";
+  }
+}
+
+/** Atomically reserves hashed connection token and verified LINE user. */
+export async function claimLineConnection({ client, expectedClient, tokenHash, lineUserId }: LineConnectionClaimInput): Promise<LineLinkClaimResult> {
+  if (!Number.isInteger(client.rowNumber) || client.rowNumber < 2) throw new Error("Client physical row is required");
+  if (!/^[a-f0-9]{64}$/.test(tokenHash)) throw new Error("LINE connection token hash is malformed");
+  await ensureClientSchema();
+  const { sheets, spreadsheetId } = await getGoogleSheets();
+  const sheetId = await clientSheetId();
+  const rowStart = client.rowNumber - 1;
+  const reservationRange = { sheetId, startRowIndex: rowStart, endRowIndex: rowStart + 1, startColumnIndex: 0, endColumnIndex: 1 };
+
+  try {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: { requests: [
+        { addNamedRange: { namedRange: { name: lineStateReservationName(expectedClient), range: reservationRange } } },
+        { addNamedRange: { namedRange: { name: lineReservationName("token", tokenHash), range: reservationRange } } },
+        { addNamedRange: { namedRange: { name: lineReservationName("user", lineUserId), range: reservationRange } } },
+        ...lineLinkCellUpdates(client, sheetId),
+      ] },
+    });
+    return "CLAIMED";
+  } catch (error) {
+    if (!isReservationConflict(error)) throw error;
+    const clients = await listClients();
+    if (clients.some((item) => item.client_id === client.client_id && item.line_user_id === lineUserId && item.line_link_token_hash === tokenHash)) return "ALREADY_LINKED";
+    if (clients.some((item) => item.line_user_id === lineUserId || (item.line_link_token_hash === tokenHash && item.line_user_id))) return "CONFLICT";
     return "STALE";
   }
 }

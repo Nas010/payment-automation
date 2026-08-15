@@ -54,6 +54,8 @@ export async function completeSetupAction(formData: FormData): Promise<void> {
     publicBaseUrl: String(formData.get("public_base_url") ?? ""),
     slipRetentionDays: String(formData.get("slip_retention_days") ?? "30"),
     ocrEnabled: checkbox(formData, "ocr_enabled"),
+    lineLiffId: String(formData.get("line_liff_id") ?? ""),
+    lineLoginChannelId: String(formData.get("line_login_channel_id") ?? ""),
     lineLinkingEnabled: checkbox(formData, "line_linking_enabled"),
     lineMessagingEnabled: checkbox(formData, "line_messaging_enabled"),
     lineChatPaymentsEnabled: checkbox(formData, "line_chat_payments_enabled"),

@@ -25,6 +25,8 @@ export async function saveRuntimeConfigAction(formData: FormData): Promise<void>
     publicBaseUrl: String(formData.get("public_base_url") ?? ""),
     slipRetentionDays: String(formData.get("slip_retention_days") ?? "30"),
     ocrEnabled: checked(formData, "ocr_enabled"),
+    lineLiffId: String(formData.get("line_liff_id") ?? ""),
+    lineLoginChannelId: String(formData.get("line_login_channel_id") ?? ""),
     lineLinkingEnabled: checked(formData, "line_linking_enabled"),
     lineMessagingEnabled: checked(formData, "line_messaging_enabled"),
     lineChatPaymentsEnabled: checked(formData, "line_chat_payments_enabled"),

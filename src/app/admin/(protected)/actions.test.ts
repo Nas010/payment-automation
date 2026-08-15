@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClientRecord } from "@/lib/sheets/clients";
 import type { PaymentRecord } from "@/lib/sheets/payments";
 
@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   writeClient: vi.fn(),
   updateClient: vi.fn(),
   updateLineLinkClient: vi.fn(),
+  claimLineConnection: vi.fn(),
   appendAudit: vi.fn(),
   listPackages: vi.fn(),
   writeSchedule: vi.fn(),
@@ -33,12 +34,13 @@ vi.mock("@/lib/runtime-config", () => ({ runtimeConfig: mocks.runtimeConfig }));
 vi.mock("@/lib/payments/generate", () => ({ generateDuePaymentLinks: mocks.generateDuePaymentLinks }));
 vi.mock("@/lib/payments/transition", () => ({ persistPaymentTransition: mocks.persistPaymentTransition }));
 vi.mock("@/lib/line/due-payments", () => ({ sendDueLinePaymentRequests: mocks.sendDueLinePaymentRequests }));
-vi.mock("@/lib/sheets/clients", () => ({ listClients: mocks.listClients, writeClient: mocks.writeClient, updateClient: mocks.updateClient, updateLineLinkClient: mocks.updateLineLinkClient }));
+vi.mock("@/lib/sheets/clients", () => ({ listClients: mocks.listClients, writeClient: mocks.writeClient, updateClient: mocks.updateClient, updateLineLinkClient: mocks.updateLineLinkClient, claimLineConnection: mocks.claimLineConnection }));
 vi.mock("@/lib/sheets/payments", () => ({ appendAudit: mocks.appendAudit, getPaymentById: mocks.getPaymentById, updatePaymentIfUnchanged: mocks.updatePaymentIfUnchanged }));
 vi.mock("@/lib/sheets/schedules", () => ({ listSchedules: mocks.listSchedules, writeSchedule: mocks.writeSchedule }));
 vi.mock("@/lib/sheets/settings", () => ({ listPackages: mocks.listPackages, savePackage: mocks.savePackage, upsertOperationalSetting: mocks.upsertOperationalSetting }));
 
-import { assignPackageAction, createClientAction, createManualPaymentAction, disconnectLineAction, generateMissingLineLinkCodesAction, renewLineLinkCodeAction, sendLinePaymentAction, stopAwaitingLineSlipAction } from "./actions";
+import { hashLineConnectionToken, recoverLineConnectionToken } from "@/lib/line/connection-token";
+import { assignPackageAction, createClientAction, createManualPaymentAction, disconnectLineAction, generateMissingLineConnectionsAction, renewLineConnectionAction, sendLinePaymentAction, stopAwaitingLineSlipAction } from "./actions";
 
 const now = "2026-08-10T12:00:00.000Z";
 const userId = "Uaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -47,6 +49,7 @@ function client(overrides: Partial<ClientRecord> = {}): ClientRecord {
   return {
     rowNumber: 2, client_id: "client_1", active: "TRUE", client_name: "Nisa", line_user_id: "", line_display_name: "", package_name: "PT", payment_type: "ONE_TIME", total_price_thb: "1000", installment_count: "1", interval_months: "0", first_due_date: "2026-08-10", default_amount_thb: "1000", billing_frequency: "MANUAL", next_due_date: "2026-08-10", notes: "", created_at: now, updated_at: now,
     line_link_code: "", line_link_code_expires_at: "", line_link_status: "", line_linked_at: "", line_link_message: "", line_link_error: "",
+    line_link_token_hash: "", line_link_token_encrypted: "", line_link_token_expires_at: "",
     ...overrides,
   };
 }
@@ -72,12 +75,14 @@ function payment(overrides: Partial<PaymentRecord> = {}): PaymentRecord {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.stubEnv("SETTINGS_ENCRYPTION_KEY", Buffer.alloc(32, 5).toString("base64"));
   mocks.requireAdmin.mockResolvedValue(undefined);
   mocks.headers.mockResolvedValue(new Headers({ origin: "https://example.test" }));
   mocks.listClients.mockResolvedValue([]);
   mocks.writeClient.mockResolvedValue(undefined);
   mocks.updateClient.mockResolvedValue(undefined);
   mocks.updateLineLinkClient.mockResolvedValue(true);
+  mocks.claimLineConnection.mockResolvedValue("CLAIMED");
   mocks.appendAudit.mockResolvedValue(undefined);
   mocks.listPackages.mockResolvedValue([{ package_name: "PT", active: "TRUE" }]);
   mocks.writeSchedule.mockResolvedValue(undefined);
@@ -87,49 +92,51 @@ beforeEach(() => {
   mocks.runtimeConfig.mockResolvedValue({ publicBaseUrl: "https://example.test" });
 });
 
+afterEach(() => vi.unstubAllEnvs());
+
 describe("protected LINE trainer actions", () => {
-  it("creates a client with a blank mapping and a seven-day active code instruction", async () => {
+  it("creates a client with a blank mapping and a seven-day secure connection token", async () => {
     await createClientAction(clientForm());
 
     const saved = mocks.writeClient.mock.calls[0]?.[0] as Record<string, string>;
     expect(mocks.requireAdmin).toHaveBeenCalledTimes(1);
-    expect(saved).toMatchObject({ line_user_id: "", line_display_name: "", line_link_status: "CODE_ACTIVE", line_linked_at: "", line_link_error: "" });
-    expect(saved.line_link_code).toMatch(/^[A-F0-9]{10}$/);
-    expect(saved.line_link_message).toBe(`Hi Nisa, reply with this exact message to link your LINE account:\nLINK ${saved.line_link_code}`);
-    expect(new Date(saved.line_link_code_expires_at).getTime() - new Date(saved.created_at).getTime()).toBe(7 * 24 * 60 * 60 * 1000);
+    expect(saved).toMatchObject({ line_user_id: "", line_display_name: "", line_link_status: "LINK_ACTIVE", line_linked_at: "", line_link_error: "", line_link_code: "", line_link_code_expires_at: "", line_link_message: "" });
+    const rawToken = recoverLineConnectionToken({ clientId: saved.client_id, encryptedToken: saved.line_link_token_encrypted });
+    expect(rawToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(saved.line_link_token_hash).toBe(hashLineConnectionToken(rawToken));
+    expect(new Date(saved.line_link_token_expires_at).getTime() - new Date(saved.created_at).getTime()).toBe(7 * 24 * 60 * 60 * 1000);
+    expect(JSON.stringify(saved)).not.toContain(rawToken);
     expect(mocks.writeSchedule).toHaveBeenCalledWith(expect.objectContaining({ line_user_id: "", line_display_name: "" }));
   });
 
   it("returns bulk created, active, linked, and failed reports after admin authorization", async () => {
     mocks.listClients.mockResolvedValue([
       client({ client_id: "created" }),
-      client({ rowNumber: 3, client_id: "active", line_link_code: "ABCDEF0123", line_link_code_expires_at: "2099-08-17T12:00:00.000Z", line_link_status: "CODE_ACTIVE" }),
+      client({ rowNumber: 3, client_id: "active", line_link_token_hash: "a".repeat(64), line_link_token_encrypted: "encrypted", line_link_token_expires_at: "2099-08-17T12:00:00.000Z", line_link_status: "LINK_ACTIVE" }),
       client({ rowNumber: 4, client_id: "linked", line_user_id: userId, line_link_status: "LINKED" }),
       client({ rowNumber: 5, client_id: "failed", client_name: "Broken" }),
     ]);
     mocks.updateLineLinkClient.mockImplementation(async ({ client: updated }: { client: ClientRecord }) => { if (updated.client_id === "failed") throw new Error("sheet unavailable"); return true; });
 
-    await expect(generateMissingLineLinkCodesAction()).resolves.toMatchObject({ created: ["created"], alreadyActive: ["active"], alreadyLinked: ["linked"], failed: [{ clientId: "failed", error: "sheet unavailable" }] });
+    await expect(generateMissingLineConnectionsAction()).resolves.toMatchObject({ created: ["created"], alreadyActive: ["active"], alreadyLinked: ["linked"], failed: [{ clientId: "failed", error: "sheet unavailable" }] });
     expect(mocks.requireAdmin).toHaveBeenCalledTimes(1);
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/admin/clients");
   });
 
-  it("renews only an unlinked selected client code and revalidates its detail", async () => {
-    mocks.listClients.mockResolvedValue([client({ line_link_code: "ABCDEF0123", line_link_code_expires_at: "2099-08-17T12:00:00.000Z", line_link_status: "CODE_ACTIVE" })]);
+  it("creates a new secure connection link only for an unlinked selected client", async () => {
+    mocks.listClients.mockResolvedValue([client({ line_link_token_hash: "a".repeat(64), line_link_token_encrypted: "old", line_link_token_expires_at: "2099-08-17T12:00:00.000Z", line_link_status: "LINK_ACTIVE" })]);
 
-    const result = await renewLineLinkCodeAction("client_1");
+    const result = await renewLineConnectionAction("client_1");
 
-    expect(result).toMatchObject({ clientId: "client_1", status: "CODE_ACTIVE" });
-    expect(result?.code).toMatch(/^[A-F0-9]{10}$/);
-    expect(result?.code).not.toBe("ABCDEF0123");
-    expect(mocks.updateLineLinkClient).toHaveBeenCalledWith(expect.objectContaining({ client: expect.objectContaining({ line_user_id: "", line_link_status: "CODE_ACTIVE" }) }));
+    expect(result).toEqual({ clientId: "client_1", status: "LINK_ACTIVE" });
+    expect(mocks.updateLineLinkClient).toHaveBeenCalledWith(expect.objectContaining({ client: expect.objectContaining({ line_user_id: "", line_link_status: "LINK_ACTIVE", line_link_code: "", line_link_message: "" }) }));
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/admin/clients/client_1");
   });
 
   it("rejects renewal for a client that already has a different LINE user ID", async () => {
     mocks.listClients.mockResolvedValue([client({ line_user_id: userId, line_display_name: "Nisa LINE", line_link_code: "ABCDEF0123", line_link_status: "LINKED" })]);
 
-    await expect(renewLineLinkCodeAction("client_1")).resolves.toBeNull();
+    await expect(renewLineConnectionAction("client_1")).resolves.toBeNull();
 
     expect(mocks.updateLineLinkClient).not.toHaveBeenCalled();
     expect(mocks.appendAudit).not.toHaveBeenCalled();
@@ -140,7 +147,7 @@ describe("protected LINE trainer actions", () => {
 
     await expect(disconnectLineAction("client_1")).resolves.toBe(true);
 
-    expect(mocks.updateLineLinkClient).toHaveBeenCalledWith(expect.objectContaining({ client: expect.objectContaining({ line_user_id: "", line_display_name: "", line_link_code: "", line_link_code_expires_at: "", line_link_status: "", line_linked_at: "", line_link_message: "", line_link_error: "" }) }));
+    expect(mocks.updateLineLinkClient).toHaveBeenCalledWith(expect.objectContaining({ client: expect.objectContaining({ line_user_id: "", line_display_name: "", line_link_code: "", line_link_code_expires_at: "", line_link_status: "", line_linked_at: "", line_link_message: "", line_link_error: "", line_link_token_hash: "", line_link_token_encrypted: "", line_link_token_expires_at: "" }) }));
     expect(mocks.updateLineLinkClient).toHaveBeenCalledWith(expect.objectContaining({ releaseLineUserId: userId }));
     expect(mocks.appendAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "LINE_LINK_DISCONNECTED", clientId: "client_1", source: "LINE_TRAINER" }));
   });

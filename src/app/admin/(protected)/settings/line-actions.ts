@@ -2,7 +2,14 @@
 
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/admin-auth";
-import { DEFAULT_LINE_DUE_TEMPLATE, renderLineDueTemplate, validateLineDueTemplate } from "@/lib/line/message-template";
+import {
+  DEFAULT_LINE_DUE_TEMPLATE,
+  DEFAULT_LINE_WELCOME_TEMPLATE,
+  renderLineDueTemplate,
+  renderLineWelcomeTemplate,
+  validateLineDueTemplate,
+  validateLineWelcomeTemplate,
+} from "@/lib/line/message-template";
 import {
   DEFAULT_LINE_DUE_PROFILES,
   LINE_DUE_PROFILE_SETTING_KEYS,
@@ -22,12 +29,18 @@ import type { LineCredentialActionResult } from "@/components/admin/line-integra
 
 const validationSettingKey = "line_access_token_validation";
 const dueTemplateSettingKey = "line_due_message_template";
+const welcomeTemplateSettingKey = "line_welcome_message_template";
 const dueTemplatePreviewValues = {
   client_name: "Nisa",
   payment_label: "August coaching",
   amount: "฿1,500.00",
   due_date: "2026-08-15",
   payment_url: "https://payments.example/p/sample-token",
+};
+const welcomeTemplatePreviewValues = {
+  client_name: "Nisa",
+  business_name: "Coach Bee",
+  line_connect_url: "https://liff.line.me/1234567890-AbCdEf?token=sample-token",
 };
 
 function submittedValue(formData: FormData, key: string): string {
@@ -48,6 +61,19 @@ async function auditTemplateChange(action: "LINE_DUE_TEMPLATE_SAVED" | "LINE_DUE
     reason: "LINE due-payment template updated",
     source: "ADMIN",
     metadata: JSON.stringify({ settingKey: dueTemplateSettingKey }),
+  });
+}
+
+async function auditWelcomeTemplateChange(action: "LINE_WELCOME_TEMPLATE_SAVED" | "LINE_WELCOME_TEMPLATE_RESET"): Promise<void> {
+  await appendAudit({
+    paymentId: "",
+    clientId: "",
+    action,
+    previousStatus: welcomeTemplateSettingKey,
+    newStatus: welcomeTemplateSettingKey,
+    reason: "LINE welcome template updated",
+    source: "ADMIN",
+    metadata: JSON.stringify({ settingKey: welcomeTemplateSettingKey }),
   });
 }
 
@@ -129,6 +155,30 @@ export async function resetLineDueTemplateAction(): Promise<LineDueTemplateActio
   await auditTemplateChange("LINE_DUE_TEMPLATE_RESET");
   revalidatePath("/admin/settings");
   return templateResult(DEFAULT_LINE_DUE_TEMPLATE);
+}
+
+export async function previewLineWelcomeTemplateAction(formData: FormData): Promise<LineDueTemplateActionResult> {
+  await requireAdmin();
+  const template = submittedValue(formData, "template");
+  return { ok: true, template, preview: renderLineWelcomeTemplate(template, welcomeTemplatePreviewValues) };
+}
+
+export async function saveLineWelcomeTemplateAction(formData: FormData): Promise<LineDueTemplateActionResult> {
+  await requireAdmin();
+  const template = submittedValue(formData, "template");
+  validateLineWelcomeTemplate(template);
+  await upsertOperationalSetting(welcomeTemplateSettingKey, template);
+  await auditWelcomeTemplateChange("LINE_WELCOME_TEMPLATE_SAVED");
+  revalidatePath("/admin/settings");
+  return { ok: true, template, preview: renderLineWelcomeTemplate(template, welcomeTemplatePreviewValues) };
+}
+
+export async function resetLineWelcomeTemplateAction(): Promise<LineDueTemplateActionResult> {
+  await requireAdmin();
+  await upsertOperationalSetting(welcomeTemplateSettingKey, DEFAULT_LINE_WELCOME_TEMPLATE);
+  await auditWelcomeTemplateChange("LINE_WELCOME_TEMPLATE_RESET");
+  revalidatePath("/admin/settings");
+  return { ok: true, template: DEFAULT_LINE_WELCOME_TEMPLATE, preview: renderLineWelcomeTemplate(DEFAULT_LINE_WELCOME_TEMPLATE, welcomeTemplatePreviewValues) };
 }
 
 export async function previewLineDueMessageProfileAction(formData: FormData): Promise<LineDueMessageProfileActionResult> {

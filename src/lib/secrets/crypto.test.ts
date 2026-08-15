@@ -1,9 +1,18 @@
 import { describe, expect, it, vi } from "vitest";
-import { decryptSecret, encryptSecret } from "./crypto";
+import { decryptPrivateValue, decryptSecret, encryptPrivateValue, encryptSecret } from "./crypto";
 
 const encryptionKey = Buffer.alloc(32, 7).toString("base64");
 
 describe("integration secret encryption", () => {
+  it("round-trips private operational values only in their bound context", () => {
+    vi.stubEnv("SETTINGS_ENCRYPTION_KEY", encryptionKey);
+    const encrypted = encryptPrivateValue({ context: "line-connection:client_1", plaintext: "raw-token" });
+
+    expect(encrypted).not.toContain("raw-token");
+    expect(decryptPrivateValue({ context: "line-connection:client_1", encrypted })).toBe("raw-token");
+    expect(() => decryptPrivateValue({ context: "line-connection:client_2", encrypted })).toThrow("Private value authentication failed");
+  });
+
   it("round-trips AES-256-GCM records with a fresh IV for every write", () => {
     vi.stubEnv("SETTINGS_ENCRYPTION_KEY", encryptionKey);
     const input = { keyName: "line_channel_access_token", plaintext: "token-value" };

@@ -11,17 +11,19 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { buildClientBillingSummary } from "@/lib/admin/client-billing";
 import { formatDate, formatDateTime } from "@/lib/date";
+import { renderClientLineWelcomeMessage } from "@/lib/line/welcome-message";
 import { formatThb, parseSatang } from "@/lib/money";
+import { runtimeConfig } from "@/lib/runtime-config";
 import { listAuditRecords } from "@/lib/sheets/audit";
 import { listClients } from "@/lib/sheets/clients";
 import { listPayments } from "@/lib/sheets/payments";
 import { listSchedules } from "@/lib/sheets/schedules";
-import { listPackages } from "@/lib/sheets/settings";
-import { assignPackageAction, createManualPaymentAction, disconnectLineAction, renewLineLinkCodeAction } from "../../actions";
+import { getLineWelcomeTemplate, listPackages } from "@/lib/sheets/settings";
+import { assignPackageAction, createManualPaymentAction, disconnectLineAction, renewLineConnectionAction } from "../../actions";
 
 export default async function ClientDetailPage({ params }: { params: Promise<{ clientId: string }> }) {
   const { clientId } = await params;
-  const [clients, schedules, payments, audit, packages] = await Promise.all([listClients(), listSchedules(), listPayments(), listAuditRecords(), listPackages()]);
+  const [clients, schedules, payments, audit, packages, welcomeTemplate, config] = await Promise.all([listClients(), listSchedules(), listPayments(), listAuditRecords(), listPackages(), getLineWelcomeTemplate(), runtimeConfig()]);
   const client = clients.find((item) => item.client_id === clientId);
   if (!client) notFound();
 
@@ -30,6 +32,8 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ c
   const clientAudit = audit.filter((item) => item.client_id === clientId);
   const activePackages = packages.filter((item) => item.active.toUpperCase() === "TRUE");
   const summary = buildClientBillingSummary(clientSchedules);
+  const liffId = config.lineLiffId;
+  const welcomeMessage = liffId ? renderClientLineWelcomeMessage({ client, template: welcomeTemplate, businessName: config.businessDisplayName, liffId }) : "";
 
   return <div className="flex flex-col gap-6">
     <PageHeader title={client.client_name} description={`${client.package_name} · ${client.line_display_name || client.line_user_id || "No LINE profile"}`} />
@@ -47,8 +51,8 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ c
     />
 
     <Card>
-      <CardHeader><CardTitle>LINE connection</CardTitle><CardDescription>Use a one-time code to link this client&apos;s LINE account.</CardDescription></CardHeader>
-      <CardContent><LineLinkActions clientId={client.client_id} status={lineLinkStatus(client)} code={client.line_link_code} instruction={client.line_link_message} expiresAt={client.line_link_code_expires_at} displayName={client.line_display_name} linkedAt={client.line_linked_at} error={client.line_link_error} renewAction={renewLineLinkCodeAction} disconnectAction={disconnectLineAction} /></CardContent>
+      <CardHeader><CardTitle>LINE connection</CardTitle><CardDescription>Copy the personalized welcome message into this client&apos;s existing LINE chat.</CardDescription></CardHeader>
+      <CardContent><LineLinkActions clientId={client.client_id} status={lineLinkStatus(client)} message={welcomeMessage ?? ""} expiresAt={client.line_link_token_expires_at} displayName={client.line_display_name} linkedAt={client.line_linked_at} error={client.line_link_error} renewAction={renewLineConnectionAction} disconnectAction={disconnectLineAction} /></CardContent>
     </Card>
 
     <Card>

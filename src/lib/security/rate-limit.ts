@@ -13,3 +13,4 @@ export class RateLimiter {
 }
 
 export const paymentSubmissionLimiter = new RateLimiter(5, 60 * 60 * 1000);
+export const lineConnectionLimiter = new RateLimiter(10, 10 * 60 * 1000);

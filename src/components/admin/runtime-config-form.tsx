@@ -44,6 +44,13 @@ export function RuntimeConfigForm({ action, defaultBaseUrl, initial, allowLineFe
       <Field><FieldLabel htmlFor="slip_retention_days">Slip retention (days)</FieldLabel><Input id="slip_retention_days" name="slip_retention_days" type="number" min="0" max="365" required defaultValue={initial?.slipRetentionDays ?? 30} /></Field>
     </FieldGroup>
     {qrPreview ? <div className="rounded-lg border p-4"><p className="mb-2 text-sm font-medium">PromptPay QR preview · ฿1.00</p><img src={qrPreview} width={192} height={192} alt="PromptPay QR preview" /></div> : null}
+    <div className="space-y-3 rounded-lg border p-4">
+      <div><h3 className="text-sm font-medium">LINE app identifiers</h3><p className="text-xs text-muted-foreground">These are public identifiers, not LINE credentials.</p></div>
+      <FieldGroup className="grid gap-4 md:grid-cols-2">
+        <Field><FieldLabel htmlFor="line_liff_id">LIFF ID</FieldLabel><Input id="line_liff_id" name="line_liff_id" placeholder="1234567890-AbCdEf" defaultValue={initial?.lineLiffId} /><FieldDescription>From the LIFF app configured for /line/connect.</FieldDescription></Field>
+        <Field><FieldLabel htmlFor="line_login_channel_id">LINE Login channel ID</FieldLabel><Input id="line_login_channel_id" name="line_login_channel_id" inputMode="numeric" placeholder="1234567890" defaultValue={initial?.lineLoginChannelId} /><FieldDescription>The numeric channel ID that owns the LIFF app.</FieldDescription></Field>
+      </FieldGroup>
+    </div>
     <div className="grid gap-3 text-sm md:grid-cols-2">
       <label className="flex items-center gap-2"><input type="checkbox" name="ocr_enabled" defaultChecked={initial?.ocrEnabled ?? true} /> Enable slip OCR</label>
       <label className="flex items-center gap-2"><input type="checkbox" name="line_linking_enabled" defaultChecked={initial?.lineLinkingEnabled} disabled={!allowLineFeatures} /> Enable LINE linking</label>

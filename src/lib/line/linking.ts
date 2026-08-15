@@ -125,6 +125,9 @@ export function createLineLinkService(dependencies: LineLinkServiceDependencies)
         line_linked_at: nowIso(now),
         line_link_message: "",
         line_link_error: "",
+        line_link_token_hash: "",
+        line_link_token_encrypted: "",
+        line_link_token_expires_at: "",
         updated_at: nowIso(now),
       };
       const claimResult = await dependencies.claimLineLink({ client: linked, expectedClient: target, code: normalizedCode, lineUserId });
@@ -189,7 +192,7 @@ export async function renewLineLinkCode(dependencies: LineLinkDependencies, { cl
 export async function disconnectLineUser(dependencies: LineLinkDependencies, { clientId, now }: ClientTrainerInput): Promise<boolean> {
   const client = (await dependencies.listClients()).find((item) => item.client_id === clientId);
   if (!client) return false;
-  const updated = { ...client, line_user_id: "", line_display_name: "", line_link_code: "", line_link_code_expires_at: "", line_link_status: "", line_linked_at: "", line_link_message: "", line_link_error: "", updated_at: nowIso(now) };
+  const updated = { ...client, line_user_id: "", line_display_name: "", line_link_code: "", line_link_code_expires_at: "", line_link_status: "", line_linked_at: "", line_link_message: "", line_link_error: "", line_link_token_hash: "", line_link_token_encrypted: "", line_link_token_expires_at: "", updated_at: nowIso(now) };
   if (!await dependencies.updateLineLinkClient({ client: updated, expectedClient: client, releaseLineUserId: client.line_user_id })) return false;
   await audit(dependencies, { client, action: "LINE_LINK_DISCONNECTED", previousStatus: client.line_link_status, newStatus: "", reason: "LINE account disconnected", lineUserId: client.line_user_id });
   return true;

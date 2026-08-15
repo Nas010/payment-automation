@@ -10,6 +10,7 @@ vi.mock("./client", () => ({
 import type { ClientRecord } from "./clients";
 
 let claimLineLink: typeof import("./clients").claimLineLink;
+let claimLineConnection: typeof import("./clients").claimLineConnection;
 let listClients: typeof import("./clients").listClients;
 let updateLineLinkClient: typeof import("./clients").updateLineLinkClient;
 let writeClient: typeof import("./clients").writeClient;
@@ -19,19 +20,21 @@ const clientHeaders = [
   "total_price_thb", "installment_count", "interval_months", "first_due_date", "default_amount_thb",
   "billing_frequency", "next_due_date", "notes", "created_at", "updated_at",
   "line_link_code", "line_link_code_expires_at", "line_link_status", "line_linked_at", "line_link_message", "line_link_error",
+  "line_link_token_hash", "line_link_token_encrypted", "line_link_token_expires_at",
 ];
 
 function linkedClient(): ClientRecord {
   return {
     rowNumber: 2, client_id: "client_1", active: "TRUE", client_name: "Nisa", line_user_id: "Uaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", line_display_name: "", package_name: "PT", payment_type: "ONE_TIME", total_price_thb: "1000", installment_count: "1", interval_months: "0", first_due_date: "2026-08-10", default_amount_thb: "1000", billing_frequency: "MANUAL", next_due_date: "2026-08-10", notes: "", created_at: "2026-08-10T00:00:00.000Z", updated_at: "2026-08-10T12:00:00.000Z",
     line_link_code: "", line_link_code_expires_at: "", line_link_status: "LINKED", line_linked_at: "2026-08-10T12:00:00.000Z", line_link_message: "", line_link_error: "",
+    line_link_token_hash: "a".repeat(64), line_link_token_encrypted: "", line_link_token_expires_at: "",
   };
 }
 
 beforeEach(async () => {
   vi.resetModules();
-  ({ claimLineLink, listClients, updateLineLinkClient, writeClient } = await import("./clients"));
-  spreadsheetGet.mockResolvedValue({ data: { sheets: [{ properties: { sheetId: 9, title: "Clients", gridProperties: { columnCount: 23 } } }] } });
+  ({ claimLineConnection, claimLineLink, listClients, updateLineLinkClient, writeClient } = await import("./clients"));
+  spreadsheetGet.mockResolvedValue({ data: { sheets: [{ properties: { sheetId: 9, title: "Clients", gridProperties: { columnCount: 26 } } }] } });
 });
 afterEach(() => vi.clearAllMocks());
 
@@ -48,18 +51,38 @@ describe("Clients repository", () => {
       payment_type: "ONE_TIME", total_price_thb: "1000", installment_count: "1", interval_months: "0", first_due_date: "2026-08-10",
       default_amount_thb: "1000", billing_frequency: "MANUAL", next_due_date: "2026-08-10", notes: "", created_at: "now", updated_at: "now",
       line_link_code: "", line_link_code_expires_at: "", line_link_status: "", line_linked_at: "", line_link_message: "", line_link_error: "",
+      line_link_token_hash: "", line_link_token_encrypted: "", line_link_token_expires_at: "",
     });
 
-    expect(get).toHaveBeenNthCalledWith(2, expect.objectContaining({ range: "Clients!A:W" }));
-    expect(update).toHaveBeenCalledWith(expect.objectContaining({ range: "Clients!A3:W3" }));
+    expect(get).toHaveBeenNthCalledWith(2, expect.objectContaining({ range: "Clients!A:Z" }));
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({ range: "Clients!A3:Z3" }));
   });
 
-  it("lists clients from all 23 columns after ensuring the schema", async () => {
+  it("lists clients from all 26 columns after ensuring schema", async () => {
     get.mockResolvedValueOnce({ data: { values: [clientHeaders] } });
     get.mockResolvedValueOnce({ data: { values: [clientHeaders, ["client_1", "TRUE", "Nisa", "", "", "PT", "ONE_TIME", "1000", "1", "0", "2026-08-10", "1000", "MANUAL", "2026-08-10", "", "now", "now", "CODE", "2026-08-17", "PENDING", "", "", ""]] } });
 
     await expect(listClients()).resolves.toMatchObject([{ client_id: "client_1", line_link_code: "CODE", line_link_status: "PENDING" }]);
-    expect(get).toHaveBeenNthCalledWith(2, expect.objectContaining({ range: "Clients!A:W" }));
+    expect(get).toHaveBeenNthCalledWith(2, expect.objectContaining({ range: "Clients!A:Z" }));
+  });
+
+  it("atomically reserves token hash and LINE user before consuming a connection", async () => {
+    get.mockResolvedValueOnce({ data: { values: [clientHeaders] } });
+    batchUpdate.mockResolvedValueOnce({});
+    const current = linkedClient();
+
+    await expect(claimLineConnection({
+      client: current,
+      expectedClient: current,
+      tokenHash: "b".repeat(64),
+      lineUserId: current.line_user_id,
+    })).resolves.toBe("CLAIMED");
+
+    expect(batchUpdate).toHaveBeenCalledWith(expect.objectContaining({ requestBody: { requests: expect.arrayContaining([
+      expect.objectContaining({ addNamedRange: expect.objectContaining({ namedRange: expect.objectContaining({ name: expect.stringMatching(/^line_link_token_[a-f0-9]{64}$/) }) }) }),
+      expect.objectContaining({ addNamedRange: expect.objectContaining({ namedRange: expect.objectContaining({ name: expect.stringMatching(/^line_link_user_[a-f0-9]{64}$/) }) }) }),
+      expect.objectContaining({ updateCells: expect.objectContaining({ range: expect.objectContaining({ endColumnIndex: 26 }) }) }),
+    ]) } }));
   });
 
   it("atomically reserves code and LINE user before writing a linked client", async () => {

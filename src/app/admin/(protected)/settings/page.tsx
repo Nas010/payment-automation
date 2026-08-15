@@ -1,17 +1,26 @@
 import { PageHeader } from "@/components/admin/page-ui";
 import { LineIntegrationForm, type LineCredentialMetadata } from "@/components/admin/line-integration-form";
 import { LineDueTemplateForm } from "@/components/admin/line-due-template-form";
+import { LineWelcomeTemplateForm } from "@/components/admin/line-welcome-template-form";
 import { GoogleDriveConnectionCard } from "@/components/admin/google-drive-connection-card";
 import { RuntimeConfigForm } from "@/components/admin/runtime-config-form";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { googleDriveConfig } from "@/lib/config";
-import { DEFAULT_LINE_DUE_TEMPLATE } from "@/lib/line/message-template";
+import { DEFAULT_LINE_DUE_TEMPLATE, DEFAULT_LINE_WELCOME_TEMPLATE } from "@/lib/line/message-template";
 import { runtimeConfig } from "@/lib/runtime-config";
 import { getSecretMetadata } from "@/lib/secrets/service";
 import { listOperationalSettings } from "@/lib/sheets/settings";
 import { getActiveWorkspaceConnection } from "@/lib/workspace/connection";
-import { saveAndTestLineCredentialsAction, previewLineDueTemplateAction, resetLineDueTemplateAction, saveLineDueTemplateAction } from "./line-actions";
+import {
+  previewLineDueTemplateAction,
+  previewLineWelcomeTemplateAction,
+  resetLineDueTemplateAction,
+  resetLineWelcomeTemplateAction,
+  saveAndTestLineCredentialsAction,
+  saveLineDueTemplateAction,
+  saveLineWelcomeTemplateAction,
+} from "./line-actions";
 import { activateGoogleDriveFolderAction } from "@/app/admin/google-drive/actions";
 import { saveRuntimeConfigAction, testWorkspaceConnectionAction } from "./runtime-actions";
 
@@ -26,14 +35,16 @@ export default async function SettingsPage({ searchParams }: { searchParams?: Pr
   const credentials = lineCredentialMetadata(secretMetadata);
   const validation = validationMetadata(settings.find((item) => item.key === "line_access_token_validation")?.value);
   const dueTemplate = settings.find((item) => item.key === "line_due_message_template")?.value || DEFAULT_LINE_DUE_TEMPLATE;
+  const welcomeTemplate = settings.find((item) => item.key === "line_welcome_message_template")?.value || DEFAULT_LINE_WELCOME_TEMPLATE;
   const driveError = driveErrorMessage(query?.drive_error);
 
   return <div className="flex flex-col gap-6">
     <PageHeader title="Settings" description="Business settings live in your workbook. Google and LINE secrets stay encrypted in the private key safe." />
     {connection ? <Card><CardHeader><CardTitle>Operational database</CardTitle><CardDescription>This workbook is fixed after setup.</CardDescription></CardHeader><CardContent className="flex flex-wrap items-center gap-4 text-sm"><a className="font-medium text-primary underline" href={connection.spreadsheetUrl} target="_blank" rel="noreferrer">Open {connection.spreadsheetName}</a><a className="font-medium text-primary underline" href={connection.folderUrl} target="_blank" rel="noreferrer">Open {connection.folderName}</a><form action={testWorkspaceConnectionAction}><Button type="submit" variant="outline" size="sm">Test connection</Button></form></CardContent></Card> : null}
     <GoogleDriveConnectionCard status={connection ? { connected: true, accountEmail: connection.accountEmail, folderName: connection.folderName, validatedAt: connection.validatedAt } : { connected: false }} canConnect={Boolean(googleDriveConfig())} autoOpenPicker={query?.workspace === "reconnect_pending"} initialError={driveError} activateAction={activateGoogleDriveFolderAction} />
-    <Card><CardHeader><CardTitle>Business and payment configuration</CardTitle><CardDescription>PromptPay changes must produce a valid QR preview before they can be saved.</CardDescription></CardHeader><CardContent><RuntimeConfigForm action={saveRuntimeConfigAction} defaultBaseUrl={config.publicBaseUrl} initial={config} allowLineFeatures={credentials.every((credential) => credential.configured)} submitLabel="Save settings" /></CardContent></Card>
+    <Card><CardHeader><CardTitle>Business, payment, and LINE configuration</CardTitle><CardDescription>Manage public application settings here. PromptPay changes must produce a valid QR preview before they can be saved.</CardDescription></CardHeader><CardContent><RuntimeConfigForm action={saveRuntimeConfigAction} defaultBaseUrl={config.publicBaseUrl} initial={config} allowLineFeatures={credentials.every((credential) => credential.configured)} submitLabel="Save settings" /></CardContent></Card>
     <LineIntegrationForm credentials={credentials} validation={validation} action={saveAndTestLineCredentialsAction} />
+    <LineWelcomeTemplateForm template={welcomeTemplate} previewAction={previewLineWelcomeTemplateAction} saveAction={saveLineWelcomeTemplateAction} resetAction={resetLineWelcomeTemplateAction} />
     <LineDueTemplateForm template={dueTemplate} messagingEnabled={config.lineMessagingEnabled} chatPaymentsEnabled={config.lineChatPaymentsEnabled} previewAction={previewLineDueTemplateAction} saveAction={saveLineDueTemplateAction} resetAction={resetLineDueTemplateAction} />
   </div>;
 }

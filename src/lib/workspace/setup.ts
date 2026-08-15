@@ -8,6 +8,7 @@ import {
 } from "./connection";
 import { validateOperationalWorkbook } from "./workbook";
 import { DEFAULT_LINE_DUE_PROFILES, LINE_DUE_PROFILE_SETTING_KEYS } from "@/lib/line/message-profile";
+import { DEFAULT_LINE_WELCOME_TEMPLATE } from "@/lib/line/message-template";
 
 type SetupDependencies = {
   getPendingWorkspaceConnection: typeof getPendingWorkspaceConnection;
@@ -30,6 +31,7 @@ async function writeStagedSettings(config: RuntimeConfig): Promise<void> {
     ...runtimeConfigEntries(config),
     { key: LINE_DUE_PROFILE_SETTING_KEYS.ONE_TIME, value: JSON.stringify(DEFAULT_LINE_DUE_PROFILES.ONE_TIME) },
     { key: LINE_DUE_PROFILE_SETTING_KEYS.INSTALLMENTS, value: JSON.stringify(DEFAULT_LINE_DUE_PROFILES.INSTALLMENTS) },
+    { key: "line_welcome_message_template", value: DEFAULT_LINE_WELCOME_TEMPLATE },
     { key: "dashboard_collected_delta_display", value: "absolute" },
   ];
   const data = entries.map((entry) => {

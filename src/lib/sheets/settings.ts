@@ -1,5 +1,10 @@
 import { getGoogleSheets } from "./client";
-import { DEFAULT_LINE_DUE_TEMPLATE, validateLineDueTemplate } from "@/lib/line/message-template";
+import {
+  DEFAULT_LINE_DUE_TEMPLATE,
+  DEFAULT_LINE_WELCOME_TEMPLATE,
+  validateLineDueTemplate,
+  validateLineWelcomeTemplate,
+} from "@/lib/line/message-template";
 import {
   DEFAULT_LINE_DUE_PROFILES,
   legacyLineDueMessageProfile,
@@ -27,6 +32,7 @@ export async function upsertOperationalSetting(key: string, value: string): Prom
 export async function upsertOperationalSettings(entries: Array<{ key: string; value: string }>): Promise<void> {
   for (const entry of entries) {
     if (entry.key === "line_due_message_template") validateLineDueTemplate(entry.value);
+    if (entry.key === "line_welcome_message_template") validateLineWelcomeTemplate(entry.value);
     const paymentType = (Object.entries(LINE_DUE_PROFILE_SETTING_KEYS) as Array<[LinePaymentType, string]>).find(([, key]) => key === entry.key)?.[0];
     if (paymentType) parseLineDueMessageProfile(entry.value, paymentType);
   }
@@ -45,6 +51,14 @@ export async function getLineDueTemplate(): Promise<string> {
   const template = (await listOperationalSettings()).find((item) => item.key === "line_due_message_template")?.value;
   if (!template) return DEFAULT_LINE_DUE_TEMPLATE;
   validateLineDueTemplate(template);
+  return template;
+}
+
+/** Returns workbook's global LINE welcome message, or documented default when unset. */
+export async function getLineWelcomeTemplate(): Promise<string> {
+  const template = (await listOperationalSettings()).find((item) => item.key === "line_welcome_message_template")?.value;
+  if (!template) return DEFAULT_LINE_WELCOME_TEMPLATE;
+  validateLineWelcomeTemplate(template);
   return template;
 }
 
