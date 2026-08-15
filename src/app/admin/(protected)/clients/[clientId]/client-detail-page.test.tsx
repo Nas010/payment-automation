@@ -21,7 +21,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("next/navigation", () => ({ notFound: mocks.notFound }));
 vi.mock("next/link", () => ({ default: ({ children, href }: { children: React.ReactNode; href: string }) => React.createElement("a", { href }, children) }));
-vi.mock("next/image", () => ({ default: ({ unoptimized: _unoptimized, ...props }: React.ImgHTMLAttributes<HTMLImageElement> & { unoptimized?: boolean }) => React.createElement("img", props) }));
+vi.mock("next/image", () => ({ default: (imageProps: React.ImgHTMLAttributes<HTMLImageElement> & { unoptimized?: boolean }) => { const { unoptimized, ...props } = imageProps; void unoptimized; return React.createElement("img", props); } }));
 vi.mock("@/lib/sheets/clients", () => ({ listClients: mocks.listClients }));
 vi.mock("@/lib/sheets/schedules", () => ({ listSchedules: mocks.listSchedules }));
 vi.mock("@/lib/sheets/payments", () => ({ listPayments: mocks.listPayments }));

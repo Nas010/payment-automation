@@ -5,7 +5,11 @@ import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/image", () => ({
-  default: ({ unoptimized: _unoptimized, ...props }: React.ImgHTMLAttributes<HTMLImageElement> & { unoptimized?: boolean }) => React.createElement("img", props),
+  default: (imageProps: React.ImgHTMLAttributes<HTMLImageElement> & { unoptimized?: boolean }) => {
+    const { unoptimized, ...props } = imageProps;
+    void unoptimized;
+    return React.createElement("img", props);
+  },
 }));
 
 import { ClientAvatar } from "./client-avatar";
