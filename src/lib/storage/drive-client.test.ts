@@ -80,7 +80,7 @@ describe("LINE T&S Drive assets", () => {
     }));
   });
 
-  it("reads image bytes without exposing Google metadata", async () => {
+  it("requests T&S image media as binary bytes", async () => {
     const get = vi.fn().mockResolvedValue({ data: new Uint8Array([255, 216, 255]).buffer, headers: { "content-type": "image/jpeg" } });
     const drive = { files: { get } } as unknown as DriveClientLike;
 
@@ -88,7 +88,10 @@ describe("LINE T&S Drive assets", () => {
       bytes: new Uint8Array([255, 216, 255]),
       declaredMimeType: "image/jpeg",
     });
-    expect(get).toHaveBeenCalledWith({ fileId: "terms-file-12345", alt: "media", supportsAllDrives: true });
+    expect(get).toHaveBeenCalledWith(
+      { fileId: "terms-file-12345", alt: "media", supportsAllDrives: true },
+      { responseType: "arraybuffer" },
+    );
   });
 
   it("sanitizes image reads that fail", async () => {
