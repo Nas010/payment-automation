@@ -214,7 +214,7 @@ git add src/app/admin/(protected)/settings/business src/app/admin/(protected)/se
 
 **Interfaces:** Consumes existing template/image forms, parsers, connection services, actions. Produces focused server pages.
 
-- [ ] **Step 1: Write failing safety tests**
+- [x] **Step 1: Write failing safety tests**
 
 ```tsx
 it("uses one Settings read and passes independent due profiles", async () => {
@@ -229,13 +229,13 @@ it("contains corrupt terms image state", async () => {
 });
 ```
 
-- [ ] **Step 2: Verify red**
+- [x] **Step 2: Verify red**
 
 Run: `npm test -- src/app/admin/(protected)/settings/messages/page.test.tsx src/app/admin/(protected)/settings/payment-delivery/page.test.tsx`
 
 Expected: FAIL; focused pages absent.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Messages reads settings once, computes due profiles/welcome default, and renders current form/action props unchanged. Payment delivery reads settings plus connection and preserves image parse containment.
 
@@ -248,13 +248,13 @@ try {
 } catch { error = "T&S image configuration needs attention."; }
 ```
 
-- [ ] **Step 4: Verify green**
+- [x] **Step 4: Verify green**
 
 Run: `npm test -- src/app/admin/(protected)/settings/messages/page.test.tsx src/app/admin/(protected)/settings/payment-delivery/page.test.tsx`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/app/admin/(protected)/settings/messages src/app/admin/(protected)/settings/payment-delivery && git commit -m "feat: split messaging settings pages"
