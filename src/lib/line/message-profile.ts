@@ -85,9 +85,17 @@ const REQUIRED = ["amount", "due_date", "payment_url"] as const;
 const CUSTOM_NAME = /^[a-z][a-z0-9_]{0,39}$/;
 
 export function lineDueTemplatePlaceholders(template: string): string[] {
-  const found = [...template.matchAll(TOKEN)].map((match) => match[1]);
-  const remainder = template.replace(TOKEN, "");
-  if (remainder.includes("{{") || remainder.includes("}}")) {
+  const found: string[] = [];
+  let previousEnd = 0;
+  for (const match of template.matchAll(TOKEN)) {
+    const start = match.index ?? 0;
+    if (/[{}]/.test(template.slice(previousEnd, start))) {
+      throw new LineDueTemplateError("TEMPLATE_INVALID", "Malformed LINE placeholder");
+    }
+    found.push(match[1]);
+    previousEnd = start + match[0].length;
+  }
+  if (/[{}]/.test(template.slice(previousEnd))) {
     throw new LineDueTemplateError("TEMPLATE_INVALID", "Malformed LINE placeholder");
   }
   return found;
