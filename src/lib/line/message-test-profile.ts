@@ -326,6 +326,8 @@ export function buildLineMessageTestFixture(input: {
     notes: "LINE message test fixture",
     created_at: createdAt,
     updated_at: createdAt,
+    assignment_id: "",
+    assignment_kind: "",
   }));
   const schedule = schedules[installmentNumber - 1];
   const builtPayment = buildPaymentForSchedule(schedule, {
