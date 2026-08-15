@@ -9,7 +9,15 @@ vi.mock("@/lib/sheets/settings", () => ({ upsertOperationalSetting: mocks.upsert
 vi.mock("@/lib/sheets/payments", () => ({ appendAudit: mocks.appendAudit }));
 vi.mock("next/cache", () => ({ revalidatePath: mocks.revalidatePath }));
 
-import { previewLineDueMessageProfileAction, resetLineDueMessageProfileAction, saveAndTestLineCredentialsAction, saveLineDueMessageProfileAction } from "./line-actions";
+import {
+  previewLineDueMessageProfileAction,
+  previewLineWelcomeTemplateAction,
+  resetLineDueMessageProfileAction,
+  resetLineWelcomeTemplateAction,
+  saveAndTestLineCredentialsAction,
+  saveLineDueMessageProfileAction,
+  saveLineWelcomeTemplateAction,
+} from "./line-actions";
 
 const accessToken = "line-access-token-value-1234567890";
 const channelSecret = "A".repeat(32);
@@ -74,6 +82,55 @@ describe("LINE due-message profile actions", () => {
     expect(mocks.saveLineDueMessageProfile).toHaveBeenCalledWith("INSTALLMENTS", DEFAULT_LINE_DUE_PROFILES.INSTALLMENTS);
     expect(result.profile).toEqual(DEFAULT_LINE_DUE_PROFILES.INSTALLMENTS);
     expect(mocks.appendAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "LINE_DUE_PROFILE_RESET" }));
+  });
+});
+
+describe("LINE welcome-message template actions", () => {
+  it("requires admin access before previewing", async () => {
+    mocks.requireAdmin.mockRejectedValueOnce(new Error("Unauthorized"));
+    const formData = new FormData();
+    formData.set("template", "Connect: {{line_connect_url}}");
+
+    await expect(previewLineWelcomeTemplateAction(formData)).rejects.toThrow("Unauthorized");
+    expect(mocks.upsertOperationalSetting).not.toHaveBeenCalled();
+  });
+
+  it("previews using safe values for all approved placeholders", async () => {
+    const formData = new FormData();
+    formData.set("template", "Hi {{client_name}} from {{business_name}}: {{line_connect_url}}");
+
+    await expect(previewLineWelcomeTemplateAction(formData)).resolves.toEqual({
+      ok: true,
+      template: "Hi {{client_name}} from {{business_name}}: {{line_connect_url}}",
+      preview: "Hi Nisa from Coach Bee: https://liff.line.me/1234567890-AbCdEf?token=sample-token",
+    });
+    expect(mocks.upsertOperationalSetting).not.toHaveBeenCalled();
+  });
+
+  it("saves valid template and audits only setting key", async () => {
+    const formData = new FormData();
+    const template = "Welcome to {{business_name}}, {{client_name}}: {{line_connect_url}}";
+    formData.set("template", template);
+
+    await expect(saveLineWelcomeTemplateAction(formData)).resolves.toMatchObject({ ok: true, preview: expect.stringContaining("Coach Bee") });
+    expect(mocks.upsertOperationalSetting).toHaveBeenCalledWith("line_welcome_message_template", template);
+    expect(mocks.appendAudit).toHaveBeenCalledWith(expect.objectContaining({
+      action: "LINE_WELCOME_TEMPLATE_SAVED",
+      metadata: JSON.stringify({ settingKey: "line_welcome_message_template" }),
+    }));
+    expect(JSON.stringify(mocks.appendAudit.mock.calls)).not.toContain(template);
+  });
+
+  it("restores default and audits reset without template contents", async () => {
+    const result = await resetLineWelcomeTemplateAction();
+
+    expect(result.preview).toContain("https://liff.line.me/1234567890-AbCdEf?token=sample-token");
+    expect(mocks.upsertOperationalSetting).toHaveBeenCalledWith("line_welcome_message_template", expect.stringContaining("{{line_connect_url}}"));
+    expect(mocks.appendAudit).toHaveBeenCalledWith(expect.objectContaining({
+      action: "LINE_WELCOME_TEMPLATE_RESET",
+      metadata: JSON.stringify({ settingKey: "line_welcome_message_template" }),
+    }));
+    expect(JSON.stringify(mocks.appendAudit.mock.calls)).not.toContain("{{line_connect_url}}");
   });
 });
 

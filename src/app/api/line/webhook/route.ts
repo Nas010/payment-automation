@@ -21,6 +21,17 @@ const REPLY_TEXT: Record<LinkResult, string> = {
 
 type LineEvent = { type?: unknown; webhookEventId?: unknown; replyToken?: unknown; source?: unknown; message?: unknown };
 type DirectLinkEvent = { webhookEventId: string; replyToken: string; lineUserId: string; code: string };
+type DirectProfileEvent = { lineUserId: string };
+
+function directProfileEvent(value: unknown): DirectProfileEvent | null {
+  if (!value || typeof value !== "object") return null;
+  const event = value as LineEvent;
+  if (event.type !== "follow" && event.type !== "message") return null;
+  const source = event.source;
+  if (!source || typeof source !== "object" || (source as { type?: unknown }).type !== "user") return null;
+  const lineUserId = (source as { userId?: unknown }).userId;
+  return typeof lineUserId === "string" && LINE_USER_ID_PATTERN.test(lineUserId) ? { lineUserId } : null;
+}
 
 function directLinkEvent(value: unknown): DirectLinkEvent | null {
   if (!value || typeof value !== "object") return null;
@@ -90,10 +101,10 @@ async function processEvent(event: DirectLinkEvent): Promise<void> {
     return;
   }
 
-  if (result === "LINKED") {
+  if (result === "LINKED" || result === "ALREADY_LINKED") {
     try {
       const profile = await getLineProfile({ channelAccessToken, userId: event.lineUserId, fetchFn: fetch });
-      await service.persistLineDisplayName({ lineUserId: event.lineUserId, displayName: profile.displayName, now: new Date() });
+      await service.persistLineProfile({ lineUserId: event.lineUserId, displayName: profile.displayName, pictureUrl: profile.pictureUrl, now: new Date() });
     } catch {
       // Profile enrichment is best effort and must never roll back a completed link.
     }
@@ -103,6 +114,17 @@ async function processEvent(event: DirectLinkEvent): Promise<void> {
     await replyLineMessage({ channelAccessToken, replyToken: event.replyToken, text: REPLY_TEXT[result], fetchFn: fetch });
   } catch {
     await auditReplyFailure(event);
+  }
+}
+
+async function processProfileEvent(event: DirectProfileEvent): Promise<void> {
+  try {
+    const channelAccessToken = await getLineChannelAccessToken();
+    const profile = await getLineProfile({ channelAccessToken, userId: event.lineUserId, fetchFn: fetch });
+    const service = createLineLinkService({ listClients, updateClient, updateLineLinkClient, claimLineLink, appendAudit });
+    await service.persistLineProfile({ lineUserId: event.lineUserId, displayName: profile.displayName, pictureUrl: profile.pictureUrl, now: new Date() });
+  } catch {
+    // Profile refresh is best effort and must never fail a signed webhook batch.
   }
 }
 
@@ -147,6 +169,8 @@ export async function POST(request: Request): Promise<Response> {
         // One event failure must not make LINE retry a successfully signed batch.
       }
     }
+    const profileEvent = directProfileEvent(value);
+    if (profileEvent) await processProfileEvent(profileEvent);
   }
   return new Response(null, { status: 200 });
 }

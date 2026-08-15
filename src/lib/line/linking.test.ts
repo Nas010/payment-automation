@@ -8,7 +8,7 @@ const userB = "Ubbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 
 function client(overrides: Partial<ClientRecord> = {}): ClientRecord {
   return {
-    rowNumber: 2, client_id: "client_1", active: "TRUE", client_name: "Nisa", line_user_id: "", line_display_name: "", package_name: "PT", payment_type: "ONE_TIME", total_price_thb: "1000", installment_count: "1", interval_months: "0", first_due_date: "2026-08-10", default_amount_thb: "1000", billing_frequency: "MANUAL", next_due_date: "2026-08-10", notes: "", created_at: now, updated_at: now,
+    rowNumber: 2, client_id: "client_1", active: "TRUE", client_name: "Nisa", line_user_id: "", line_display_name: "", line_picture_url: "", package_name: "PT", payment_type: "ONE_TIME", total_price_thb: "1000", installment_count: "1", interval_months: "0", first_due_date: "2026-08-10", default_amount_thb: "1000", billing_frequency: "MANUAL", next_due_date: "2026-08-10", notes: "", created_at: now, updated_at: now,
     line_link_code: "ABCDEF0123", line_link_code_expires_at: "2026-08-17T12:00:00.000Z", line_link_status: "CODE_ACTIVE", line_linked_at: "", line_link_message: "message", line_link_error: "",
     ...overrides,
   };
@@ -49,13 +49,21 @@ describe("LINE linking domain service", () => {
     expect(deps.appendAudit.mock.calls[0][0].metadata).not.toContain("ABCDEF0123");
   });
 
-  it("persists a profile display name only for the currently linked user", async () => {
+  it("persists profile display fields only for the currently linked user", async () => {
     const deps = dependencies([client({ line_user_id: userA, line_link_status: "LINKED", line_link_code: "", line_link_code_expires_at: "" })]);
     const service = createLineLinkService(deps);
+    const pictureUrl = "https://profile.line-scdn.net/avatar/path";
 
-    await expect(service.persistLineDisplayName({ lineUserId: userA, displayName: "Nisa LINE", now })).resolves.toBe(true);
-    await expect(service.persistLineDisplayName({ lineUserId: userB, displayName: "Other", now })).resolves.toBe(false);
-    expect(deps.updateLineLinkClient).toHaveBeenCalledWith(expect.objectContaining({ client: expect.objectContaining({ line_user_id: userA, line_display_name: "Nisa LINE", updated_at: now }) }));
+    await expect(service.persistLineProfile({ lineUserId: userA, displayName: "Nisa LINE", pictureUrl, now })).resolves.toBe(true);
+    await expect(service.persistLineProfile({ lineUserId: userB, displayName: "Other", pictureUrl: "", now })).resolves.toBe(false);
+    expect(deps.updateLineLinkClient).toHaveBeenCalledWith(expect.objectContaining({ client: expect.objectContaining({ line_user_id: userA, line_display_name: "Nisa LINE", line_picture_url: pictureUrl, updated_at: now }) }));
+  });
+
+  it("clears a removed profile picture after a successful LINE profile response", async () => {
+    const deps = dependencies([client({ line_user_id: userA, line_display_name: "Nisa LINE", line_picture_url: "https://profile.line-scdn.net/old", line_link_status: "LINKED" })]);
+
+    await expect(createLineLinkService(deps).persistLineProfile({ lineUserId: userA, displayName: "Nisa LINE", pictureUrl: "", now })).resolves.toBe(true);
+    expect(deps.updateLineLinkClient).toHaveBeenCalledWith(expect.objectContaining({ client: expect.objectContaining({ line_picture_url: "" }) }));
   });
 
   it("escapes formula-leading LINE display names before they reach Sheets", async () => {
@@ -63,7 +71,7 @@ describe("LINE linking domain service", () => {
     const service = createLineLinkService(deps);
 
     for (const displayName of ["=HYPERLINK(\"https://example.test\")", "+name", "-name", "@name"]) {
-      await expect(service.persistLineDisplayName({ lineUserId: userA, displayName, now })).resolves.toBe(true);
+      await expect(service.persistLineProfile({ lineUserId: userA, displayName, pictureUrl: "", now })).resolves.toBe(true);
     }
     expect(deps.updateLineLinkClient.mock.calls.map(([input]) => input.client.line_display_name)).toEqual(["'=HYPERLINK(\"https://example.test\")", "'+name", "'-name", "'@name"]);
   });
@@ -71,7 +79,7 @@ describe("LINE linking domain service", () => {
   it("does not enrich a user mapping that is under trainer review", async () => {
     const deps = dependencies([client({ line_user_id: userA, line_link_status: "REVIEW" })]);
 
-    await expect(createLineLinkService(deps).persistLineDisplayName({ lineUserId: userA, displayName: "Nisa LINE", now })).resolves.toBe(false);
+    await expect(createLineLinkService(deps).persistLineProfile({ lineUserId: userA, displayName: "Nisa LINE", pictureUrl: "", now })).resolves.toBe(false);
     expect(deps.updateClient).not.toHaveBeenCalled();
   });
 
@@ -83,7 +91,7 @@ describe("LINE linking domain service", () => {
       return false;
     });
 
-    await expect(createLineLinkService(deps).persistLineDisplayName({ lineUserId: userA, displayName: "Nisa LINE", now })).resolves.toBe(false);
+    await expect(createLineLinkService(deps).persistLineProfile({ lineUserId: userA, displayName: "Nisa LINE", pictureUrl: "", now })).resolves.toBe(false);
     expect(deps.updateLineLinkClient).toHaveBeenCalledTimes(1);
     expect(deps.updateClient).not.toHaveBeenCalled();
     expect(rows[0]?.line_user_id).toBe("");
@@ -241,10 +249,10 @@ describe("LINE trainer link-code functions", () => {
   });
 
   it("clears mapping and link state when trainer disconnects a client", async () => {
-    const deps = dependencies([client({ line_user_id: userA, line_display_name: "Nisa LINE", line_link_status: "LINKED", line_linked_at: now, line_link_code: "", line_link_code_expires_at: "", line_link_message: "" })]);
+    const deps = dependencies([client({ line_user_id: userA, line_display_name: "Nisa LINE", line_picture_url: "https://profile.line-scdn.net/avatar/path", line_link_status: "LINKED", line_linked_at: now, line_link_code: "", line_link_code_expires_at: "", line_link_message: "" })]);
 
     await expect(disconnectLineUser(deps, { clientId: "client_1", now })).resolves.toBe(true);
-    expect(deps.updateLineLinkClient).toHaveBeenCalledWith(expect.objectContaining({ client: expect.objectContaining({ line_user_id: "", line_display_name: "", line_link_code: "", line_link_code_expires_at: "", line_link_status: "", line_linked_at: "", line_link_message: "", line_link_error: "", updated_at: now }) }));
+    expect(deps.updateLineLinkClient).toHaveBeenCalledWith(expect.objectContaining({ client: expect.objectContaining({ line_user_id: "", line_display_name: "", line_picture_url: "", line_link_code: "", line_link_code_expires_at: "", line_link_status: "", line_linked_at: "", line_link_message: "", line_link_error: "", updated_at: now }) }));
     expect(deps.appendAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "LINE_LINK_DISCONNECTED", clientId: "client_1", newStatus: "" }));
   });
 });

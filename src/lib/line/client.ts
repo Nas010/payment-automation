@@ -1,3 +1,5 @@
+import { normalizeLinePictureUrl } from "./profile";
+
 export type LineFetch = (input: string, init?: RequestInit) => Promise<Response>;
 
 type LineProfileInput = { channelAccessToken: string; userId: string; fetchFn: LineFetch };
@@ -19,13 +21,13 @@ function imageMimeType(bytes: Uint8Array): "image/jpeg" | "image/png" | null {
   return null;
 }
 
-export async function getLineProfile({ channelAccessToken, userId, fetchFn }: LineProfileInput): Promise<{ displayName: string }> {
+export async function getLineProfile({ channelAccessToken, userId, fetchFn }: LineProfileInput): Promise<{ displayName: string; pictureUrl: string }> {
   try {
     const response = await fetchFn(`https://api.line.me/v2/bot/profile/${encodeURIComponent(userId)}`, { headers: authorization(channelAccessToken) });
     if (!response.ok) throw new Error("LINE profile response was not successful");
     const profile: unknown = await response.json();
     if (!profile || typeof profile !== "object" || typeof (profile as { displayName?: unknown }).displayName !== "string") throw new Error("LINE profile was malformed");
-    return { displayName: (profile as { displayName: string }).displayName };
+    return { displayName: (profile as { displayName: string }).displayName, pictureUrl: normalizeLinePictureUrl((profile as { pictureUrl?: unknown }).pictureUrl) };
   } catch {
     throw new Error("LINE profile request failed");
   }

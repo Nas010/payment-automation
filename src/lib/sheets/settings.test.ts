@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_LINE_DUE_PROFILES, LINE_DUE_PROFILE_SETTING_KEYS } from "@/lib/line/message-profile";
+import { DEFAULT_LINE_WELCOME_TEMPLATE } from "@/lib/line/message-template";
 
 const mocks = vi.hoisted(() => ({ get: vi.fn(), batchUpdate: vi.fn() }));
 
@@ -7,7 +8,7 @@ vi.mock("./client", () => ({
   getGoogleSheets: () => ({ spreadsheetId: "spreadsheet_1", sheets: { spreadsheets: { values: { get: mocks.get, batchUpdate: mocks.batchUpdate } } } }),
 }));
 
-import { getLineDueMessageProfiles, resolveLineDueMessageProfiles, saveLineDueMessageProfile, upsertOperationalSetting, upsertOperationalSettings } from "./settings";
+import { getLineDueMessageProfiles, getLineWelcomeTemplate, resolveLineDueMessageProfiles, saveLineDueMessageProfile, upsertOperationalSetting, upsertOperationalSettings } from "./settings";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -80,6 +81,21 @@ describe("operational settings writes", () => {
 
   it("rejects malformed profile JSON before writing settings", async () => {
     await expect(upsertOperationalSetting(LINE_DUE_PROFILE_SETTING_KEYS.ONE_TIME, "not JSON")).rejects.toThrow("invalid JSON");
+    expect(mocks.batchUpdate).not.toHaveBeenCalled();
+  });
+
+  it("loads a saved welcome template and falls back to the documented default", async () => {
+    const template = "Welcome {{client_name}}: {{line_connect_url}}";
+    mocks.get.mockResolvedValueOnce({ data: { values: [["key", "value"], ["line_welcome_message_template", template]] } });
+    await expect(getLineWelcomeTemplate()).resolves.toBe(template);
+
+    mocks.get.mockResolvedValueOnce({ data: { values: [["key", "value"]] } });
+    await expect(getLineWelcomeTemplate()).resolves.toBe(DEFAULT_LINE_WELCOME_TEMPLATE);
+  });
+
+  it("rejects a welcome template without its secure connection URL before writing", async () => {
+    await expect(upsertOperationalSetting("line_welcome_message_template", "Welcome {{client_name}}"))
+      .rejects.toThrow("LINE welcome template requires placeholder: line_connect_url");
     expect(mocks.batchUpdate).not.toHaveBeenCalled();
   });
 });

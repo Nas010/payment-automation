@@ -21,17 +21,28 @@ function aad(keyName: SecretKeyName): Buffer {
   return Buffer.from(keyName, "utf8");
 }
 
-export function encryptSecret({ keyName, plaintext, exposeLastFour = true }: { keyName: SecretKeyName; plaintext: string; exposeLastFour?: boolean }): EncryptedSecretPayload {
-  const key = encryptionKey();
+function encryptBytes(plaintext: string, authenticatedContext: Buffer): { ciphertext: Buffer; iv: Buffer; authTag: Buffer } {
   const iv = randomBytes(IV_LENGTH);
-  const cipher = createCipheriv(ALGORITHM, key, iv);
-  cipher.setAAD(aad(keyName));
+  const cipher = createCipheriv(ALGORITHM, encryptionKey(), iv);
+  cipher.setAAD(authenticatedContext);
   const ciphertext = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
+  return { ciphertext, iv, authTag: cipher.getAuthTag() };
+}
+
+function decryptBytes(input: { ciphertext: Buffer; iv: Buffer; authTag: Buffer; authenticatedContext: Buffer }): string {
+  const decipher = createDecipheriv(ALGORITHM, encryptionKey(), input.iv);
+  decipher.setAAD(input.authenticatedContext);
+  decipher.setAuthTag(input.authTag);
+  return Buffer.concat([decipher.update(input.ciphertext), decipher.final()]).toString("utf8");
+}
+
+export function encryptSecret({ keyName, plaintext, exposeLastFour = true }: { keyName: SecretKeyName; plaintext: string; exposeLastFour?: boolean }): EncryptedSecretPayload {
+  const { ciphertext, iv, authTag } = encryptBytes(plaintext, aad(keyName));
   const now = new Date().toISOString();
   return {
     ciphertext: ciphertext.toString("base64"),
     iv: iv.toString("base64"),
-    authTag: cipher.getAuthTag().toString("base64"),
+    authTag: authTag.toString("base64"),
     algorithm: ALGORITHM,
     keyVersion: "1",
     createdAt: now,
@@ -41,14 +52,38 @@ export function encryptSecret({ keyName, plaintext, exposeLastFour = true }: { k
 }
 
 export function decryptSecret({ keyName, record }: { keyName: SecretKeyName; record: Pick<EncryptedSecretPayload, "ciphertext" | "iv" | "authTag" | "algorithm"> }): string {
-  const key = encryptionKey();
   try {
     if (record.algorithm !== ALGORITHM) throw new Error("Unsupported algorithm");
-    const decipher = createDecipheriv(ALGORITHM, key, Buffer.from(record.iv, "base64"));
-    decipher.setAAD(aad(keyName));
-    decipher.setAuthTag(Buffer.from(record.authTag, "base64"));
-    return Buffer.concat([decipher.update(Buffer.from(record.ciphertext, "base64")), decipher.final()]).toString("utf8");
+    return decryptBytes({
+      ciphertext: Buffer.from(record.ciphertext, "base64"),
+      iv: Buffer.from(record.iv, "base64"),
+      authTag: Buffer.from(record.authTag, "base64"),
+      authenticatedContext: aad(keyName),
+    });
   } catch {
     throw new Error("Secret record authentication failed");
+  }
+}
+
+/** Encrypts a workbook-owned private value using existing deployment key. */
+export function encryptPrivateValue({ context, plaintext }: { context: string; plaintext: string }): string {
+  if (!context) throw new Error("Private value context is required");
+  const { ciphertext, iv, authTag } = encryptBytes(plaintext, Buffer.from(context, "utf8"));
+  return ["v1", iv.toString("base64url"), ciphertext.toString("base64url"), authTag.toString("base64url")].join(".");
+}
+
+/** Decrypts only when ciphertext remains bound to same operational context. */
+export function decryptPrivateValue({ context, encrypted }: { context: string; encrypted: string }): string {
+  try {
+    const [version, iv, ciphertext, authTag, extra] = encrypted.split(".");
+    if (version !== "v1" || !iv || !ciphertext || !authTag || extra !== undefined) throw new Error("Malformed private value");
+    return decryptBytes({
+      ciphertext: Buffer.from(ciphertext, "base64url"),
+      iv: Buffer.from(iv, "base64url"),
+      authTag: Buffer.from(authTag, "base64url"),
+      authenticatedContext: Buffer.from(context, "utf8"),
+    });
+  } catch {
+    throw new Error("Private value authentication failed");
   }
 }

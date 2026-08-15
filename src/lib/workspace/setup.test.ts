@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_LINE_DUE_PROFILES, LINE_DUE_PROFILE_SETTING_KEYS } from "@/lib/line/message-profile";
+import { DEFAULT_LINE_WELCOME_TEMPLATE } from "@/lib/line/message-template";
 
 const mocks = vi.hoisted(() => ({
   getPendingGoogleSheets: vi.fn(),
@@ -51,6 +52,8 @@ const config = {
   publicBaseUrl: "https://pay.example.com",
   slipRetentionDays: 30,
   ocrEnabled: true,
+  lineLiffId: "",
+  lineLoginChannelId: "",
   lineLinkingEnabled: false,
   lineMessagingEnabled: false,
   lineChatPaymentsEnabled: false,
@@ -121,13 +124,16 @@ describe("complete Workspace setup", () => {
 
     const data = mocks.settingsBatchUpdate.mock.calls[0][0].requestBody.data;
     expect(data).toEqual(expect.arrayContaining([
+      expect.objectContaining({ values: [["line_liff_id", ""]] }),
+      expect.objectContaining({ values: [["line_login_channel_id", ""]] }),
+      expect.objectContaining({ values: [["line_welcome_message_template", DEFAULT_LINE_WELCOME_TEMPLATE]] }),
       expect.objectContaining({ values: [[LINE_DUE_PROFILE_SETTING_KEYS.ONE_TIME, JSON.stringify(DEFAULT_LINE_DUE_PROFILES.ONE_TIME)]] }),
       expect.objectContaining({ values: [[LINE_DUE_PROFILE_SETTING_KEYS.INSTALLMENTS, JSON.stringify(DEFAULT_LINE_DUE_PROFILES.INSTALLMENTS)]] }),
     ]));
     expect(data.flatMap((entry: { values: string[][] }) => entry.values).map((row: string[]) => row[0])).not.toContain("line_due_message_template");
   });
 
-  it("does not seed profiles into a legacy workbook", async () => {
+  it("does not seed message defaults into a legacy workbook", async () => {
     mocks.settingsGet.mockResolvedValue({ data: { values: [["key", "value"], ["line_due_message_template", "Legacy {{payment_label}} {{amount}} {{due_date}} {{payment_url}}"]] } });
 
     await completeWorkspaceSetup({ ownerGoogleSub: "google-sub-1", config });
@@ -135,6 +141,7 @@ describe("complete Workspace setup", () => {
     const keys = mocks.settingsBatchUpdate.mock.calls[0][0].requestBody.data.map((entry: { values: string[][] }) => entry.values[0][0]);
     expect(keys).not.toContain(LINE_DUE_PROFILE_SETTING_KEYS.ONE_TIME);
     expect(keys).not.toContain(LINE_DUE_PROFILE_SETTING_KEYS.INSTALLMENTS);
+    expect(keys).not.toContain("line_welcome_message_template");
   });
 
   it("never overwrites profiles already present in the workbook", async () => {

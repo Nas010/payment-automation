@@ -43,7 +43,7 @@ const now = "2026-08-10T12:00:00.000Z";
 
 function client(overrides: Partial<ClientRecord> = {}): ClientRecord {
   return {
-    rowNumber: 2, client_id: "client_1", active: "TRUE", client_name: "Nisa", line_user_id: "", line_display_name: "", package_name: "PT", payment_type: "ONE_TIME", total_price_thb: "1000", installment_count: "1", interval_months: "0", first_due_date: "2026-08-10", default_amount_thb: "1000", billing_frequency: "MANUAL", next_due_date: "2026-08-10", notes: "", created_at: now, updated_at: now,
+    rowNumber: 2, client_id: "client_1", active: "TRUE", client_name: "Nisa", line_user_id: "", line_display_name: "", line_picture_url: "", package_name: "PT", payment_type: "ONE_TIME", total_price_thb: "1000", installment_count: "1", interval_months: "0", first_due_date: "2026-08-10", default_amount_thb: "1000", billing_frequency: "MANUAL", next_due_date: "2026-08-10", notes: "", created_at: now, updated_at: now,
     line_link_code: "ABCDEF0123", line_link_code_expires_at: "2099-08-17T12:00:00.000Z", line_link_status: "CODE_ACTIVE", line_linked_at: "", line_link_message: "message", line_link_error: "",
     ...overrides,
   };
@@ -110,13 +110,11 @@ describe("POST /api/line/webhook", () => {
     expect(mocks.fetchFn).not.toHaveBeenCalled();
   });
 
-  it("ignores non-link, group, room, and malformed-user messages", async () => {
+  it("ignores group, room, and malformed-user messages", async () => {
     const events = [
-      event({ message: { type: "text", text: "hello" } }),
       event({ source: { type: "group", userId } }),
       event({ source: { type: "room", userId } }),
       event({ source: { type: "user", userId: "UABC" } }),
-      event({ message: { type: "image" } }),
     ];
 
     await expect(POST(signedRequest({ events }))).resolves.toMatchObject({ status: 200 });
@@ -127,11 +125,13 @@ describe("POST /api/line/webhook", () => {
 
   it("routes a valid signed direct-user image to the eligible slip processor", async () => {
     const image = event({ message: { type: "image", id: "message_1" } });
+    mocks.fetchFn.mockResolvedValueOnce(new Response(JSON.stringify({ displayName: "Nisa LINE", pictureUrl: "https://profile.line-scdn.net/avatar/path" }), { status: 200 }));
+    mocks.listClients.mockResolvedValue([client({ line_user_id: userId, line_link_status: "LINKED" })]);
 
     await expect(POST(signedRequest({ events: [image] }))).resolves.toMatchObject({ status: 200 });
 
     expect(mocks.processLineSlipEvent).toHaveBeenCalledWith({ webhookEventId: "event_1", replyToken: "reply-token", lineUserId: userId, messageId: "message_1" });
-    expect(mocks.getLineChannelAccessToken).not.toHaveBeenCalled();
+    expect(mocks.updateLineLinkClient).toHaveBeenCalledWith(expect.objectContaining({ client: expect.objectContaining({ line_picture_url: "https://profile.line-scdn.net/avatar/path" }) }));
   });
 
   it("isolates a failed image event and acknowledges later signed events", async () => {
@@ -142,16 +142,25 @@ describe("POST /api/line/webhook", () => {
     expect(mocks.processLineSlipEvent).toHaveBeenCalledTimes(2);
   });
 
-  it("ignores non-message events even when they mimic direct LINK messages", async () => {
+  it("refreshes a linked profile from a follow event", async () => {
+    mocks.fetchFn.mockResolvedValueOnce(new Response(JSON.stringify({ displayName: "Nisa LINE", pictureUrl: "https://profile.line-scdn.net/follow-avatar" }), { status: 200 }));
+    mocks.listClients.mockResolvedValue([client({ line_user_id: userId, line_link_status: "LINKED" })]);
+
     await expect(POST(signedRequest({ events: [event({ type: "follow" })] }))).resolves.toMatchObject({ status: 200 });
-    expect(mocks.listClients).not.toHaveBeenCalled();
-    expect(mocks.getLineChannelAccessToken).not.toHaveBeenCalled();
-    expect(mocks.fetchFn).not.toHaveBeenCalled();
+    expect(mocks.updateLineLinkClient).toHaveBeenCalledWith(expect.objectContaining({ client: expect.objectContaining({ line_display_name: "Nisa LINE", line_picture_url: "https://profile.line-scdn.net/follow-avatar" }) }));
+  });
+
+  it("refreshes a linked profile from an ordinary direct-user message", async () => {
+    mocks.fetchFn.mockResolvedValueOnce(new Response(JSON.stringify({ displayName: "Nisa Updated", pictureUrl: "https://profile.line-scdn.net/message-avatar" }), { status: 200 }));
+    mocks.listClients.mockResolvedValue([client({ line_user_id: userId, line_link_status: "LINKED" })]);
+
+    await expect(POST(signedRequest({ events: [event({ message: { type: "text", text: "hello" } })] }))).resolves.toMatchObject({ status: 200 });
+    expect(mocks.updateLineLinkClient).toHaveBeenCalledWith(expect.objectContaining({ client: expect.objectContaining({ line_display_name: "Nisa Updated", line_picture_url: "https://profile.line-scdn.net/message-avatar" }) }));
   });
 
   it("links each direct LINK message independently, persists successful profile lookup, and replies", async () => {
     mocks.fetchFn
-      .mockResolvedValueOnce(new Response(JSON.stringify({ displayName: "Nisa LINE", userId, pictureUrl: "private" }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ displayName: "Nisa LINE", userId, pictureUrl: "https://profile.line-scdn.net/avatar/path" }), { status: 200 }))
       .mockResolvedValueOnce(new Response(null, { status: 200 }))
       .mockResolvedValueOnce(new Response(null, { status: 200 }));
     mocks.listClients.mockResolvedValueOnce([client()]).mockResolvedValueOnce([client({ line_user_id: userId, line_link_code: "", line_link_code_expires_at: "", line_link_status: "LINKED" })]).mockResolvedValueOnce([client({ line_user_id: userId, line_link_code: "", line_link_code_expires_at: "", line_link_status: "LINKED" })]);
@@ -160,7 +169,7 @@ describe("POST /api/line/webhook", () => {
 
     expect(res.status).toBe(200);
     expect(mocks.claimLineLink).toHaveBeenCalledWith(expect.objectContaining({ code: "ABCDEF0123", lineUserId: userId, client: expect.objectContaining({ line_user_id: userId, line_link_status: "LINKED" }) }));
-    expect(mocks.updateLineLinkClient).toHaveBeenCalledWith(expect.objectContaining({ client: expect.objectContaining({ line_display_name: "Nisa LINE" }) }));
+    expect(mocks.updateLineLinkClient).toHaveBeenCalledWith(expect.objectContaining({ client: expect.objectContaining({ line_display_name: "Nisa LINE", line_picture_url: "https://profile.line-scdn.net/avatar/path" }) }));
     expect(mocks.fetchFn).toHaveBeenCalledWith("https://api.line.me/v2/bot/message/reply", expect.objectContaining({ body: JSON.stringify({ replyToken: "reply-token", messages: [{ type: "text", text: "✓ Connected\n\nYour coaching account is now linked. Future payment links can be sent here automatically." }] }) }));
     expect(mocks.fetchFn).toHaveBeenCalledWith("https://api.line.me/v2/bot/message/reply", expect.objectContaining({ body: JSON.stringify({ replyToken: "reply-token-2", messages: [{ type: "text", text: "I couldn't connect this account. The code is invalid or expired. Please ask your trainer for a new code." }] }) }));
   });
@@ -172,6 +181,14 @@ describe("POST /api/line/webhook", () => {
 
     await expect(POST(signedRequest({ events: [event()] }))).resolves.toMatchObject({ status: 200 });
     expect(mocks.claimLineLink).toHaveBeenCalledWith(expect.objectContaining({ lineUserId: userId, client: expect.objectContaining({ line_link_status: "LINKED" }) }));
+    expect(mocks.updateLineLinkClient).not.toHaveBeenCalled();
+  });
+
+  it("keeps an existing avatar when a later profile refresh fails", async () => {
+    mocks.fetchFn.mockResolvedValueOnce(new Response(JSON.stringify({ message: "private profile error" }), { status: 500 }));
+    mocks.listClients.mockResolvedValue([client({ line_user_id: userId, line_display_name: "Existing", line_picture_url: "https://profile.line-scdn.net/existing", line_link_status: "LINKED" })]);
+
+    await expect(POST(signedRequest({ events: [event({ message: { type: "text", text: "hello" } })] }))).resolves.toMatchObject({ status: 200 });
     expect(mocks.updateLineLinkClient).not.toHaveBeenCalled();
   });
 

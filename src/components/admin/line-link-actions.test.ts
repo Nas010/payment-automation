@@ -6,7 +6,7 @@ import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import { LineLinkActions } from "./line-link-actions";
 
-const instruction = "Hi Nisa, reply with this exact message to link your LINE account:\nLINK ABCDEF0123";
+const welcomeMessage = "Hi Nisa. Tap to connect: https://liff.line.me/1234567890-AbCdEf?token=secure-token";
 
 beforeEach(() => {
   vi.stubGlobal("React", React);
@@ -18,15 +18,16 @@ afterEach(() => {
 });
 
 describe("LineLinkActions", () => {
-  it("copies the complete server-rendered linking instruction", async () => {
+  it("copies the complete server-rendered welcome message without exposing a short code", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
-    const { getByRole } = render(createElement(LineLinkActions, { clientId: "client_1", status: "CODE_ACTIVE", instruction, expiresAt: "2026-08-17T12:00:00.000Z", renewAction: vi.fn(), disconnectAction: vi.fn() }));
+    const { getByRole, queryByText } = render(createElement(LineLinkActions, { clientId: "client_1", status: "AWAITING", message: welcomeMessage, expiresAt: "2026-08-17T12:00:00.000Z", renewAction: vi.fn(), disconnectAction: vi.fn() }));
 
-    fireEvent.click(getByRole("button", { name: "Copy instructions" }));
+    fireEvent.click(getByRole("button", { name: "Copy welcome message" }));
 
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith(instruction));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(welcomeMessage));
     expect(getByRole("button", { name: "Copied" })).toBeTruthy();
+    expect(queryByText(/LINK [A-F0-9]{10}/)).toBeNull();
   });
 
   it("renders disconnect controls and linked profile details", () => {
@@ -38,17 +39,17 @@ describe("LineLinkActions", () => {
 
   it("renders generation controls for unlinked and expired clients", () => {
     const { getByRole, rerender } = render(createElement(LineLinkActions, { clientId: "client_1", status: "UNLINKED", renewAction: vi.fn(), disconnectAction: vi.fn() }));
-    expect(getByRole("button", { name: "Generate code" })).toBeTruthy();
+    expect(getByRole("button", { name: "Create new connection link" })).toBeTruthy();
 
     rerender(createElement(LineLinkActions, { clientId: "client_1", status: "EXPIRED", renewAction: vi.fn(), disconnectAction: vi.fn() }));
-    expect(getByRole("button", { name: "Generate new code" })).toBeTruthy();
+    expect(getByRole("button", { name: "Create new connection link" })).toBeTruthy();
   });
 
   it("renders a safe review state with renew and disconnect controls", () => {
     const { getByText, getByRole, queryByText } = render(createElement(LineLinkActions, { clientId: "client_1", status: "REVIEW", error: "LINE user conflict", renewAction: vi.fn(), disconnectAction: vi.fn() }));
 
     expect(getByText("LINE user conflict")).toBeTruthy();
-    expect(getByRole("button", { name: "Renew code" })).toBeTruthy();
+    expect(getByRole("button", { name: "Create new connection link" })).toBeTruthy();
     expect(getByRole("button", { name: "Disconnect LINE" })).toBeTruthy();
     expect(queryByText("LINE access token")).toBeNull();
   });

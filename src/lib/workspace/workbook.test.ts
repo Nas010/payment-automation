@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AUDIT_HEADERS, CLIENT_HEADERS, PAYMENT_HEADERS, SCHEDULE_HEADERS } from "@/lib/sheets/records";
 import { DEFAULT_LINE_DUE_PROFILES } from "@/lib/line/message-profile";
+import { DEFAULT_LINE_WELCOME_TEMPLATE } from "@/lib/line/message-template";
 
 const connectionMocks = vi.hoisted(() => ({ savePendingWorkspaceConnection: vi.fn() }));
 vi.mock("./connection", () => ({ savePendingWorkspaceConnection: connectionMocks.savePendingWorkspaceConnection }));
@@ -72,13 +73,14 @@ describe("operational workbook provisioning", () => {
     } });
     const headerWrite = valuesBatchUpdate.mock.calls[0][0];
     expect(headerWrite.requestBody.data).toEqual([
-      { range: "Clients!A1:W1", values: [[...CLIENT_HEADERS]] },
+      { range: "Clients!A1:AA1", values: [[...CLIENT_HEADERS]] },
       { range: "Installment Schedule!A1:R1", values: [[...SCHEDULE_HEADERS]] },
       { range: "Payments!A1:AW1", values: [[...PAYMENT_HEADERS]] },
       { range: "Settings!A1:B1", values: [["key", "value"]] },
-      { range: "Settings!A2:B9", values: expect.arrayContaining([
+      { range: "Settings!A2:B10", values: expect.arrayContaining([
         ["business_display_name", "Coaching Payments"],
         ["line_linking_enabled", "false"],
+        ["line_welcome_message_template", DEFAULT_LINE_WELCOME_TEMPLATE],
         ["line_due_message_profile_one_time", JSON.stringify(DEFAULT_LINE_DUE_PROFILES.ONE_TIME)],
         ["line_due_message_profile_installments", JSON.stringify(DEFAULT_LINE_DUE_PROFILES.INSTALLMENTS)],
       ]) },
@@ -120,7 +122,7 @@ describe("operational workbook provisioning", () => {
     expect(valuesBatchUpdate).toHaveBeenCalledTimes(1);
     expect(batchUpdate).toHaveBeenCalledTimes(1);
     expect(valuesBatchUpdate.mock.calls[0][0].requestBody.data).not.toEqual(expect.arrayContaining([
-      expect.objectContaining({ range: "Settings!A2:B9" }),
+      expect.objectContaining({ range: "Settings!A2:B10" }),
     ]));
   });
 });

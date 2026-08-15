@@ -11,6 +11,8 @@ export type RuntimeConfig = {
   publicBaseUrl: string;
   slipRetentionDays: number;
   ocrEnabled: boolean;
+  lineLiffId: string;
+  lineLoginChannelId: string;
   lineLinkingEnabled: boolean;
   lineMessagingEnabled: boolean;
   lineChatPaymentsEnabled: boolean;
@@ -24,6 +26,14 @@ function requiredString(value: unknown, message: string): string {
   return normalized;
 }
 
+function optionalString(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function optionalEnvironmentValue(value: string | undefined): string {
+  const normalized = optionalString(value);
+  return normalized === "CONFIG_REQUIRED" ? "" : normalized;
+}
 function booleanValue(value: unknown, name: string): boolean {
   if (typeof value === "boolean") return value;
   const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
@@ -55,11 +65,16 @@ export function parseRuntimeConfig(input: RuntimeConfigInput): RuntimeConfig {
   const slipRetentionDays = Number(input.slipRetentionDays);
   if (!Number.isSafeInteger(slipRetentionDays) || slipRetentionDays < 0 || slipRetentionDays > 365) throw new Error("Slip retention must be between 0 and 365 days.");
   const ocrEnabled = booleanValue(input.ocrEnabled, "OCR");
+  const lineLiffId = optionalString(input.lineLiffId);
+  const lineLoginChannelId = optionalString(input.lineLoginChannelId);
+  if (lineLiffId && !/^\d{5,}-[A-Za-z0-9]+$/.test(lineLiffId)) throw new Error("LINE LIFF ID is malformed.");
+  if (lineLoginChannelId && !/^\d{5,}$/.test(lineLoginChannelId)) throw new Error("LINE Login channel ID is malformed.");
   const lineLinkingEnabled = booleanValue(input.lineLinkingEnabled, "LINE linking");
   const lineMessagingEnabled = booleanValue(input.lineMessagingEnabled, "LINE messaging");
   const lineChatPaymentsEnabled = booleanValue(input.lineChatPaymentsEnabled, "LINE chat payments");
+  if (lineLinkingEnabled && (!lineLiffId || !lineLoginChannelId)) throw new Error("LINE LIFF ID and LINE Login channel ID are required when LINE linking is enabled.");
   if ((lineMessagingEnabled || lineChatPaymentsEnabled) && !lineLinkingEnabled) throw new Error("LINE messaging requires LINE linking.");
-  return { businessDisplayName, promptPayType, promptPayIdentifier, recipientNameEn, recipientNameTh, recipientAliases, publicBaseUrl, slipRetentionDays, ocrEnabled, lineLinkingEnabled, lineMessagingEnabled, lineChatPaymentsEnabled };
+  return { businessDisplayName, promptPayType, promptPayIdentifier, recipientNameEn, recipientNameTh, recipientAliases, publicBaseUrl, slipRetentionDays, ocrEnabled, lineLiffId, lineLoginChannelId, lineLinkingEnabled, lineMessagingEnabled, lineChatPaymentsEnabled };
 }
 
 const KEY_MAP: Record<keyof RuntimeConfig, string> = {
@@ -72,6 +87,8 @@ const KEY_MAP: Record<keyof RuntimeConfig, string> = {
   publicBaseUrl: "public_base_url",
   slipRetentionDays: "slip_retention_days",
   ocrEnabled: "ocr_enabled",
+  lineLiffId: "line_liff_id",
+  lineLoginChannelId: "line_login_channel_id",
   lineLinkingEnabled: "line_linking_enabled",
   lineMessagingEnabled: "line_messaging_enabled",
   lineChatPaymentsEnabled: "line_chat_payments_enabled",
@@ -95,13 +112,15 @@ export function defaultRuntimeConfig(requestOrigin: string): RuntimeConfigInput 
     publicBaseUrl: requestOrigin,
     slipRetentionDays: 30,
     ocrEnabled: true,
+    lineLiffId: "",
+    lineLoginChannelId: "",
     lineLinkingEnabled: false,
     lineMessagingEnabled: false,
     lineChatPaymentsEnabled: false,
   };
 }
 
-export async function runtimeConfig(): Promise<RuntimeConfig> {
+export async function runtimeConfig(environment: Record<string, string | undefined> = process.env): Promise<RuntimeConfig> {
   const settings = await listOperationalSettings();
   const values = new Map(settings.map((entry) => [entry.key, entry.value]));
   let recipientAliases: unknown = [];
@@ -110,6 +129,11 @@ export async function runtimeConfig(): Promise<RuntimeConfig> {
   } catch {
     throw new Error("Runtime configuration is invalid.");
   }
+  const workbookLineLiffId = optionalString(values.get(KEY_MAP.lineLiffId));
+  const workbookLineLoginChannelId = optionalString(values.get(KEY_MAP.lineLoginChannelId));
+  const lineLiffId = workbookLineLiffId || optionalEnvironmentValue(environment.LINE_LIFF_ID);
+  const lineLoginChannelId = workbookLineLoginChannelId || optionalEnvironmentValue(environment.LINE_LOGIN_CHANNEL_ID);
+  const hasLineAppIdentifiers = Boolean(lineLiffId && lineLoginChannelId);
   return parseRuntimeConfig({
     businessDisplayName: values.get(KEY_MAP.businessDisplayName),
     promptPayType: values.get(KEY_MAP.promptPayType),
@@ -120,8 +144,10 @@ export async function runtimeConfig(): Promise<RuntimeConfig> {
     publicBaseUrl: values.get(KEY_MAP.publicBaseUrl),
     slipRetentionDays: values.get(KEY_MAP.slipRetentionDays),
     ocrEnabled: values.get(KEY_MAP.ocrEnabled),
-    lineLinkingEnabled: values.get(KEY_MAP.lineLinkingEnabled),
-    lineMessagingEnabled: values.get(KEY_MAP.lineMessagingEnabled),
-    lineChatPaymentsEnabled: values.get(KEY_MAP.lineChatPaymentsEnabled),
+    lineLiffId,
+    lineLoginChannelId,
+    lineLinkingEnabled: hasLineAppIdentifiers ? values.get(KEY_MAP.lineLinkingEnabled) : false,
+    lineMessagingEnabled: hasLineAppIdentifiers ? values.get(KEY_MAP.lineMessagingEnabled) : false,
+    lineChatPaymentsEnabled: hasLineAppIdentifiers ? values.get(KEY_MAP.lineChatPaymentsEnabled) : false,
   });
 }

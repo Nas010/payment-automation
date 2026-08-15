@@ -27,11 +27,20 @@ vi.mock("@/lib/config", () => ({ googleDriveConfig: () => undefined }));
 vi.mock("@/components/admin/page-ui", () => ({ PageHeader: () => null }));
 vi.mock("@/components/admin/line-integration-form", () => ({ LineIntegrationForm: () => null }));
 vi.mock("@/components/admin/line-due-template-form", () => ({ LineDueTemplateForm: (props: unknown) => { mocks.form(props); return null; } }));
+vi.mock("@/components/admin/line-welcome-template-form", () => ({ LineWelcomeTemplateForm: () => null }));
 vi.mock("@/components/admin/google-drive-connection-card", () => ({ GoogleDriveConnectionCard: () => null }));
 vi.mock("@/components/admin/runtime-config-form", () => ({ RuntimeConfigForm: () => null }));
 vi.mock("@/components/ui/card", () => ({ Card: ({ children }: { children: ReactNode }) => children, CardContent: ({ children }: { children: ReactNode }) => children, CardDescription: ({ children }: { children: ReactNode }) => children, CardHeader: ({ children }: { children: ReactNode }) => children, CardTitle: ({ children }: { children: ReactNode }) => children }));
 vi.mock("@/components/ui/button", () => ({ Button: () => null }));
-vi.mock("./line-actions", () => ({ previewLineDueMessageProfileAction: vi.fn(), resetLineDueMessageProfileAction: vi.fn(), saveAndTestLineCredentialsAction: vi.fn(), saveLineDueMessageProfileAction: vi.fn() }));
+vi.mock("./line-actions", () => ({
+  previewLineDueMessageProfileAction: vi.fn(),
+  previewLineWelcomeTemplateAction: vi.fn(),
+  resetLineDueMessageProfileAction: vi.fn(),
+  resetLineWelcomeTemplateAction: vi.fn(),
+  saveAndTestLineCredentialsAction: vi.fn(),
+  saveLineDueMessageProfileAction: vi.fn(),
+  saveLineWelcomeTemplateAction: vi.fn(),
+}));
 vi.mock("@/app/admin/google-drive/actions", () => ({ activateGoogleDriveFolderAction: vi.fn() }));
 vi.mock("./runtime-actions", () => ({ saveRuntimeConfigAction: vi.fn(), testWorkspaceConnectionAction: vi.fn() }));
 

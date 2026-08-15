@@ -38,6 +38,7 @@ function client(overrides: Partial<ClientRecord> = {}): ClientRecord {
     client_name: "Nisa Current",
     line_user_id: "Uaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     line_display_name: "Nisa",
+    line_picture_url: "",
     package_name: "Coaching",
     payment_type: "ONE_TIME",
     total_price_thb: "1500",

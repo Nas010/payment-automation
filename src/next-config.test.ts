@@ -26,4 +26,10 @@ describe("Next build output", () => {
     const packageJson = JSON.parse(readFileSync(resolve(process.cwd(), "package.json"), "utf8")) as { scripts: Record<string, string> };
     expect(packageJson.scripts.dev).toBe("NEXT_DIST_DIR=.next-dev next dev");
   });
+
+  it("allows optimized remote images only from LINE's profile CDN", async () => {
+    expect((await loadNextConfig()).images?.remotePatterns).toEqual([
+      { protocol: "https", hostname: "profile.line-scdn.net", pathname: "/**" },
+    ]);
+  });
 });

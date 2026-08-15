@@ -4,6 +4,7 @@ import { getPendingGoogleSheets } from "@/lib/sheets/client";
 import { savePendingWorkspaceConnection } from "./connection";
 import type { PendingGoogleWorkspaceConnection } from "./types";
 import { DEFAULT_LINE_DUE_PROFILES, LINE_DUE_PROFILE_SETTING_KEYS } from "@/lib/line/message-profile";
+import { DEFAULT_LINE_WELCOME_TEMPLATE } from "@/lib/line/message-template";
 
 export const OPERATIONAL_WORKBOOK_NAME = "Coaching Payments - Automated";
 const TAB_TITLES = ["Clients", "Installment Schedule", "Payments", "Settings", "Audit Log"] as const;
@@ -17,9 +18,10 @@ const DEFAULT_SETTING_ROWS = [
   ["line_chat_payments_enabled", "false"],
   [LINE_DUE_PROFILE_SETTING_KEYS.ONE_TIME, JSON.stringify(DEFAULT_LINE_DUE_PROFILES.ONE_TIME)],
   [LINE_DUE_PROFILE_SETTING_KEYS.INSTALLMENTS, JSON.stringify(DEFAULT_LINE_DUE_PROFILES.INSTALLMENTS)],
+  ["line_welcome_message_template", DEFAULT_LINE_WELCOME_TEMPLATE],
 ] as const;
 const HEADER_WRITES: sheets_v4.Schema$ValueRange[] = [
-  { range: "Clients!A1:W1", values: [[...CLIENT_HEADERS]] },
+  { range: "Clients!A1:AA1", values: [[...CLIENT_HEADERS]] },
   { range: "Installment Schedule!A1:R1", values: [[...SCHEDULE_HEADERS]] },
   { range: "Payments!A1:AW1", values: [[...PAYMENT_HEADERS]] },
   { range: "Settings!A1:B1", values: [["key", "value"]] },
@@ -28,7 +30,7 @@ const HEADER_WRITES: sheets_v4.Schema$ValueRange[] = [
 ];
 const INITIAL_WRITES: sheets_v4.Schema$ValueRange[] = [
   ...HEADER_WRITES.slice(0, 4),
-  { range: "Settings!A2:B9", values: DEFAULT_SETTING_ROWS.map((row) => [...row]) },
+  { range: "Settings!A2:B10", values: DEFAULT_SETTING_ROWS.map((row) => [...row]) },
   ...HEADER_WRITES.slice(4),
 ];
 
