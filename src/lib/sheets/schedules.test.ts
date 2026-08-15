@@ -15,7 +15,7 @@ vi.mock("./client", () => ({
 }));
 vi.mock("./migration", () => ({ ensureScheduleSchema }));
 
-import { listSchedules, updateSchedule, writeSchedule } from "./schedules";
+import { listSchedules, updateSchedule, writeSchedule, type NewScheduleRecord } from "./schedules";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -61,6 +61,39 @@ describe("Installment Schedule repository", () => {
       range: `Installment Schedule!A2:${scheduleEndColumn}2`,
       requestBody: { values: [expect.arrayContaining(["assignment_1", "PACKAGE"]) ] },
     }));
+  });
+
+  it("writes blank assignment metadata for a legacy schedule producer", async () => {
+    const legacySchedule: NewScheduleRecord = {
+      schedule_id: "schedule_1",
+      client_id: "client_1",
+      client_name: "Nisa",
+      line_user_id: "",
+      line_display_name: "",
+      package_name: "PT",
+      payment_type: "INSTALLMENTS",
+      installment_number: "1",
+      installment_count: "3",
+      amount_thb: "1500",
+      due_date: "2026-08-10",
+      status: "SCHEDULED",
+      generated_at: "",
+      payment_id: "",
+      payment_url: "",
+      notes: "",
+      created_at: "",
+      updated_at: "",
+    };
+    get.mockResolvedValueOnce({ data: { values: [["schedule_id"]] } });
+    update.mockResolvedValue(undefined);
+
+    await writeSchedule(legacySchedule);
+
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({
+      requestBody: { values: [expect.arrayContaining(["", ""])] },
+    }));
+    const writtenRow = update.mock.calls[0]?.[0].requestBody.values[0];
+    expect(writtenRow.slice(-2)).toEqual(["", ""]);
   });
 
   it("preserves physical row numbers when filtered schedule rows are updated", async () => {

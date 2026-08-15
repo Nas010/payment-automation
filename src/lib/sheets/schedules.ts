@@ -28,7 +28,8 @@ export type ScheduleRecord = {
   assignment_kind: string;
 };
 
-export type NewScheduleRecord = Omit<ScheduleRecord, "rowNumber">;
+export type NewScheduleRecord = Omit<ScheduleRecord, "rowNumber" | "assignment_id" | "assignment_kind">
+  & Partial<Pick<ScheduleRecord, "assignment_id" | "assignment_kind">>;
 
 export async function listSchedules(): Promise<ScheduleRecord[]> {
   await ensureScheduleSchema();
