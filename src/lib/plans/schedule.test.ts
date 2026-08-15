@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildInstallmentPlan, buildPaymentForSchedule, planTotalSatangForSchedule, selectDueSchedules } from "./schedule";
+import { buildInstallmentPlan, buildPaymentForSchedule, planTotalSatangForSchedule, selectDueSchedules, selectPaymentGenerationSchedules } from "./schedule";
 
 describe("buildInstallmentPlan", () => {
   it("puts indivisible satang on the last installment so all scheduled amounts equal plan total", () => {
@@ -103,5 +103,17 @@ describe("buildInstallmentPlan", () => {
       installment_count: "3",
       total_price_thb: "3000",
     });
+  });
+});
+
+describe("selectPaymentGenerationSchedules", () => {
+  const laterInstallment = { schedule_id: "schedule_2", due_date: "2026-08-20", status: "SCHEDULED", payment_id: "", payment_type: "INSTALLMENTS", installment_number: "2" };
+
+  it("makes a second installment available seven days before its deadline", () => {
+    expect(selectPaymentGenerationSchedules([laterInstallment], "2026-08-13")).toEqual([laterInstallment]);
+  });
+
+  it("does not select that later installment before T-7", () => {
+    expect(selectPaymentGenerationSchedules([laterInstallment], "2026-08-12")).toEqual([]);
   });
 });

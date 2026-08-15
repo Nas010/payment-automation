@@ -153,7 +153,7 @@ describe("updatePaymentIfUnchanged", () => {
     expect(batchUpdate).toHaveBeenNthCalledWith(2, expect.objectContaining({ requestBody: { requests: expect.arrayContaining([
       { deleteNamedRange: { namedRangeId: "token_1" } },
       expect.objectContaining({ addNamedRange: expect.any(Object) }),
-      expect.objectContaining({ updateCells: expect.objectContaining({ range: expect.objectContaining({ sheetId: 12, startRowIndex: 1, endRowIndex: 2, endColumnIndex: 50 }) }) }),
+      expect.objectContaining({ updateCells: expect.objectContaining({ range: expect.objectContaining({ sheetId: 12, startRowIndex: 1, endRowIndex: 2, endColumnIndex: 51 }) }) }),
     ]) } }));
   });
 
@@ -290,7 +290,7 @@ describe("updatePaymentIfUnchanged", () => {
 describe("reconcileManualConfirmations", () => {
   it("clears LINE slip expectation while reconciling a directly edited manual confirmation", async () => {
     const confirmed = payment({ status: "MANUAL_CONFIRMED", manual_confirmed_at: "", line_slip_expected: "TRUE" });
-    get.mockImplementation(async ({ range }: { range: string }) => ({ data: { values: range === "Payments!A:AX" ? [PAYMENT_HEADERS, row(confirmed)] : [row(confirmed)] } }));
+    get.mockImplementation(async ({ range }: { range: string }) => ({ data: { values: range === "Payments!A:AY" ? [PAYMENT_HEADERS, row(confirmed)] : [row(confirmed)] } }));
     spreadsheetGet
       .mockResolvedValueOnce(metadata([]))
       .mockResolvedValue(metadata([{ name: paymentStateTokenName(confirmed), namedRangeId: "token_1" }]));
@@ -304,7 +304,7 @@ describe("reconcileManualConfirmations", () => {
   it("sweeps pending ADMIN and CLIENT_UPLOAD terminal-effect markers during the cron manual-reconciliation phase", async () => {
     const admin = payment({ payment_id: "admin", status: "MANUAL_CONFIRMED", manual_confirmed_at: "done", line_slip_error: "TRANSITION_EFFECTS_PENDING:ADMIN:REVIEW" });
     const upload = payment({ rowNumber: 3, payment_id: "upload", status: "AUTO_RECORDED", line_slip_error: "TRANSITION_EFFECTS_PENDING:CLIENT_UPLOAD:PENDING" });
-    get.mockImplementation(async ({ range }: { range: string }) => ({ data: { values: range === "Payments!A:AX" ? [PAYMENT_HEADERS, row(admin), row(upload)] : [] } }));
+    get.mockImplementation(async ({ range }: { range: string }) => ({ data: { values: range === "Payments!A:AY" ? [PAYMENT_HEADERS, row(admin), row(upload)] : [] } }));
     listSchedules.mockResolvedValue([
       { schedule_id: "schedule_admin", payment_id: "admin", status: "GENERATED" },
       { schedule_id: "schedule_upload", payment_id: "upload", status: "GENERATED" },

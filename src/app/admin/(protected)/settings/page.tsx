@@ -1,6 +1,7 @@
 import { PageHeader } from "@/components/admin/page-ui";
 import { LineIntegrationForm, type LineCredentialMetadata } from "@/components/admin/line-integration-form";
 import { LineDueTemplateForm } from "@/components/admin/line-due-template-form";
+import { LineInstallmentReminderForm } from "@/components/admin/line-installment-reminder-form";
 import { LineTermsImageForm } from "@/components/admin/line-terms-image-form";
 import { LineWelcomeTemplateForm } from "@/components/admin/line-welcome-template-form";
 import { GoogleDriveConnectionCard } from "@/components/admin/google-drive-connection-card";
@@ -12,7 +13,7 @@ import { DEFAULT_LINE_WELCOME_TEMPLATE } from "@/lib/line/message-template";
 import { activeLineTermsImageVersion, lineTermsImagePath, parseLineTermsImageState } from "@/lib/line/terms-image";
 import { runtimeConfig } from "@/lib/runtime-config";
 import { getSecretMetadata } from "@/lib/secrets/service";
-import { listOperationalSettings, resolveLineDueMessageProfiles } from "@/lib/sheets/settings";
+import { listOperationalSettings, resolveLineDueMessageProfiles, resolveLineInstallmentReminderConfig } from "@/lib/sheets/settings";
 import { getActiveWorkspaceConnection } from "@/lib/workspace/connection";
 import {
   previewLineDueMessageProfileAction,
@@ -21,6 +22,9 @@ import {
   resetLineWelcomeTemplateAction,
   saveAndTestLineCredentialsAction,
   saveLineDueMessageProfileAction,
+  previewLineInstallmentReminderAction,
+  resetLineInstallmentReminderConfigAction,
+  saveLineInstallmentReminderConfigAction,
   saveLineWelcomeTemplateAction,
 } from "./line-actions";
 import { activateGoogleDriveFolderAction } from "@/app/admin/google-drive/actions";
@@ -38,6 +42,7 @@ export default async function SettingsPage({ searchParams }: { searchParams?: Pr
   const credentials = lineCredentialMetadata(secretMetadata);
   const validation = validationMetadata(settings.find((item) => item.key === "line_access_token_validation")?.value);
   const dueProfiles = resolveLineDueMessageProfiles(settings);
+  const reminderConfig = resolveLineInstallmentReminderConfig(settings);
   const welcomeTemplate = settings.find((item) => item.key === "line_welcome_message_template")?.value || DEFAULT_LINE_WELCOME_TEMPLATE;
   const driveError = driveErrorMessage(query?.drive_error);
   let termsImage: { previewUrl: string; uploadedAt: string } | null = null;
@@ -60,6 +65,7 @@ export default async function SettingsPage({ searchParams }: { searchParams?: Pr
     <LineIntegrationForm credentials={credentials} validation={validation} action={saveAndTestLineCredentialsAction} />
     <LineWelcomeTemplateForm template={welcomeTemplate} previewAction={previewLineWelcomeTemplateAction} saveAction={saveLineWelcomeTemplateAction} resetAction={resetLineWelcomeTemplateAction} />
     <LineDueTemplateForm profiles={dueProfiles} messagingEnabled={config.lineMessagingEnabled} chatPaymentsEnabled={config.lineChatPaymentsEnabled} previewAction={previewLineDueMessageProfileAction} saveAction={saveLineDueMessageProfileAction} resetAction={resetLineDueMessageProfileAction} />
+    <LineInstallmentReminderForm resolved={reminderConfig} previewAction={previewLineInstallmentReminderAction} saveAction={saveLineInstallmentReminderConfigAction} resetAction={resetLineInstallmentReminderConfigAction} />
     <LineTermsImageForm image={termsImage} driveConnected={Boolean(connection)} error={termsImageError} action={uploadLineTermsImageAction} />
   </div>;
 }

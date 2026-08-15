@@ -5,6 +5,7 @@ import { getInstallation } from "@/lib/installation/repository";
 import { generateDuePaymentLinks } from "@/lib/payments/generate";
 import { reconcileManualConfirmations } from "@/lib/sheets/payments";
 import { sendDueLinePaymentRequests } from "@/lib/line/due-payments";
+import { sendInstallmentReminderRequests } from "@/lib/line/installment-reminders";
 
 export async function GET(request: NextRequest): Promise<Response> {
   const secret = cronSecret();
@@ -16,5 +17,6 @@ export async function GET(request: NextRequest): Promise<Response> {
   const generated = await generateDuePaymentLinks({ baseUrl });
   const reconciled = await reconcileManualConfirmations();
   const line = await sendDueLinePaymentRequests({ baseUrl });
-  return Response.json({ created: generated.created.length, existing: generated.existing.length, failed: generated.failed.length, manual_confirmations_reconciled: reconciled, line });
+  const reminders = await sendInstallmentReminderRequests({ baseUrl });
+  return Response.json({ created: generated.created.length, existing: generated.existing.length, failed: generated.failed.length, manual_confirmations_reconciled: reconciled, line, reminders });
 }

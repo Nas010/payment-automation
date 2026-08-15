@@ -48,16 +48,16 @@ describe("rowToRecord", () => {
       "ocr_receiver", "receiver_match", "ocr_transaction_date", "date_match", "check_score", "review_reason", "slip_url", "admin_notes", "line_message",
       "updated_at", "qr_payload_hash", "line_message_status", "line_retry_key", "line_message_attempted_at", "line_message_sent_at", "line_request_id", "line_message_error",
       "line_payment_requested_at", "line_slip_expected", "line_slip_received_at", "line_source_message_id", "line_slip_processing_status", "line_slip_error", "line_reply_status", "line_reply_at",
-      "package_name", "payment_type", "installment_number", "installment_count", "total_price_thb", "line_terms_image_token",
+      "package_name", "payment_type", "installment_number", "installment_count", "total_price_thb", "line_terms_image_token", "line_reminder_delivery_log",
     ]);
-    expect(PAYMENT_HEADERS).toHaveLength(50);
+    expect(PAYMENT_HEADERS).toHaveLength(51);
   });
 
-  it("reads and writes all 50 Payments columns", async () => {
+  it("reads and writes all 51 Payments columns", async () => {
     const payment = paymentRecord();
     const newPayment = Object.fromEntries(PAYMENT_HEADERS.map((header) => [header, payment[header]])) as Omit<PaymentRecord, "rowNumber">;
     let paymentMetadataReads = 0;
-    get.mockImplementation(async ({ range }: { range: string }) => ({ data: { values: [range === "Payments!A2:AX2" ? PAYMENT_HEADERS.map((header) => payment[header]) : PAYMENT_HEADERS] } }));
+    get.mockImplementation(async ({ range }: { range: string }) => ({ data: { values: [range === "Payments!A2:AY2" ? PAYMENT_HEADERS.map((header) => payment[header]) : PAYMENT_HEADERS] } }));
     spreadsheetGet.mockImplementation(async ({ fields }: { fields: string }) => {
       if (!fields.includes("namedRanges")) return { data: { sheets: [{ properties: { sheetId: 10, title: "Payments", gridProperties: { columnCount: 50 } } }] } };
       paymentMetadataReads += 1;
@@ -71,11 +71,11 @@ describe("rowToRecord", () => {
     await appendPayment(newPayment);
     await updatePayment(payment);
 
-    expect(get).toHaveBeenCalledWith({ spreadsheetId: "spreadsheet_1", range: "Payments!A:AX" });
-    expect(append).toHaveBeenCalledWith(expect.objectContaining({ range: "Payments!A:AX" }));
+    expect(get).toHaveBeenCalledWith({ spreadsheetId: "spreadsheet_1", range: "Payments!A:AY" });
+    expect(append).toHaveBeenCalledWith(expect.objectContaining({ range: "Payments!A:AY" }));
     expect(batchUpdate).toHaveBeenCalledWith(expect.objectContaining({ requestBody: { requests: expect.arrayContaining([
       expect.objectContaining({ addNamedRange: expect.any(Object) }),
-      expect.objectContaining({ updateCells: expect.objectContaining({ range: expect.objectContaining({ startRowIndex: 1, endRowIndex: 2, endColumnIndex: 50 }) }) }),
+      expect.objectContaining({ updateCells: expect.objectContaining({ range: expect.objectContaining({ startRowIndex: 1, endRowIndex: 2, endColumnIndex: 51 }) }) }),
     ]) } }));
     expect(update).not.toHaveBeenCalled();
   });

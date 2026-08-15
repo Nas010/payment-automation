@@ -9,7 +9,7 @@ vi.mock("./client", () => ({
   getGoogleSheets: () => ({ spreadsheetId: "spreadsheet_1", sheets: { spreadsheets: { values: { get: mocks.get, batchUpdate: mocks.batchUpdate } } } }),
 }));
 
-import { getLineDueMessageProfiles, getLineTermsImageState, getLineWelcomeTemplate, resolveLineDueMessageProfiles, saveLineDueMessageProfile, saveLineTermsImageVersion, upsertOperationalSetting, upsertOperationalSettings } from "./settings";
+import { getLineDueMessageProfiles, getLineTermsImageState, getLineWelcomeTemplate, resolveLineDueMessageProfiles, resolveLineInstallmentReminderConfig, saveLineDueMessageProfile, saveLineTermsImageVersion, upsertOperationalSetting, upsertOperationalSettings } from "./settings";
 
 const termsVersion: LineTermsImageVersion = {
   versionId: "terms_abcdefghijklmnopqrstuvwxyzABCDEF",
@@ -61,6 +61,15 @@ describe("operational settings writes", () => {
 
     expect(profiles.ONE_TIME).toEqual({ kind: "VALID", profile: storedOneTime });
     expect(profiles.INSTALLMENTS).toMatchObject({ kind: "VALID", profile: { message: expect.stringContaining("Legacy"), customPlaceholders: [{ name: "payment_label", template: "{{due_month_name}} Coaching" }] } });
+  });
+
+  it("uses existing installment profile as deadline fallback before reminder config is saved", () => {
+    const resolved = resolveLineInstallmentReminderConfig([
+      { rowNumber: 2, key: LINE_DUE_PROFILE_SETTING_KEYS.INSTALLMENTS, value: JSON.stringify(DEFAULT_LINE_DUE_PROFILES.INSTALLMENTS) },
+    ]);
+
+    expect(resolved.kind).toBe("VALID");
+    if (resolved.kind === "VALID") expect(resolved.config.profiles.DUE_DATE).toEqual(DEFAULT_LINE_DUE_PROFILES.INSTALLMENTS);
   });
 
   it("isolates a corrupt stored type while preserving the other stored profile", () => {

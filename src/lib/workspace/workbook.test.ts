@@ -75,7 +75,7 @@ describe("operational workbook provisioning", () => {
     expect(headerWrite.requestBody.data).toEqual([
       { range: "Clients!A1:AA1", values: [[...CLIENT_HEADERS]] },
       { range: "Installment Schedule!A1:R1", values: [[...SCHEDULE_HEADERS]] },
-      { range: "Payments!A1:AX1", values: [[...PAYMENT_HEADERS]] },
+      { range: "Payments!A1:AY1", values: [[...PAYMENT_HEADERS]] },
       { range: "Settings!A1:B1", values: [["key", "value"]] },
       { range: "Settings!A2:B10", values: expect.arrayContaining([
         ["business_display_name", "Coaching Payments"],

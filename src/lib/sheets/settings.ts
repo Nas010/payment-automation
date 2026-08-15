@@ -7,13 +7,18 @@ import {
 } from "@/lib/line/message-template";
 import {
   DEFAULT_LINE_DUE_PROFILES,
+  DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG,
   legacyLineDueMessageProfile,
   LINE_DUE_PROFILE_SETTING_KEYS,
+  LINE_INSTALLMENT_REMINDER_CONFIG_SETTING_KEY,
   parseLineDueMessageProfile,
+  parseLineInstallmentReminderConfig,
   validateLineDueMessageProfile,
   type LineDueMessageProfile,
+  type LineInstallmentReminderConfig,
   type LinePaymentType,
   type ResolvedLineDueMessageProfiles,
+  type ResolvedLineInstallmentReminderConfig,
 } from "@/lib/line/message-profile";
 import {
   LINE_TERMS_ACTIVE_VERSION_KEY,
@@ -43,6 +48,7 @@ export async function upsertOperationalSettings(entries: Array<{ key: string; va
     if (entry.key === "line_welcome_message_template") validateLineWelcomeTemplate(entry.value);
     const paymentType = (Object.entries(LINE_DUE_PROFILE_SETTING_KEYS) as Array<[LinePaymentType, string]>).find(([, key]) => key === entry.key)?.[0];
     if (paymentType) parseLineDueMessageProfile(entry.value, paymentType);
+    if (entry.key === LINE_INSTALLMENT_REMINDER_CONFIG_SETTING_KEY) parseLineInstallmentReminderConfig(entry.value);
   }
   const settings = await listOperationalSettings();
   let nextRowNumber = Math.max(2, ...settings.map((item) => item.rowNumber + 1));
@@ -95,6 +101,36 @@ export function resolveLineDueMessageProfiles(settings: OperationalSetting[]): R
 
 export async function getLineDueMessageProfiles(): Promise<ResolvedLineDueMessageProfiles> {
   return resolveLineDueMessageProfiles(await listOperationalSettings());
+}
+
+export function resolveLineInstallmentReminderConfig(settings: OperationalSetting[]): ResolvedLineInstallmentReminderConfig {
+  const byKey = new Map(settings.map((item) => [item.key, item.value]));
+  const stored = byKey.get(LINE_INSTALLMENT_REMINDER_CONFIG_SETTING_KEY);
+  if (stored !== undefined) {
+    try {
+      return { kind: "VALID", config: parseLineInstallmentReminderConfig(stored) };
+    } catch {
+      return { kind: "INVALID" };
+    }
+  }
+  const installmentProfile = resolveLineDueMessageProfiles(settings).INSTALLMENTS;
+  if (installmentProfile.kind === "INVALID") return { kind: "INVALID" };
+  return {
+    kind: "VALID",
+    config: {
+      version: 1,
+      profiles: { ...DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG.profiles, DUE_DATE: installmentProfile.profile },
+    },
+  };
+}
+
+export async function getLineInstallmentReminderConfig(): Promise<ResolvedLineInstallmentReminderConfig> {
+  return resolveLineInstallmentReminderConfig(await listOperationalSettings());
+}
+
+export async function saveLineInstallmentReminderConfig(config: LineInstallmentReminderConfig): Promise<void> {
+  parseLineInstallmentReminderConfig(config);
+  await upsertOperationalSetting(LINE_INSTALLMENT_REMINDER_CONFIG_SETTING_KEY, JSON.stringify(config));
 }
 
 export async function saveLineDueMessageProfile(paymentType: LinePaymentType, profile: LineDueMessageProfile): Promise<void> {
