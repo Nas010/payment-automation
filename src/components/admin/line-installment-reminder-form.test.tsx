@@ -10,6 +10,9 @@ import {
 } from "@/lib/line/message-profile";
 import { LineInstallmentReminderForm } from "./line-installment-reminder-form";
 
+const toastMocks = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
+vi.mock("sonner", () => ({ toast: toastMocks }));
+
 type Result = {
   ok: true;
   slot: ReminderSlot;
@@ -24,6 +27,14 @@ type RenderOptions = {
   resetAction?: ReturnType<typeof vi.fn>;
 };
 
+const reminderNames = [
+  "7 days before due date",
+  "3 days before due date",
+  "1 day before due date",
+  "On due date",
+  "1 day after due date",
+];
+
 function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((nextResolve) => {
@@ -32,28 +43,24 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
+function result(config: LineInstallmentReminderConfig, slot: ReminderSlot = "DUE_DATE", preview = "Preview") : Result {
+  return { ok: true, slot, config, preview };
+}
+
 function renderReminderForm(options: RenderOptions = {}) {
   const initial = structuredClone(options.config ?? DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG);
   const previewAction = options.previewAction ?? vi.fn().mockImplementation(async (formData: FormData): Promise<Result> => {
     const slot = String(formData.get("slot")) as ReminderSlot;
     const profile = JSON.parse(String(formData.get("profile")));
-    return {
-      ok: true,
-      slot,
-      config: { ...initial, profiles: { ...initial.profiles, [slot]: profile } },
-      preview: `Preview for ${slot}`,
-    };
+    return result({ ...initial, profiles: { ...initial.profiles, [slot]: profile } }, slot, `Preview for ${slot}`);
   });
   const saveAction = options.saveAction ?? vi.fn().mockImplementation(async (formData: FormData): Promise<Result> => {
     const config = JSON.parse(String(formData.get("config")));
-    return { ok: true, slot: "DUE_DATE", config, preview: "Saved due-date preview" };
+    return result(config, "DUE_DATE", "Saved due-date preview");
   });
-  const resetAction = options.resetAction ?? vi.fn().mockResolvedValue({
-    ok: true,
-    slot: "DUE_DATE",
-    config: structuredClone(DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG),
-    preview: "Default due-date preview",
-  });
+  const resetAction = options.resetAction ?? vi.fn().mockResolvedValue(
+    result(structuredClone(DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG), "DUE_DATE", "Default due-date preview"),
+  );
 
   render(createElement(LineInstallmentReminderForm, {
     resolved: { kind: "VALID", config: initial },
@@ -64,8 +71,13 @@ function renderReminderForm(options: RenderOptions = {}) {
   return { previewAction, saveAction, resetAction };
 }
 
+function openEditor(name: string) {
+  fireEvent.click(screen.getByRole("button", { name }));
+}
+
 beforeEach(() => {
   vi.stubGlobal("React", React);
+  vi.stubGlobal("PointerEvent", MouseEvent);
   vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
     queueMicrotask(() => callback(0));
     return 1;
@@ -75,13 +87,79 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.clearAllMocks();
 });
 
 describe("LineInstallmentReminderForm", () => {
-  it("submits only the selected profile for preview and shows slot-local output", async () => {
-    const { previewAction } = renderReminderForm();
+  it("shows five compact reminder-name triggers and independent switches", () => {
+    renderReminderForm();
 
-    fireEvent.click(screen.getByRole("button", { name: "Preview T−3 days message" }));
+    for (const name of reminderNames) {
+      expect(screen.getByRole("button", { name })).toBeTruthy();
+      expect(screen.getByRole("switch", { name: `Send ${name} reminder` })).toBeTruthy();
+    }
+    expect(screen.queryByRole("button", { name: /edit/i })).toBeNull();
+    expect(screen.queryByText(/enabled|paused/i)).toBeNull();
+    expect(screen.queryByLabelText("T−7 days message")).toBeNull();
+  });
+
+  it("opens selected reminder editor from name", () => {
+    renderReminderForm();
+    openEditor("3 days before due date");
+
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Edit 3 days before due date" })).toBeTruthy();
+    expect(screen.getByLabelText("3 days before due date message")).toBeTruthy();
+  });
+
+  it("persists only selected reminder switch", async () => {
+    const { saveAction } = renderReminderForm();
+    fireEvent.click(screen.getByRole("switch", { name: "Send 3 days before due date reminder" }));
+
+    await waitFor(() => expect(saveAction).toHaveBeenCalledOnce());
+    const saved = JSON.parse(String((saveAction.mock.calls[0][0] as FormData).get("config"))) as LineInstallmentReminderConfig;
+    expect(saved).toEqual({
+      ...DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG,
+      enabled: { ...DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG.enabled, T_MINUS_3_DAYS: false },
+    });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Send 3 days before due date reminder" }).getAttribute("aria-checked")).toBe("false"));
+    expect(toastMocks.success).toHaveBeenCalledWith("Reminder updated.");
+  });
+
+  it("rolls back a rejected reminder switch and announces error", async () => {
+    renderReminderForm({ saveAction: vi.fn().mockRejectedValue(new Error("Workbook unavailable")) });
+    fireEvent.click(screen.getByRole("switch", { name: "Send 3 days before due date reminder" }));
+
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Send 3 days before due date reminder" }).getAttribute("aria-checked")).toBe("true"));
+    expect(toastMocks.error).toHaveBeenCalledWith("Workbook unavailable");
+  });
+
+  it("discards a cancelled message draft", () => {
+    renderReminderForm();
+    openEditor("7 days before due date");
+    fireEvent.change(screen.getByLabelText("7 days before due date message"), { target: { value: "Unsaved draft" } });
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    openEditor("7 days before due date");
+
+    expect((screen.getByLabelText("7 days before due date message") as HTMLTextAreaElement).value)
+      .toBe(DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG.profiles.T_MINUS_7_DAYS.message);
+  });
+
+  it("puts placeholder buttons before main message textarea", () => {
+    renderReminderForm();
+    openEditor("7 days before due date");
+    const editor = screen.getByRole("group", { name: "7 days before due date message editor" });
+    const insert = within(editor).getByRole("button", { name: "Insert {{client_name}}" });
+    const textarea = screen.getByLabelText("7 days before due date message");
+
+    expect(insert.compareDocumentPosition(textarea) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("previews only selected draft profile", async () => {
+    const { previewAction } = renderReminderForm();
+    openEditor("3 days before due date");
+    fireEvent.click(screen.getByRole("button", { name: "Preview" }));
 
     await waitFor(() => expect(previewAction).toHaveBeenCalledOnce());
     const data = previewAction.mock.calls[0][0] as FormData;
@@ -91,97 +169,84 @@ describe("LineInstallmentReminderForm", () => {
     expect(await screen.findByText("Preview for T_MINUS_3_DAYS")).toBeTruthy();
   });
 
-  it("shows a rejected validation message beside the affected slot", async () => {
-    renderReminderForm({
-      previewAction: vi.fn().mockRejectedValue(new Error("Unsupported LINE placeholder: payment_label")),
-    });
+  it("saves only active message draft in full configuration", async () => {
+    const { saveAction } = renderReminderForm();
+    openEditor("1 day after due date");
+    fireEvent.change(screen.getByLabelText("1 day after due date message"), { target: { value: "Friendly late reminder" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save message" }));
 
-    fireEvent.click(screen.getByRole("button", { name: "Preview T−7 days message" }));
-
-    expect(await screen.findByText("Unsupported LINE placeholder: payment_label")).toBeTruthy();
+    await waitFor(() => expect(saveAction).toHaveBeenCalledOnce());
+    const saved = JSON.parse(String((saveAction.mock.calls[0][0] as FormData).get("config"))) as LineInstallmentReminderConfig;
+    expect(saved.profiles.T_PLUS_1_DAY.message).toBe("Friendly late reminder");
+    expect(saved.profiles.T_MINUS_7_DAYS).toEqual(DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG.profiles.T_MINUS_7_DAYS);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(toastMocks.success).toHaveBeenCalledWith("Reminder message saved.");
   });
 
-  it("defines and inserts payment_label in one reminder slot", async () => {
+  it("keeps rejected message draft open with inline error", async () => {
+    renderReminderForm({ saveAction: vi.fn().mockRejectedValue(new Error("Unsupported LINE placeholder: payment_label")) });
+    openEditor("7 days before due date");
+    fireEvent.change(screen.getByLabelText("7 days before due date message"), { target: { value: "Keep this draft" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save message" }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain("Unsupported LINE placeholder: payment_label");
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect((screen.getByLabelText("7 days before due date message") as HTMLTextAreaElement).value).toBe("Keep this draft");
+  });
+
+  it("defines and inserts profile-local custom placeholder", async () => {
     renderReminderForm();
-    fireEvent.click(screen.getByRole("button", { name: "Add placeholder to T−7 days" }));
-    fireEvent.change(screen.getByLabelText("T−7 days placeholder name custom_1"), { target: { value: "payment_label" } });
-    fireEvent.change(screen.getByLabelText("T−7 days placeholder content payment_label"), {
+    openEditor("7 days before due date");
+    fireEvent.click(screen.getByRole("button", { name: "Add placeholder to 7 days before due date" }));
+    fireEvent.change(screen.getByLabelText("7 days before due date placeholder name custom_1"), { target: { value: "payment_label" } });
+    fireEvent.change(screen.getByLabelText("7 days before due date placeholder content payment_label"), {
       target: { value: "{{installment_ordinal}} payment for {{package_name}}" },
     });
-
-    const editor = screen.getByRole("group", { name: "T−7 days message editor" });
+    const editor = screen.getByRole("group", { name: "7 days before due date message editor" });
     fireEvent.click(within(editor).getByRole("button", { name: "Insert {{payment_label}}" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save message" }));
 
-    await waitFor(() => expect((screen.getByLabelText("T−7 days message") as HTMLTextAreaElement).value).toContain("{{payment_label}}"));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    openEditor("7 days before due date");
+    expect((screen.getByLabelText("7 days before due date message") as HTMLTextAreaElement).value).toContain("{{payment_label}}");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    openEditor("3 days before due date");
+    expect(screen.queryByLabelText(/3 days before due date placeholder name payment_label/)).toBeNull();
   });
 
-  it("saves all five profiles atomically and shows confirmation", async () => {
-    const { saveAction } = renderReminderForm();
-    fireEvent.change(screen.getByLabelText("T+1 day message"), { target: { value: "Friendly late reminder" } });
-
-    fireEvent.click(screen.getByRole("button", { name: "Save reminder templates" }));
-
-    await waitFor(() => expect(saveAction).toHaveBeenCalledOnce());
-    const data = saveAction.mock.calls[0][0] as FormData;
-    const saved = JSON.parse(String(data.get("config"))) as LineInstallmentReminderConfig;
-    expect(Object.keys(saved.profiles)).toHaveLength(5);
-    expect(saved.profiles.T_PLUS_1_DAY.message).toBe("Friendly late reminder");
-    expect(await screen.findByText("Reminder templates saved.")).toBeTruthy();
-  });
-
-  it("blocks overlapping actions and preserves edits made during preview", async () => {
+  it("disables all controls while request pending", async () => {
     const response = deferred<Result>();
-    const previewAction = vi.fn().mockReturnValue(response.promise);
-    const { saveAction } = renderReminderForm({ previewAction });
-    const message = screen.getByLabelText("T−7 days message") as HTMLTextAreaElement;
-
-    fireEvent.click(screen.getByRole("button", { name: "Preview T−7 days message" }));
+    const { previewAction } = renderReminderForm({ previewAction: vi.fn().mockReturnValue(response.promise) });
+    openEditor("7 days before due date");
+    fireEvent.click(screen.getByRole("button", { name: "Preview" }));
     await waitFor(() => expect(previewAction).toHaveBeenCalledOnce());
-    expect((screen.getByRole("button", { name: "Save reminder templates" }) as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.click(screen.getByRole("button", { name: "Save reminder templates" }));
-    expect(saveAction).not.toHaveBeenCalled();
 
-    fireEvent.change(message, { target: { value: "Edited while previewing" } });
-    response.resolve({
-      ok: true,
-      slot: "T_MINUS_7_DAYS",
-      config: structuredClone(DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG),
-      preview: "Preview complete",
-    });
+    for (const name of reminderNames) {
+      expect((screen.getByRole("button", { name, hidden: true }) as HTMLButtonElement).disabled).toBe(true);
+      expect(screen.getByRole("switch", { name: `Send ${name} reminder`, hidden: true }).getAttribute("data-disabled")).not.toBeNull();
+    }
+    expect((screen.getByRole("button", { name: "Preview" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Save message" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Cancel" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Restore defaults" }) as HTMLButtonElement).disabled).toBe(true);
 
+    response.resolve(result(structuredClone(DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG), "T_MINUS_7_DAYS", "Preview complete"));
     expect(await screen.findByText("Preview complete")).toBeTruthy();
-    expect(message.value).toBe("Edited while previewing");
   });
 
-  it("preserves edits made while an atomic save is pending", async () => {
-    const response = deferred<Result>();
-    const saveAction = vi.fn().mockReturnValue(response.promise);
-    renderReminderForm({ saveAction });
-    const message = screen.getByLabelText("T−3 days message") as HTMLTextAreaElement;
-
-    fireEvent.click(screen.getByRole("button", { name: "Save reminder templates" }));
-    await waitFor(() => expect(saveAction).toHaveBeenCalledOnce());
-    fireEvent.change(message, { target: { value: "Edited while saving" } });
-    response.resolve({
-      ok: true,
-      slot: "DUE_DATE",
-      config: structuredClone(DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG),
-      preview: "Saved preview",
-    });
-
-    expect(await screen.findByText("Reminder templates saved.")).toBeTruthy();
-    expect(message.value).toBe("Edited while saving");
-  });
-
-  it("restores every default and displays reset preview", async () => {
-    renderReminderForm();
-    const message = screen.getByLabelText("T+1 day message") as HTMLTextAreaElement;
-    fireEvent.change(message, { target: { value: "Changed" } });
-
+  it("restores all default switches, closes editor, and reports success", async () => {
+    const config = structuredClone(DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG);
+    config.enabled.T_MINUS_3_DAYS = false;
+    config.profiles.T_MINUS_7_DAYS.message = "Changed";
+    const { resetAction } = renderReminderForm({ config });
+    openEditor("7 days before due date");
     fireEvent.click(screen.getByRole("button", { name: "Restore defaults" }));
 
-    await waitFor(() => expect(message.value).toBe(DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG.profiles.T_PLUS_1_DAY.message));
-    expect(screen.getByText("Default due-date preview")).toBeTruthy();
-    expect(screen.getByText("Documented defaults restored.")).toBeTruthy();
+    await waitFor(() => expect(resetAction).toHaveBeenCalledOnce());
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    for (const name of reminderNames) {
+      expect(screen.getByRole("switch", { name: `Send ${name} reminder` }).getAttribute("aria-checked")).toBe("true");
+    }
+    expect(toastMocks.success).toHaveBeenCalledWith("Reminder defaults restored.");
   });
 });

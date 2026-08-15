@@ -1,11 +1,16 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useRef, useState } from "react";
+import { toast } from "sonner";
 import { LinePlaceholderEditor, type PlaceholderOption } from "@/components/admin/line-placeholder-editor";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { FieldDescription, FieldLabel } from "@/components/ui/field";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
+import { Switch } from "@/components/ui/switch";
 import {
   REMINDER_SLOTS,
   lineDueTemplatePlaceholders,
@@ -25,23 +30,15 @@ type Props = {
 };
 
 const labels: Record<ReminderSlot, string> = {
-  T_MINUS_7_DAYS: "T−7 days",
-  T_MINUS_3_DAYS: "T−3 days",
-  T_MINUS_1_DAY: "T−1 day",
-  DUE_DATE: "Due date",
-  T_PLUS_1_DAY: "T+1 day",
+  T_MINUS_7_DAYS: "7 days before due date",
+  T_MINUS_3_DAYS: "3 days before due date",
+  T_MINUS_1_DAY: "1 day before due date",
+  DUE_DATE: "On due date",
+  T_PLUS_1_DAY: "1 day after due date",
 };
 
 const systemOptions: PlaceholderOption[] = systemPlaceholders("INSTALLMENTS")
   .map((name) => ({ name, label: name.replaceAll("_", " ") }));
-
-function emptySlotStrings(): Record<ReminderSlot, string> {
-  return Object.fromEntries(REMINDER_SLOTS.map((slot) => [slot, ""])) as Record<ReminderSlot, string>;
-}
-
-function emptySlotNumbers(): Record<ReminderSlot, number> {
-  return Object.fromEntries(REMINDER_SLOTS.map((slot) => [slot, 0])) as Record<ReminderSlot, number>;
-}
 
 function actionError(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
@@ -51,13 +48,12 @@ export function LineInstallmentReminderForm({ resolved, previewAction, saveActio
   const [config, setConfig] = useState<LineInstallmentReminderConfig | null>(() =>
     resolved.kind === "VALID" ? structuredClone(resolved.config) : null,
   );
-  const [previewBySlot, setPreviewBySlot] = useState<Record<ReminderSlot, string>>(emptySlotStrings);
-  const [outcomeBySlot, setOutcomeBySlot] = useState<Record<ReminderSlot, string>>(emptySlotStrings);
-  const [formOutcome, setFormOutcome] = useState("");
+  const [activeSlot, setActiveSlot] = useState<ReminderSlot | null>(null);
+  const [draftProfile, setDraftProfile] = useState<LineDueMessageProfile | null>(null);
+  const [previewText, setPreviewText] = useState("");
+  const [editorError, setEditorError] = useState("");
   const [requestPending, setRequestPending] = useState(false);
   const requestInFlight = useRef(false);
-  const revisions = useRef<Record<ReminderSlot, number>>(emptySlotNumbers());
-  const [pending, startTransition] = useTransition();
 
   if (!config) {
     return <Card>
@@ -65,14 +61,40 @@ export function LineInstallmentReminderForm({ resolved, previewAction, saveActio
       <CardContent>Stored reminder setup is invalid.</CardContent>
     </Card>;
   }
-  const currentConfig = config;
 
-  function updateProfile(slot: ReminderSlot, update: (profile: LineDueMessageProfile) => LineDueMessageProfile): void {
-    revisions.current[slot] += 1;
-    setConfig((current) => current ? {
-      ...current,
-      profiles: { ...current.profiles, [slot]: update(current.profiles[slot]) },
-    } : current);
+  const currentConfig = config;
+  const actionsPending = requestPending;
+
+  function startRequest(): boolean {
+    if (requestInFlight.current) return false;
+    requestInFlight.current = true;
+    setRequestPending(true);
+    return true;
+  }
+
+  function finishRequest(): void {
+    requestInFlight.current = false;
+    setRequestPending(false);
+  }
+
+  function closeEditor(): void {
+    if (actionsPending) return;
+    setActiveSlot(null);
+    setDraftProfile(null);
+    setPreviewText("");
+    setEditorError("");
+  }
+
+  function openEditor(slot: ReminderSlot): void {
+    if (actionsPending) return;
+    setActiveSlot(slot);
+    setDraftProfile(structuredClone(currentConfig.profiles[slot]));
+    setPreviewText("");
+    setEditorError("");
+  }
+
+  function updateDraft(update: (profile: LineDueMessageProfile) => LineDueMessageProfile): void {
+    setDraftProfile((current) => current ? update(current) : current);
   }
 
   function customIsReferenced(profile: LineDueMessageProfile, name: string): boolean {
@@ -90,178 +112,220 @@ export function LineInstallmentReminderForm({ resolved, previewAction, saveActio
     return `custom_${index}`;
   }
 
-  function updateCustomTemplate(slot: ReminderSlot, name: string, template: string): void {
-    updateProfile(slot, (profile) => ({
-      ...profile,
-      customPlaceholders: profile.customPlaceholders.map((item) => item.name === name ? { ...item, template } : item),
-    }));
-  }
-
-  function renameCustom(slot: ReminderSlot, index: number, name: string): void {
-    updateProfile(slot, (profile) => ({
-      ...profile,
-      customPlaceholders: profile.customPlaceholders.map((item, itemIndex) => itemIndex === index ? { ...item, name } : item),
-    }));
-  }
-
-  function removeCustom(slot: ReminderSlot, name: string): void {
-    updateProfile(slot, (profile) => customIsReferenced(profile, name) ? profile : {
-      ...profile,
-      customPlaceholders: profile.customPlaceholders.filter((item) => item.name !== name),
-    });
-  }
-
-  function addCustom(slot: ReminderSlot): void {
-    updateProfile(slot, (profile) => ({
-      ...profile,
-      customPlaceholders: [...profile.customPlaceholders, { name: nextCustomName(profile), template: "" }],
-    }));
-  }
-
-  function preview(slot: ReminderSlot): void {
-    if (requestInFlight.current) return;
-    requestInFlight.current = true;
-    setRequestPending(true);
-    setOutcomeBySlot((current) => ({ ...current, [slot]: "" }));
+  function toggle(slot: ReminderSlot): void {
+    if (!startRequest()) return;
+    const previous = currentConfig;
+    const next = {
+      ...previous,
+      enabled: { ...previous.enabled, [slot]: !previous.enabled[slot] },
+    };
+    setConfig(next);
     const formData = new FormData();
     formData.set("slot", slot);
-    formData.set("profile", JSON.stringify(currentConfig.profiles[slot]));
+    formData.set("config", JSON.stringify(next));
     void (async () => {
       try {
-        const result = await previewAction(formData);
-        startTransition(() => {
-          setPreviewBySlot((current) => ({ ...current, [result.slot]: result.preview }));
-        });
+        const result = await saveAction(formData);
+        setConfig(structuredClone(result.config));
+        toast.success("Reminder updated.");
       } catch (error) {
-        startTransition(() => {
-          setOutcomeBySlot((current) => ({
-            ...current,
-            [slot]: actionError(error, "Could not preview reminder template."),
-          }));
-        });
+        setConfig(previous);
+        toast.error(actionError(error, "Could not update reminder."));
       } finally {
-        requestInFlight.current = false;
-        setRequestPending(false);
+        finishRequest();
       }
     })();
   }
 
-  function save(): void {
-    if (requestInFlight.current) return;
-    requestInFlight.current = true;
-    setRequestPending(true);
-    setFormOutcome("");
-    const submittedRevisions = { ...revisions.current };
+  function preview(): void {
+    if (!activeSlot || !draftProfile || !startRequest()) return;
+    const slot = activeSlot;
+    const profile = structuredClone(draftProfile);
+    setEditorError("");
+    setPreviewText("");
     const formData = new FormData();
-    formData.set("slot", "DUE_DATE");
-    formData.set("config", JSON.stringify(currentConfig));
+    formData.set("slot", slot);
+    formData.set("profile", JSON.stringify(profile));
+    void (async () => {
+      try {
+        const result = await previewAction(formData);
+        setPreviewText(result.preview);
+      } catch (error) {
+        setEditorError(actionError(error, "Could not preview reminder template."));
+      } finally {
+        finishRequest();
+      }
+    })();
+  }
+
+  function saveMessage(): void {
+    if (!activeSlot || !draftProfile || !startRequest()) return;
+    const slot = activeSlot;
+    const profile = structuredClone(draftProfile);
+    const next = {
+      ...currentConfig,
+      profiles: { ...currentConfig.profiles, [slot]: profile },
+    };
+    setEditorError("");
+    const formData = new FormData();
+    formData.set("slot", slot);
+    formData.set("config", JSON.stringify(next));
     void (async () => {
       try {
         const result = await saveAction(formData);
-        startTransition(() => {
-          const unchanged = REMINDER_SLOTS.every((slot) => revisions.current[slot] === submittedRevisions[slot]);
-          if (unchanged) setConfig(result.config);
-          setPreviewBySlot((current) => ({ ...current, [result.slot]: result.preview }));
-          setFormOutcome("Reminder templates saved.");
-        });
+        setConfig(structuredClone(result.config));
+        setActiveSlot(null);
+        setDraftProfile(null);
+        setPreviewText("");
+        setEditorError("");
+        toast.success("Reminder message saved.");
       } catch (error) {
-        startTransition(() => setFormOutcome(actionError(error, "Could not save reminder templates.")));
+        setEditorError(actionError(error, "Could not update reminder."));
       } finally {
-        requestInFlight.current = false;
-        setRequestPending(false);
+        finishRequest();
       }
     })();
   }
 
   function reset(): void {
-    if (requestInFlight.current) return;
-    requestInFlight.current = true;
-    setRequestPending(true);
-    setFormOutcome("");
+    if (!startRequest()) return;
     void (async () => {
       try {
         const result = await resetAction();
-        startTransition(() => {
-          revisions.current = emptySlotNumbers();
-          setConfig(result.config);
-          setPreviewBySlot((current) => ({ ...current, [result.slot]: result.preview }));
-          setFormOutcome("Documented defaults restored.");
-        });
+        setConfig(structuredClone(result.config));
+        setActiveSlot(null);
+        setDraftProfile(null);
+        setPreviewText("");
+        setEditorError("");
+        toast.success("Reminder defaults restored.");
       } catch (error) {
-        startTransition(() => setFormOutcome(actionError(error, "Could not restore reminder templates.")));
+        toast.error(actionError(error, "Could not update reminder."));
       } finally {
-        requestInFlight.current = false;
-        setRequestPending(false);
+        finishRequest();
       }
     })();
   }
 
-  const actionsPending = requestPending || pending;
+  const activeLabel = activeSlot ? labels[activeSlot] : "";
+  const messageOptions = draftProfile ? [
+    ...systemOptions,
+    ...draftProfile.customPlaceholders.map(({ name }) => ({ name, label: name.replaceAll("_", " ") })),
+  ] : systemOptions;
 
   return <Card>
     <CardHeader>
       <CardTitle>Installment reminders</CardTitle>
-      <CardDescription>Global templates for every later installment. Placeholders are optional; every send includes the payment QR.</CardDescription>
+      <CardDescription>Global templates for every later installment. Placeholders are optional; every send includes payment QR.</CardDescription>
     </CardHeader>
-    <CardContent className="space-y-6">
-      {REMINDER_SLOTS.map((slot) => {
-        const label = labels[slot];
-        const profile = config.profiles[slot];
-        const messageOptions = [
-          ...systemOptions,
-          ...profile.customPlaceholders.map(({ name }) => ({ name, label: name.replaceAll("_", " ") })),
-        ];
-        return <fieldset key={slot} className="space-y-4 rounded-md border p-4">
-          <legend className="px-1 text-sm font-medium">{label}</legend>
-          {profile.customPlaceholders.map((definition, index) => {
-            const referenced = customIsReferenced(profile, definition.name);
-            return <fieldset key={`${slot}-${index}`} className="space-y-3 rounded-md border p-3">
-              <FieldLabel htmlFor={`${slot}-${index}-name`}>Custom placeholder</FieldLabel>
-              <Input
-                id={`${slot}-${index}-name`}
-                aria-label={`${label} placeholder name ${definition.name}`}
-                value={definition.name}
-                disabled={referenced}
-                onChange={(event) => renameCustom(slot, index, event.target.value)}
-              />
-              <LinePlaceholderEditor
-                id={`${slot}-${index}-template`}
-                label={`${label} placeholder content ${definition.name}`}
-                value={definition.template}
-                placeholders={systemOptions}
-                onChange={(template) => updateCustomTemplate(slot, definition.name, template)}
-              />
-              <div className="flex flex-wrap items-center gap-2">
-                <Button type="button" variant="ghost" aria-label={`Remove ${definition.name} from ${label}`} disabled={referenced} onClick={() => removeCustom(slot, definition.name)}>Remove</Button>
-                {referenced ? <FieldDescription>Remove it from the message before renaming or deleting.</FieldDescription> : null}
-              </div>
-            </fieldset>;
-          })}
-          <Button
-            type="button"
-            variant="outline"
-            aria-label={`Add placeholder to ${label}`}
-            disabled={profile.customPlaceholders.length >= 20}
-            onClick={() => addCustom(slot)}
-          >Add placeholder</Button>
-          <LinePlaceholderEditor
-            id={`${slot}-message`}
-            label={`${label} message`}
-            value={profile.message}
-            placeholders={messageOptions}
-            onChange={(message) => updateProfile(slot, (current) => ({ ...current, message }))}
-            rows={7}
-          />
-          <Button type="button" variant="outline" aria-label={`Preview ${label} message`} disabled={actionsPending} onClick={() => preview(slot)}>Preview</Button>
-          {previewBySlot[slot] ? <pre className="whitespace-pre-wrap rounded border p-3 text-sm">{previewBySlot[slot]}</pre> : null}
-          {outcomeBySlot[slot] ? <p className="text-sm" aria-live="polite">{outcomeBySlot[slot]}</p> : null}
-        </fieldset>;
-      })}
+    <CardContent className="flex flex-col gap-4">
+      <div className="flex flex-col">
+        {REMINDER_SLOTS.map((slot, index) => <div key={slot} className="flex flex-col gap-3 py-3 first:pt-0 last:pb-0">
+          <Field orientation="horizontal">
+            <Button
+              type="button"
+              variant="ghost"
+              className="flex-1 justify-start"
+              disabled={actionsPending}
+              onClick={() => openEditor(slot)}
+            >
+              {labels[slot]}
+            </Button>
+            <Switch
+              aria-label={`Send ${labels[slot]} reminder`}
+              checked={currentConfig.enabled[slot]}
+              disabled={actionsPending}
+              onCheckedChange={() => toggle(slot)}
+            />
+          </Field>
+          {index < REMINDER_SLOTS.length - 1 ? <Separator /> : null}
+        </div>)}
+      </div>
       <div className="flex flex-wrap gap-2">
-        <Button type="button" disabled={actionsPending} onClick={save}>Save reminder templates</Button>
         <Button type="button" variant="ghost" disabled={actionsPending} onClick={reset}>Restore defaults</Button>
       </div>
-      {formOutcome ? <p className="text-sm" aria-live="polite">{formOutcome}</p> : null}
     </CardContent>
+    <Dialog open={activeSlot !== null} onOpenChange={(open) => { if (!open) closeEditor(); }}>
+      <DialogContent showCloseButton={!actionsPending} className="max-h-[calc(100dvh-2rem)] max-w-2xl gap-0 overflow-hidden p-0 sm:max-w-2xl">
+        <DialogHeader className="p-4 pr-10">
+          <DialogTitle>Edit {activeLabel}</DialogTitle>
+          <DialogDescription>Customize this reminder without changing the other send times.</DialogDescription>
+        </DialogHeader>
+        <ScrollArea className="max-h-[calc(100dvh-14rem)] px-4">
+          {draftProfile ? <FieldGroup className="pb-4">
+            {draftProfile.customPlaceholders.map((definition, index) => {
+              const referenced = customIsReferenced(draftProfile, definition.name);
+              return <FieldGroup key={`${activeSlot}-${index}`} className="rounded-lg border p-3">
+                <FieldLabel htmlFor={`${activeSlot}-${index}-name`}>Custom placeholder</FieldLabel>
+                <Input
+                  id={`${activeSlot}-${index}-name`}
+                  aria-label={`${activeLabel} placeholder name ${definition.name}`}
+                  value={definition.name}
+                  disabled={referenced || actionsPending}
+                  onChange={(event) => updateDraft((profile) => ({
+                    ...profile,
+                    customPlaceholders: profile.customPlaceholders.map((item, itemIndex) => itemIndex === index ? { ...item, name: event.target.value } : item),
+                  }))}
+                />
+                <LinePlaceholderEditor
+                  id={`${activeSlot}-${index}-template`}
+                  label={`${activeLabel} placeholder content ${definition.name}`}
+                  value={definition.template}
+                  placeholders={systemOptions}
+                  disabled={actionsPending}
+                  onChange={(template) => updateDraft((profile) => ({
+                    ...profile,
+                    customPlaceholders: profile.customPlaceholders.map((item, itemIndex) => itemIndex === index ? { ...item, template } : item),
+                  }))}
+                />
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    aria-label={`Remove ${definition.name} from ${activeLabel}`}
+                    disabled={referenced || actionsPending}
+                    onClick={() => updateDraft((profile) => ({
+                      ...profile,
+                      customPlaceholders: profile.customPlaceholders.filter((item) => item.name !== definition.name),
+                    }))}
+                  >
+                    Remove
+                  </Button>
+                  {referenced ? <FieldDescription>Remove it from message before renaming or deleting.</FieldDescription> : null}
+                </div>
+              </FieldGroup>;
+            })}
+            <Button
+              type="button"
+              variant="outline"
+              aria-label={`Add placeholder to ${activeLabel}`}
+              disabled={actionsPending || draftProfile.customPlaceholders.length >= 20}
+              onClick={() => updateDraft((profile) => ({
+                ...profile,
+                customPlaceholders: [...profile.customPlaceholders, { name: nextCustomName(profile), template: "" }],
+              }))}
+            >
+              Add placeholder
+            </Button>
+            <LinePlaceholderEditor
+              id={`${activeSlot}-message`}
+              label={`${activeLabel} message`}
+              value={draftProfile.message}
+              placeholders={messageOptions}
+              disabled={actionsPending}
+              onChange={(message) => updateDraft((profile) => ({ ...profile, message }))}
+              rows={7}
+            />
+            {previewText ? <pre className="whitespace-pre-wrap rounded-lg border p-3 text-sm">{previewText}</pre> : null}
+            <FieldError>{editorError}</FieldError>
+          </FieldGroup> : null}
+        </ScrollArea>
+        <DialogFooter>
+          <Button type="button" variant="ghost" disabled={actionsPending} onClick={reset}>Restore defaults</Button>
+          <Button type="button" variant="outline" disabled={actionsPending} onClick={closeEditor}>Cancel</Button>
+          <Button type="button" variant="outline" disabled={actionsPending} onClick={preview}>Preview</Button>
+          <Button type="button" disabled={actionsPending} onClick={saveMessage}>Save message</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   </Card>;
 }
