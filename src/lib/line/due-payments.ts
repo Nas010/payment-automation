@@ -132,7 +132,7 @@ function termsImageUrl(baseUrl: string, publicToken: string): string {
   return url.toString();
 }
 
-type TermsImageSelection = { token: string; reasonCode?: "NOT_CONFIGURED" | "CONFIG_INVALID" | "ASSET_UNAVAILABLE" };
+type TermsImageSelection = { token: string; reasonCode?: "NOT_CONFIGURED" | "CONFIG_INVALID" | "ASSET_UNAVAILABLE" | "POSITION_UNKNOWN" };
 
 async function selectTermsImage(
   dependencies: LineDueDependencies,

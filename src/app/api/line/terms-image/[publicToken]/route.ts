@@ -15,7 +15,9 @@ export async function GET(_request: Request, { params }: { params: Promise<{ pub
     if (detectedMimeType !== version.mimeType || file.bytes.byteLength !== version.byteLength) {
       return new Response("Service Unavailable", { status: 503 });
     }
-    return new Response(file.bytes, { headers: {
+    const body = new ArrayBuffer(file.bytes.byteLength);
+    new Uint8Array(body).set(file.bytes);
+    return new Response(body, { headers: {
       "Content-Type": detectedMimeType,
       "Cache-Control": "public, max-age=31536000, immutable",
       "X-Content-Type-Options": "nosniff",
