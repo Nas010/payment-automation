@@ -140,7 +140,7 @@ describe("Google Drive OAuth callback route", () => {
 
     const response = await GET(new NextRequest("https://app.example/admin/google-drive/callback?code=code-value&state=state-value"));
 
-    expect(response.headers.get("location")).toBe("https://app.example/admin/settings?workspace=reconnect_pending");
+    expect(response.headers.get("location")).toBe("https://app.example/admin/settings/workspace?workspace=reconnect_pending");
     expect(mocks.savePendingWorkspaceConnection).toHaveBeenCalledWith(expect.objectContaining({
       refreshToken: "refresh-secret",
       spreadsheetId: "immutable-sheet-123",

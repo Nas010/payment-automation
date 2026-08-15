@@ -16,7 +16,9 @@ export type LineConnectionDependencies = {
   tokenGenerator?: () => string;
 };
 
-export type LineConnectionResult = "LINKED" | "ALREADY_LINKED" | "INVALID_OR_EXPIRED" | "CLIENT_INACTIVE" | "CONFLICT";
+export type LineConnectionResult =
+  | { status: "LINKED" | "ALREADY_LINKED"; clientId: string }
+  | { status: "INVALID_OR_EXPIRED" | "CLIENT_INACTIVE" | "CONFLICT" };
 export type GenerateMissingLineConnectionsResult = { created: string[]; alreadyActive: string[]; alreadyLinked: string[]; skippedInactive: string[]; failed: Array<{ clientId: string; error: string }> };
 export type RenewLineConnectionResult = { clientId: string; status: "LINK_ACTIVE" } | null;
 
@@ -80,21 +82,21 @@ async function markConflict(dependencies: LineConnectionDependencies, target: Cl
 export function createLineConnectionService(dependencies: LineConnectionDependencies): { claim(input: { token: string; lineUserId: string; displayName?: string; pictureUrl?: string; now: Date | string }): Promise<LineConnectionResult> } {
   return {
     async claim({ token, lineUserId, displayName = "", pictureUrl = "", now }): Promise<LineConnectionResult> {
-      if (!LINE_CONNECTION_TOKEN_PATTERN.test(token)) return "INVALID_OR_EXPIRED";
+      if (!LINE_CONNECTION_TOKEN_PATTERN.test(token)) return { status: "INVALID_OR_EXPIRED" };
       const tokenHash = hashLineConnectionToken(token);
       const clients = await dependencies.listClients();
       const target = clients.find((client) => client.line_link_token_hash === tokenHash);
-      if (!target) return "INVALID_OR_EXPIRED";
-      if (target.line_user_id === lineUserId) return "ALREADY_LINKED";
-      if (!isActiveClient(target)) return "CLIENT_INACTIVE";
+      if (!target) return { status: "INVALID_OR_EXPIRED" };
+      if (!isActiveClient(target)) return { status: "CLIENT_INACTIVE" };
+      if (target.line_user_id === lineUserId) return { status: "ALREADY_LINKED", clientId: target.client_id };
       if (target.line_user_id) {
         await markConflict(dependencies, target, now, lineUserId);
-        return "CONFLICT";
+        return { status: "CONFLICT" };
       }
-      if (!hasActiveConnection(target, now)) return "INVALID_OR_EXPIRED";
+      if (!hasActiveConnection(target, now)) return { status: "INVALID_OR_EXPIRED" };
       if (clients.some((client) => client.client_id !== target.client_id && client.line_user_id === lineUserId)) {
         await markConflict(dependencies, target, now, lineUserId);
-        return "CONFLICT";
+        return { status: "CONFLICT" };
       }
 
       const linked: ClientRecord = {
@@ -110,15 +112,15 @@ export function createLineConnectionService(dependencies: LineConnectionDependen
         updated_at: nowIso(now),
       };
       const result = await dependencies.claimLineConnection({ client: linked, expectedClient: target, tokenHash, lineUserId });
-      if (result === "ALREADY_LINKED") return "ALREADY_LINKED";
+      if (result === "ALREADY_LINKED") return { status: "ALREADY_LINKED", clientId: target.client_id };
       if (result === "CONFLICT") {
         const currentTarget = (await dependencies.listClients()).find((client) => client.line_link_token_hash === tokenHash);
         if (currentTarget) await markConflict(dependencies, currentTarget, now, lineUserId);
-        return "CONFLICT";
+        return { status: "CONFLICT" };
       }
-      if (result === "STALE") return "INVALID_OR_EXPIRED";
+      if (result === "STALE") return { status: "INVALID_OR_EXPIRED" };
       await audit(dependencies, { client: target, action: "LINE_LINK_LINKED", previousStatus: target.line_link_status, newStatus: "LINKED", reason: "LINE account linked", source: "LINE_CONNECT", lineUserId });
-      return "LINKED";
+      return { status: "LINKED", clientId: target.client_id };
     },
   };
 }
