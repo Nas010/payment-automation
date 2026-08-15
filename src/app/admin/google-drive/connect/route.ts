@@ -15,7 +15,7 @@ import {
 const FLOW_MAX_AGE = 600;
 
 function oauthErrorRedirect(request: NextRequest, intent: "login" | "setup" | "reconnect", error: string): NextResponse {
-  const url = new URL(intent === "login" ? "/admin/login" : intent === "setup" ? "/admin/setup" : "/admin/settings", request.url);
+  const url = new URL(intent === "login" ? "/admin/login" : intent === "setup" ? "/admin/setup" : "/admin/settings/workspace", request.url);
   url.searchParams.set(intent === "login" ? "error" : "drive_error", error);
   return NextResponse.redirect(url);
 }
