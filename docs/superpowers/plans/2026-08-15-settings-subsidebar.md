@@ -270,7 +270,7 @@ git add src/app/admin/(protected)/settings/messages src/app/admin/(protected)/se
 
 **Interfaces:** Consumes OAuth intent/status. Produces Workspace settings returns preserving query names.
 
-- [ ] **Step 1: Write failing redirect assertions**
+- [x] **Step 1: Write failing redirect assertions**
 
 ```tsx
 expect(response.headers.get("location")).toBe("https://app.example/admin/settings/workspace?workspace=reconnect_pending");
@@ -278,13 +278,13 @@ expect(response.headers.get("location")).toBe("https://app.example/admin/setting
 
 Keep login and setup routes unchanged.
 
-- [ ] **Step 2: Verify red**
+- [x] **Step 2: Verify red**
 
 Run: `npm test -- src/app/admin/google-drive/connect/route.test.ts src/app/admin/google-drive/callback/route.test.ts`
 
 Expected: FAIL; Settings returns still target root.
 
-- [ ] **Step 3: Implement target changes**
+- [x] **Step 3: Implement target changes**
 
 ```ts
 const url = new URL(intent === "login" ? "/admin/login" : intent === "setup" ? "/admin/setup" : "/admin/settings/workspace", request.url);
@@ -293,13 +293,13 @@ const url = new URL(intent === "reconnect" || complete ? "/admin/settings/worksp
 
 Do not alter OAuth validation, error mapping, or query names.
 
-- [ ] **Step 4: Verify green and full regression suite**
+- [x] **Step 4: Verify green and full regression suite**
 
 Run: `npm test -- src/components/admin/settings-navigation.test.tsx src/app/admin/(protected)/settings src/app/admin/google-drive/connect/route.test.ts src/app/admin/google-drive/callback/route.test.ts && npm run lint && npm test && npm run build`
 
 Expected: all commands exit 0, zero lint/test failures, Next production build completes.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/app/admin/google-drive/connect/route.ts src/app/admin/google-drive/connect/route.test.ts src/app/admin/google-drive/callback/route.ts src/app/admin/google-drive/callback/route.test.ts && git commit -m "fix: return drive setup to workspace settings"

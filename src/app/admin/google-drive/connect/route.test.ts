@@ -54,6 +54,14 @@ describe("Google Drive OAuth connect route", () => {
     expect(response.headers.get("location")).toBe("https://app.example/admin/login?error=oauth_not_configured");
   });
 
+  it("returns reconnect configuration errors to Workspace settings", async () => {
+    mocks.googleDriveConfig.mockReturnValue(null);
+
+    const response = await GET(new NextRequest("https://app.example/admin/google-drive/connect?intent=reconnect"));
+
+    expect(response.headers.get("location")).toBe("https://app.example/admin/settings/workspace?drive_error=oauth_not_configured");
+  });
+
   it("sets short-lived state and PKCE cookies and redirects to Google", async () => {
     const response = await GET(new NextRequest("https://app.example/admin/google-drive/connect?intent=login"));
 
