@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { ClientRecord } from "@/lib/sheets/clients";
 import type { PaymentRecord } from "@/lib/sheets/payments";
 import type { SlipAnalysis } from "@/lib/slip/analyze";
+import { DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG } from "@/lib/line/reply-config";
 import { processLineSlipEvent, type LineSlipDependencies } from "./slip-payments";
 
 const now = "2026-08-11T12:00:00.000Z";
@@ -41,6 +42,7 @@ function dependencies(overrides: Partial<LineSlipDependencies> = {}, initialPaym
     }),
     replyLineMessage: vi.fn(async () => undefined),
     lineChatPaymentsEnabled: vi.fn(() => true),
+    automaticReplyConfig: structuredClone(DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG),
     receiverAliases: vi.fn(() => ["NAS O", "NAS OFFICE"]),
     reconcileTerminalPaymentEffects: vi.fn(async () => undefined),
     now: vi.fn(() => now),
@@ -116,14 +118,16 @@ describe("processLineSlipEvent", () => {
 
   it("marks progress, analyzes once, processes the selected payment, replies, and persists reply state", async () => {
     const stored = payment();
-    const deps = dependencies({}, [stored]);
+    const automaticReplyConfig = structuredClone(DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG);
+    automaticReplyConfig.slip.autoRecorded = "Custom recorded reply";
+    const deps = dependencies({ automaticReplyConfig }, [stored]);
 
     await expect(processLineSlipEvent(event, deps)).resolves.toMatchObject({ kind: "processed", decision: "AUTO_RECORDED", payment: expect.objectContaining({ payment_id: "pay_1" }) });
     expect(deps.updatePaymentIfUnchanged).toHaveBeenCalledWith(expect.objectContaining({ payment: expect.objectContaining({ line_slip_processing_status: "DOWNLOADING", line_slip_error: "" }) }));
     expect(deps.updatePaymentIfUnchanged).toHaveBeenCalledWith(expect.objectContaining({ payment: expect.objectContaining({ line_slip_processing_status: "ANALYZING" }) }));
     expect(deps.analyzeSlip).toHaveBeenCalledOnce();
     expect(deps.processSlipImage).toHaveBeenCalledWith(expect.objectContaining({ expectedPayment: stored, analysis: analysis(), source: { type: "LINE", lineUserId, lineMessageId: "message_1", clientId: "client_1" } }));
-    expect(deps.replyLineMessage).toHaveBeenCalledWith(expect.objectContaining({ replyToken: "reply-token", text: "Payment slip received and recorded." }));
+    expect(deps.replyLineMessage).toHaveBeenCalledWith(expect.objectContaining({ replyToken: "reply-token", text: "Custom recorded reply" }));
     expect(deps.updatePaymentIfUnchanged).toHaveBeenLastCalledWith(expect.objectContaining({ payment: expect.objectContaining({ payment_id: "pay_1", line_reply_status: "SENT", line_reply_at: now }) }));
   });
 
@@ -139,15 +143,19 @@ describe("processLineSlipEvent", () => {
   it("reconciles terminal transition effects before replying to a redelivered LINE message", async () => {
     const recorded = payment({ status: "AUTO_RECORDED", line_slip_expected: "FALSE", line_source_message_id: "message_1", line_slip_processing_status: "AUTO_RECORDED" });
     const calls: string[] = [];
+    const automaticReplyConfig = structuredClone(DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG);
+    automaticReplyConfig.slip.autoRecorded = "Current retry reply";
     const deps = dependencies({
       listPayments: vi.fn(async () => [recorded]),
       reconcileTerminalPaymentEffects: vi.fn(async () => { calls.push("reconcile"); }),
       getLineChannelAccessToken: vi.fn(async () => { calls.push("token"); return "access-token-which-is-never-logged"; }),
       replyLineMessage: vi.fn(async () => { calls.push("reply"); }),
+      automaticReplyConfig,
     } as Partial<LineSlipDependencies>);
 
     await expect(processLineSlipEvent(event, deps)).resolves.toMatchObject({ kind: "duplicate", payment: recorded });
     expect(calls).toEqual(["reconcile", "token", "reply"]);
+    expect(deps.replyLineMessage).toHaveBeenCalledWith(expect.objectContaining({ text: "Current retry reply" }));
     expect(deps.listSchedules).toHaveBeenCalledOnce();
     expect(deps.getLineMessageContent).not.toHaveBeenCalled();
   });
@@ -260,13 +268,16 @@ describe("processLineSlipEvent", () => {
   it("sends review reply instead of guessing when multiple candidates cannot be resolved", async () => {
     const first = payment({ payment_id: "pay_1" });
     const second = payment({ rowNumber: 3, payment_id: "pay_2" });
+    const automaticReplyConfig = structuredClone(DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG);
+    automaticReplyConfig.slip.review = "Custom review reply";
     const deps = dependencies({
       resolveLinePaymentCandidate: vi.fn(() => null),
+      automaticReplyConfig,
     }, [first, second]);
 
     await expect(processLineSlipEvent(event, deps)).resolves.toMatchObject({ kind: "review", decision: "REVIEW" });
     expect(deps.processSlipImage).not.toHaveBeenCalled();
-    expect(deps.replyLineMessage).toHaveBeenCalledWith(expect.objectContaining({ text: "Payment slip received. It will be reviewed." }));
+    expect(deps.replyLineMessage).toHaveBeenCalledWith(expect.objectContaining({ text: "Custom review reply" }));
   });
 
   it("persists ambiguous review through the shared transition with its linked schedule", async () => {
@@ -298,11 +309,13 @@ describe("processLineSlipEvent", () => {
   });
 
   it("sends mismatch reply for flagged payment", async () => {
-    const deps = dependencies({ processSlipImage: vi.fn(async ({ expectedPayment }) => ({ decision: "FLAGGED" as const, duplicate: false, analysis: analysis(), evaluation: null, payment: { ...expectedPayment, status: "FLAGGED" } })) });
+    const automaticReplyConfig = structuredClone(DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG);
+    automaticReplyConfig.slip.flagged = "Custom flagged reply";
+    const deps = dependencies({ processSlipImage: vi.fn(async ({ expectedPayment }) => ({ decision: "FLAGGED" as const, duplicate: false, analysis: analysis(), evaluation: null, payment: { ...expectedPayment, status: "FLAGGED" } })), automaticReplyConfig });
 
     await processLineSlipEvent(event, deps);
 
-    expect(deps.replyLineMessage).toHaveBeenCalledWith(expect.objectContaining({ text: "Payment slip received. Please contact your trainer so they can review it." }));
+    expect(deps.replyLineMessage).toHaveBeenCalledWith(expect.objectContaining({ text: "Custom flagged reply" }));
   });
 
   it("keeps a recorded payment when reply fails and saves failed reply state on fresh row", async () => {

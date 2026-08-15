@@ -1,5 +1,7 @@
 import { replyLineMessage, getLineMessageContent } from "@/lib/line/client";
 import { getLineChannelAccessToken } from "@/lib/secrets/service";
+import { getLineAutomaticReplyConfig } from "@/lib/sheets/settings";
+import { lineSlipReplyText, type LineAutomaticReplyConfig } from "@/lib/line/reply-config";
 import { resolveLinePaymentCandidate } from "@/lib/line/payment-match";
 import { persistPaymentTransition, reconcileTerminalPaymentEffects } from "@/lib/payments/transition";
 import { runtimeConfig } from "@/lib/runtime-config";
@@ -30,6 +32,7 @@ export type LineSlipDependencies = {
   persistPaymentTransition: typeof persistPaymentTransition;
   reconcileTerminalPaymentEffects: typeof reconcileTerminalPaymentEffects;
   lineChatPaymentsEnabled: () => boolean;
+  automaticReplyConfig: LineAutomaticReplyConfig;
   receiverAliases: () => string[];
   getLineChannelAccessToken: () => Promise<string>;
   getLineMessageContent: typeof getLineMessageContent;
@@ -42,8 +45,8 @@ export type LineSlipDependencies = {
 };
 
 async function defaultDependencies(): Promise<LineSlipDependencies> {
-  const config = await runtimeConfig();
-  return { listClients, listPayments, listSchedules, updatePayment, updatePaymentIfUnchanged, appendAudit, persistPaymentTransition, reconcileTerminalPaymentEffects, lineChatPaymentsEnabled: () => config.lineChatPaymentsEnabled, receiverAliases: () => [config.recipientNameEn, config.recipientNameTh, ...config.recipientAliases].filter(Boolean), getLineChannelAccessToken, getLineMessageContent, hashSlipImage: sha256, analyzeSlip: (bytes, declaredType, aliases) => analyzeSlip(bytes, declaredType, aliases, { ocrEnabled: config.ocrEnabled }), resolveLinePaymentCandidate, processSlipImage, replyLineMessage, now: () => new Date().toISOString() };
+  const [config, automaticReplyConfig] = await Promise.all([runtimeConfig(), getLineAutomaticReplyConfig()]);
+  return { listClients, listPayments, listSchedules, updatePayment, updatePaymentIfUnchanged, appendAudit, persistPaymentTransition, reconcileTerminalPaymentEffects, lineChatPaymentsEnabled: () => config.lineChatPaymentsEnabled, automaticReplyConfig, receiverAliases: () => [config.recipientNameEn, config.recipientNameTh, ...config.recipientAliases].filter(Boolean), getLineChannelAccessToken, getLineMessageContent, hashSlipImage: sha256, analyzeSlip: (bytes, declaredType, aliases) => analyzeSlip(bytes, declaredType, aliases, { ocrEnabled: config.ocrEnabled }), resolveLinePaymentCandidate, processSlipImage, replyLineMessage, now: () => new Date().toISOString() };
 }
 
 function linkedClient(clients: ClientRecord[], lineUserId: string): ClientRecord | null {
@@ -74,12 +77,6 @@ async function progress(dependencies: LineSlipDependencies, paymentId: string, e
   if (await dependencies.updatePaymentIfUnchanged({ expectedPayment: current, payment: next })) return next;
   await currentPayment(dependencies, paymentId);
   return null;
-}
-
-function replyText(decision: SlipProcessResult["decision"]): string {
-  if (decision === "AUTO_RECORDED") return "Payment slip received and recorded.";
-  if (decision === "FLAGGED") return "Payment slip received. Please contact your trainer so they can review it.";
-  return "Payment slip received. It will be reviewed.";
 }
 
 function replyCanBeRetried(status: string): boolean {
@@ -123,7 +120,7 @@ async function replyAfterResult(dependencies: LineSlipDependencies, payment: Pay
   }
 
   try {
-    await dependencies.replyLineMessage({ channelAccessToken, replyToken: event.replyToken, text: replyText(decision), fetchFn: fetch });
+    await dependencies.replyLineMessage({ channelAccessToken, replyToken: event.replyToken, text: lineSlipReplyText(dependencies.automaticReplyConfig, decision), fetchFn: fetch });
   } catch {
     await audit(dependencies, payment, "LINE_PAYMENT_REPLY_FAILED", "LINE reply failed", event);
     try {
