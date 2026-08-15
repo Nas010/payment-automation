@@ -31,10 +31,11 @@ describe("LINE LIFF ID-token verification", () => {
     }));
   });
 
-  it("does not trust a picture URL outside LINE's profile CDN", async () => {
-    const fetchFn = vi.fn().mockResolvedValue(new Response(JSON.stringify(verified({ picture: "https://attacker.example/avatar" })), { status: 200 }));
+  it("preserves a valid HTTPS picture URL from LINE's verified token response", async () => {
+    const pictureUrl = "https://profile-cdn.example.test/avatar";
+    const fetchFn = vi.fn().mockResolvedValue(new Response(JSON.stringify(verified({ picture: pictureUrl })), { status: 200 }));
 
-    await expect(verifyLineIdToken({ idToken, channelId, now, fetchFn })).resolves.toMatchObject({ pictureUrl: "" });
+    await expect(verifyLineIdToken({ idToken, channelId, now, fetchFn })).resolves.toMatchObject({ pictureUrl });
   });
 
   it.each([

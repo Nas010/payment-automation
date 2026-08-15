@@ -27,10 +27,4 @@ describe("Next build output", () => {
     expect(packageJson.scripts.dev).toBe("NEXT_DIST_DIR=.next-dev next dev");
   });
 
-  it("allows optimized remote images only from LINE's documented profile CDNs", async () => {
-    expect((await loadNextConfig()).images?.remotePatterns).toEqual([
-      { protocol: "https", hostname: "profile.line-scdn.net", pathname: "/**" },
-      { protocol: "https", hostname: "obs.line-apps.com", pathname: "/**" },
-    ]);
-  });
 });

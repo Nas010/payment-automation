@@ -3,12 +3,6 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   distDir: process.env.NEXT_DIST_DIR ?? ".next",
   experimental: { serverActions: { bodySizeLimit: "2mb" } },
-  images: {
-    remotePatterns: [
-      { protocol: "https", hostname: "profile.line-scdn.net", pathname: "/**" },
-      { protocol: "https", hostname: "obs.line-apps.com", pathname: "/**" },
-    ],
-  },
   // Tesseract starts a Node worker from its package at runtime. Keep the package
   // external so Vercel traces that worker script into the serverless function.
   serverExternalPackages: ["tesseract.js", "tesseract.js-core"],

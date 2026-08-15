@@ -1,6 +1,6 @@
 "use client";
 
-import Image from "next/image";
+/* eslint-disable @next/next/no-img-element -- LINE's authenticated profile API does not guarantee a fixed image host; this avoids server-side image proxying. */
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 
@@ -19,6 +19,6 @@ export function ClientAvatar({ clientName, lineDisplayName, pictureUrl, size = "
   const showPicture = Boolean(pictureUrl) && failedUrl !== pictureUrl;
 
   return <span className={cn("relative inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted font-semibold text-muted-foreground ring-1 ring-foreground/10", size === "lg" ? "size-12 text-sm" : "size-8 text-xs")}>
-    {showPicture ? <Image src={pictureUrl} alt={`LINE profile picture for ${clientName}`} width={pixels} height={pixels} className="size-full object-cover" onError={() => setFailedUrl(pictureUrl)} /> : <span aria-label={`${clientName} avatar`}>{avatarInitials(lineDisplayName, clientName)}</span>}
+    {showPicture ? <img src={pictureUrl} alt={`LINE profile picture for ${clientName}`} width={pixels} height={pixels} loading="lazy" referrerPolicy="no-referrer" className="size-full object-cover" onError={() => setFailedUrl(pictureUrl)} /> : <span aria-label={`${clientName} avatar`}>{avatarInitials(lineDisplayName, clientName)}</span>}
   </span>;
 }

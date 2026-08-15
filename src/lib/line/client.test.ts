@@ -14,10 +14,10 @@ describe("LINE HTTP client", () => {
     expect(fetchFn).toHaveBeenCalledWith("https://api.line.me/v2/bot/profile/Uaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", { headers: { Authorization: `Bearer ${token}` } });
   });
 
-  it("removes an unsafe picture URL without rejecting an otherwise valid profile", async () => {
+  it("preserves a valid HTTPS profile image returned by LINE", async () => {
     const fetchFn = vi.fn(async () => new Response(JSON.stringify({ displayName: "Nisa", userId: "Uprivate", pictureUrl: "https://attacker.example/avatar" }), { status: 200 }));
 
-    await expect(getLineProfile({ channelAccessToken: token, userId: "Uaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", fetchFn })).resolves.toEqual({ displayName: "Nisa", pictureUrl: "", pictureUrlStatus: "rejected" });
+    await expect(getLineProfile({ channelAccessToken: token, userId: "Uaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", fetchFn })).resolves.toEqual({ displayName: "Nisa", pictureUrl: "https://attacker.example/avatar", pictureUrlStatus: "present" });
   });
 
   it("identifies an omitted LINE profile image without exposing profile data", async () => {
