@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_LINE_DUE_PROFILES, LINE_DUE_PROFILE_SETTING_KEYS } from "@/lib/line/message-profile";
 import { DEFAULT_LINE_WELCOME_TEMPLATE } from "@/lib/line/message-template";
+import { LINE_TERMS_ACTIVE_VERSION_KEY, LINE_TERMS_VERSIONS_KEY, type LineTermsImageVersion } from "@/lib/line/terms-image";
 
 const mocks = vi.hoisted(() => ({ get: vi.fn(), batchUpdate: vi.fn() }));
 
@@ -8,7 +9,17 @@ vi.mock("./client", () => ({
   getGoogleSheets: () => ({ spreadsheetId: "spreadsheet_1", sheets: { spreadsheets: { values: { get: mocks.get, batchUpdate: mocks.batchUpdate } } } }),
 }));
 
-import { getLineDueMessageProfiles, getLineWelcomeTemplate, resolveLineDueMessageProfiles, saveLineDueMessageProfile, upsertOperationalSetting, upsertOperationalSettings } from "./settings";
+import { getLineDueMessageProfiles, getLineTermsImageState, getLineWelcomeTemplate, resolveLineDueMessageProfiles, saveLineDueMessageProfile, saveLineTermsImageVersion, upsertOperationalSetting, upsertOperationalSettings } from "./settings";
+
+const termsVersion: LineTermsImageVersion = {
+  versionId: "terms_abcdefghijklmnopqrstuvwxyzABCDEF",
+  publicToken: "abcdefghijklmnopqrstuvwxyzABCDEF",
+  driveFileId: "drive-file-123",
+  mimeType: "image/png",
+  byteLength: 9,
+  originalName: "terms.png",
+  uploadedAt: "2026-08-15T01:00:00.000Z",
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -97,5 +108,35 @@ describe("operational settings writes", () => {
     await expect(upsertOperationalSetting("line_welcome_message_template", "Welcome {{client_name}}"))
       .rejects.toThrow("LINE welcome template requires placeholder: line_connect_url");
     expect(mocks.batchUpdate).not.toHaveBeenCalled();
+  });
+
+  it("loads the terms image registry from operational settings", async () => {
+    mocks.get.mockResolvedValue({ data: { values: [["key", "value"],
+      [LINE_TERMS_ACTIVE_VERSION_KEY, termsVersion.versionId],
+      [LINE_TERMS_VERSIONS_KEY, JSON.stringify([termsVersion])],
+    ] } });
+
+    await expect(getLineTermsImageState()).resolves.toEqual({ activeVersionId: termsVersion.versionId, versions: [termsVersion] });
+  });
+
+  it("stores replacement terms image metadata and preserves old versions", async () => {
+    const replacement = {
+      ...termsVersion,
+      versionId: "terms_0123456789abcdefghijklmnopqrstuvwxyzAB",
+      publicToken: "0123456789abcdefghijklmnopqrstuvwxyzAB",
+      driveFileId: "drive-file-456",
+      originalName: "terms-v2.png",
+    };
+    mocks.get.mockResolvedValue({ data: { values: [["key", "value"],
+      [LINE_TERMS_ACTIVE_VERSION_KEY, termsVersion.versionId],
+      [LINE_TERMS_VERSIONS_KEY, JSON.stringify([termsVersion])],
+    ] } });
+
+    await saveLineTermsImageVersion(replacement);
+
+    expect(mocks.batchUpdate).toHaveBeenCalledWith(expect.objectContaining({ requestBody: expect.objectContaining({ data: [
+      { range: "Settings!A2:B2", values: [[LINE_TERMS_ACTIVE_VERSION_KEY, replacement.versionId]] },
+      { range: "Settings!A3:B3", values: [[LINE_TERMS_VERSIONS_KEY, JSON.stringify([termsVersion, replacement])]] },
+    ] }) }));
   });
 });
