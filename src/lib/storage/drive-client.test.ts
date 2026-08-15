@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createDriveFolder, createDriveSlipFile, testDriveFolderWrite, validateDriveFolder, type DriveClientLike } from "./drive-client";
+import { createDriveFolder, createDriveSlipFile, createDriveTermsImageFile, readDriveTermsImageFile, testDriveFolderWrite, validateDriveFolder, type DriveClientLike } from "./drive-client";
 
 function driveWith({ folder, getError, createdId = "file-12345", deleteError }: { folder?: Record<string, unknown>; getError?: unknown; createdId?: string | null; deleteError?: unknown } = {}) {
   const get = vi.fn().mockImplementation(async () => {
@@ -56,6 +56,44 @@ describe("createDriveSlipFile", () => {
       fields: "id",
       supportsAllDrives: true,
     }));
+  });
+});
+
+describe("LINE T&S Drive assets", () => {
+  it("creates an immutable image in the configured folder", async () => {
+    const { drive, create } = driveWith({ createdId: "terms-file-12345" });
+    await expect(createDriveTermsImageFile({
+      bytes: new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]),
+      mimeType: "image/png",
+      versionId: "terms_11111111111111111111111111111111",
+      folderId: "folder-12345",
+    }, { drive })).resolves.toBe("terms-file-12345");
+
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({
+      requestBody: {
+        name: "line-terms-terms_11111111111111111111111111111111.png",
+        parents: ["folder-12345"],
+        mimeType: "image/png",
+      },
+      fields: "id",
+      supportsAllDrives: true,
+    }));
+  });
+
+  it("reads image bytes without exposing Google metadata", async () => {
+    const get = vi.fn().mockResolvedValue({ data: new Uint8Array([255, 216, 255]).buffer, headers: { "content-type": "image/jpeg" } });
+    const drive = { files: { get } } as unknown as DriveClientLike;
+
+    await expect(readDriveTermsImageFile("terms-file-12345", { drive })).resolves.toEqual({
+      bytes: new Uint8Array([255, 216, 255]),
+      declaredMimeType: "image/jpeg",
+    });
+    expect(get).toHaveBeenCalledWith({ fileId: "terms-file-12345", alt: "media", supportsAllDrives: true });
+  });
+
+  it("sanitizes image reads that fail", async () => {
+    const drive = driveWith({ getError: new Error("private Google body") }).drive;
+    await expect(readDriveTermsImageFile("terms-file-12345", { drive })).rejects.toThrow("T&S image is unavailable.");
   });
 });
 

@@ -24,8 +24,8 @@ const firstVersion: LineTermsImageVersion = {
 
 describe("LINE terms image assets", () => {
   it("accepts genuine PNG and JPEG bytes while rejecting empty or spoofed files", () => {
-    expect(() => validateLineTermsImageBytes(new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0]))).not.toThrow();
-    expect(() => validateLineTermsImageBytes(new Uint8Array([255, 216, 255, 0]))).not.toThrow();
+    expect(validateLineTermsImageBytes(new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0]))).toBe("image/png");
+    expect(validateLineTermsImageBytes(new Uint8Array([255, 216, 255, 0]))).toBe("image/jpeg");
     expect(() => validateLineTermsImageBytes(new Uint8Array())).toThrow(LineTermsImageError);
     expect(() => validateLineTermsImageBytes(new Uint8Array([1, 2, 3, 4]))).toThrow("PNG or JPEG");
   });

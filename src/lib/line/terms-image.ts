@@ -34,14 +34,16 @@ const ID_PATTERN = /^terms_[A-Za-z0-9_-]{32,128}$/;
 const PUBLIC_TOKEN_PATTERN = /^[A-Za-z0-9_-]{32,128}$/;
 const PNG_SIGNATURE = [137, 80, 78, 71, 13, 10, 26, 10];
 
-export function validateLineTermsImageBytes(bytes: Uint8Array): void {
+export function validateLineTermsImageBytes(bytes: Uint8Array): LineTermsImageMimeType {
   if (!bytes.length) throw new LineTermsImageError("INVALID_FILE", "Terms image must not be empty");
   if (bytes.byteLength > MAX_LINE_TERMS_IMAGE_BYTES) {
     throw new LineTermsImageError("FILE_TOO_LARGE", "Terms image must be 1 MiB or smaller");
   }
   const isPng = PNG_SIGNATURE.every((byte, index) => bytes[index] === byte);
   const isJpeg = bytes.length >= 3 && bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255;
-  if (!isPng && !isJpeg) throw new LineTermsImageError("INVALID_FILE", "Terms image must be a PNG or JPEG");
+  if (isPng) return "image/png";
+  if (isJpeg) return "image/jpeg";
+  throw new LineTermsImageError("INVALID_FILE", "Terms image must be a PNG or JPEG");
 }
 
 function configError(): never {
