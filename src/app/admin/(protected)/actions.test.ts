@@ -442,7 +442,7 @@ describe("existing client billing actions", () => {
 
     await changePackageAssignmentAction("client_1", assignmentForm({ package_name: "Premium", first_due_date: "2026-09-01", notes: "Upgrade" }));
 
-    expect(mocks.updateSchedulesIfUnchanged).toHaveBeenCalledOnce();
+    expect(mocks.updateSchedulesIfUnchanged).toHaveBeenCalled();
     expect(mocks.writeSchedule).toHaveBeenCalledOnce();
     expect(mocks.writeSchedule).toHaveBeenCalledWith(expect.objectContaining({ package_name: "Premium", payment_type: "ONE_TIME", amount_thb: "1000", assignment_id: expect.stringMatching(/^assignment_change_/), lifecycle_operation_id: "" }));
     expect(mocks.updateClient).toHaveBeenCalledWith(expect.objectContaining({ package_name: "Premium", default_amount_thb: "1000" }));
@@ -480,6 +480,45 @@ describe("existing client billing actions", () => {
     expect(mocks.updatePaymentIfUnchanged).toHaveBeenCalledOnce();
     expect(mocks.updateSchedulesIfUnchanged).toHaveBeenCalledTimes(2);
     expect(mocks.appendAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "PACKAGE_ASSIGNMENT_PAUSED" }));
+  });
+
+  it("does not revoke a generated payment while its due-message delivery is in progress", async () => {
+    const generated = schedule({ status: "GENERATED", generated_at: now, payment_id: "pay_1", payment_url: "https://pay.test/pay_1" });
+    mocks.listClients.mockResolvedValue([client()]);
+    mocks.listPackages.mockResolvedValue([{ package_name: "PT", active: "TRUE" }]);
+    mocks.listSchedules.mockResolvedValue([generated]);
+    mocks.listPayments.mockResolvedValue([payment({ line_message_status: "SENDING" })]);
+
+    await expect(pausePackageAssignmentAction("client_1", assignmentForm())).rejects.toThrow("Payment pay_1 is being delivered");
+
+    expect(mocks.updatePaymentIfUnchanged).not.toHaveBeenCalled();
+    expect(mocks.updateSchedulesIfUnchanged).not.toHaveBeenCalled();
+  });
+
+  it("does not revoke a generated payment while its installment reminder is in progress", async () => {
+    const generated = schedule({ status: "GENERATED", generated_at: now, payment_id: "pay_1", payment_url: "https://pay.test/pay_1" });
+    mocks.listClients.mockResolvedValue([client()]);
+    mocks.listPackages.mockResolvedValue([{ package_name: "PT", active: "TRUE" }]);
+    mocks.listSchedules.mockResolvedValue([generated]);
+    mocks.listPayments.mockResolvedValue([payment({ line_reminder_delivery_log: JSON.stringify({ version: 1, deliveries: { T_MINUS_7_DAYS: { status: "SENDING" } } }) })]);
+
+    await expect(pausePackageAssignmentAction("client_1", assignmentForm())).rejects.toThrow("Payment pay_1 is being delivered");
+
+    expect(mocks.updatePaymentIfUnchanged).not.toHaveBeenCalled();
+    expect(mocks.updateSchedulesIfUnchanged).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when a generated payment has malformed reminder delivery state", async () => {
+    const generated = schedule({ status: "GENERATED", generated_at: now, payment_id: "pay_1", payment_url: "https://pay.test/pay_1" });
+    mocks.listClients.mockResolvedValue([client()]);
+    mocks.listPackages.mockResolvedValue([{ package_name: "PT", active: "TRUE" }]);
+    mocks.listSchedules.mockResolvedValue([generated]);
+    mocks.listPayments.mockResolvedValue([payment({ line_reminder_delivery_log: "not-json" })]);
+
+    await expect(pausePackageAssignmentAction("client_1", assignmentForm())).rejects.toThrow("Payment pay_1 is being delivered");
+
+    expect(mocks.updatePaymentIfUnchanged).not.toHaveBeenCalled();
+    expect(mocks.updateSchedulesIfUnchanged).not.toHaveBeenCalled();
   });
 
   it("allows only one concurrent package change to claim and create a replacement", async () => {
@@ -528,6 +567,84 @@ describe("existing client billing actions", () => {
     expect(new Set(replacements.map((item) => item.schedule_id)).size).toBe(2);
     expect(mocks.writeSchedule).toHaveBeenCalledTimes(3);
     expect(mocks.writeSchedule.mock.calls[1]?.[0].schedule_id).toBe(mocks.writeSchedule.mock.calls[2]?.[0].schedule_id);
+  });
+
+  it("lets only one concurrent retry append replacement rows after a partial change", async () => {
+    const old = schedule({ payment_type: "ONE_TIME", installment_number: "1", installment_count: "1", amount_thb: "500" });
+    const stored: ScheduleRecord[] = [old];
+    mocks.listClients.mockResolvedValue([client()]);
+    mocks.listPackages.mockResolvedValue([{ rowNumber: 4, package_name: "Premium", total_price_thb: "1500", payment_type: "INSTALLMENTS", installment_count: "2", interval_months: "1", active: "TRUE" }]);
+    mocks.listSchedules.mockImplementation(async () => stored);
+    mocks.updateSchedulesIfUnchanged.mockImplementation(async ({ updates }: { updates: Array<{ schedule: ScheduleRecord }> }) => {
+      for (const update of updates) {
+        const index = stored.findIndex((item) => item.schedule_id === update.schedule.schedule_id);
+        stored[index] = update.schedule;
+      }
+      return true;
+    });
+    let writeAttempt = 0;
+    mocks.writeSchedule.mockImplementation(async (row: ScheduleRecord) => {
+      writeAttempt += 1;
+      if (writeAttempt === 2) throw new Error("injected replacement write failure");
+      stored.push({ ...row, rowNumber: stored.length + 2 });
+    });
+    const form = () => assignmentForm({ package_name: "Premium", first_due_date: "2026-09-01", notes: "Upgrade" });
+
+    await expect(changePackageAssignmentAction("client_1", form())).rejects.toThrow("injected replacement write failure");
+
+    let releaseFirstRetryWrite: (() => void) | undefined;
+    let retryWriteCalls = 0;
+    const firstRetryWriteStarted = new Promise<void>((resolve) => {
+      mocks.writeSchedule.mockImplementation(async (row: ScheduleRecord) => {
+        retryWriteCalls += 1;
+        if (retryWriteCalls === 1) {
+          resolve();
+          await new Promise<void>((release) => { releaseFirstRetryWrite = release; });
+        }
+        stored.push({ ...row, rowNumber: stored.length + 2 });
+      });
+    });
+
+    const firstRetry = changePackageAssignmentAction("client_1", form());
+    await firstRetryWriteStarted;
+    const secondRetry = changePackageAssignmentAction("client_1", form());
+
+    await expect(secondRetry).rejects.toThrow("Replacement schedule write is already in progress");
+    releaseFirstRetryWrite?.();
+    await expect(firstRetry).resolves.toBeUndefined();
+
+    const replacements = stored.filter((item) => item.assignment_id.startsWith("assignment_change_"));
+    expect(replacements).toHaveLength(2);
+    expect(new Set(replacements.map((item) => item.schedule_id)).size).toBe(2);
+  });
+
+  it("reclaims an expired replacement-write lease after an interrupted change", async () => {
+    const operationId = "change_8c32190c684c0b8aa144bc49c2cf6c71";
+    mocks.listClients.mockResolvedValue([client()]);
+    mocks.listPackages.mockResolvedValue([{ rowNumber: 4, package_name: "Premium", total_price_thb: "1500", payment_type: "INSTALLMENTS", installment_count: "2", interval_months: "1", active: "TRUE" }]);
+    mocks.listSchedules.mockResolvedValue([schedule({
+      status: "CANCELLED",
+      lifecycle_operation_id: `${operationId}:REPLACEMENT_WRITING:2000-01-01T00:00:00.000Z`,
+    })]);
+
+    await expect(changePackageAssignmentAction("client_1", assignmentForm({ package_name: "Premium", first_due_date: "2026-09-01", notes: "Upgrade" }))).resolves.toBeUndefined();
+
+    expect(mocks.writeSchedule).toHaveBeenCalledTimes(2);
+  });
+
+  it("blocks concurrent retries while every source row shares a replacement-write lease", async () => {
+    const operationId = "change_8c32190c684c0b8aa144bc49c2cf6c71";
+    const lease = `${operationId}:REPLACEMENT_WRITING:2999-01-01T00:00:00.000Z`;
+    mocks.listClients.mockResolvedValue([client()]);
+    mocks.listPackages.mockResolvedValue([{ rowNumber: 4, package_name: "Premium", total_price_thb: "1500", payment_type: "INSTALLMENTS", installment_count: "2", interval_months: "1", active: "TRUE" }]);
+    mocks.listSchedules.mockResolvedValue([
+      schedule({ status: "CANCELLED", lifecycle_operation_id: lease }),
+      schedule({ rowNumber: 3, schedule_id: "schedule_2", installment_number: "2", status: "CANCELLED", lifecycle_operation_id: lease }),
+    ]);
+
+    await expect(changePackageAssignmentAction("client_1", assignmentForm({ package_name: "Premium", first_due_date: "2026-09-01", notes: "Upgrade" }))).rejects.toThrow("Replacement schedule write is already in progress");
+
+    expect(mocks.writeSchedule).not.toHaveBeenCalled();
   });
 
   it("pauses, resumes, and ends only outstanding package rows", async () => {

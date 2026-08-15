@@ -11,6 +11,7 @@ import { sendDueLinePaymentRequests } from "@/lib/line/due-payments";
 import { generateMissingLineConnections, renewLineConnection, type GenerateMissingLineConnectionsResult, type RenewLineConnectionResult } from "@/lib/line/connection";
 import { createLineConnectionTokenFields } from "@/lib/line/connection-token";
 import { disconnectLineUser } from "@/lib/line/linking";
+import { parseReminderDeliveryLog } from "@/lib/line/reminder-delivery";
 import { parseSatang } from "@/lib/money";
 import { buildAssignedScheduleRows } from "@/lib/plans/assignment";
 import { buildPackageAssignments, type PackageAssignment } from "@/lib/plans/assignment-lifecycle";
@@ -234,6 +235,16 @@ function outstandingAssignmentSchedules(assignment: PackageAssignment<ScheduleRe
   return assignment.schedules.filter((schedule) => !["PAID", "CANCELLED", "DELETED"].includes(schedule.status));
 }
 
+function paymentDeliveryInProgress(payment: PaymentRecord): boolean {
+  if (payment.line_message_status === "SENDING") return true;
+  try {
+    return Object.values(parseReminderDeliveryLog(payment.line_reminder_delivery_log).deliveries)
+      .some((delivery) => delivery?.status === "SENDING");
+  } catch {
+    return true;
+  }
+}
+
 function generatedPaymentForSchedule(schedule: ScheduleRecord, paymentsById: ReadonlyMap<string, PaymentRecord>): PaymentRecord | null {
   const hasGeneratedPayment = schedule.status === "GENERATED" || Boolean(schedule.generated_at || schedule.payment_id || schedule.payment_url);
   if (!hasGeneratedPayment) return null;
@@ -241,15 +252,76 @@ function generatedPaymentForSchedule(schedule: ScheduleRecord, paymentsById: Rea
   const payment = paymentsById.get(schedule.payment_id);
   if (!payment || payment.client_id !== schedule.client_id) throw new Error(`Generated schedule ${schedule.schedule_id} is missing a linked payment`);
   if (payment.status !== "PENDING" && payment.status !== "VOID") throw new Error(`Package assignment cannot be changed while payment ${payment.payment_id} is ${payment.status}`);
+  if (payment.status === "PENDING" && paymentDeliveryInProgress(payment)) throw new Error(`Payment ${payment.payment_id} is being delivered; retry package lifecycle action after delivery completes`);
   return payment;
 }
 
-function assignmentClaimedBy(assignment: PackageAssignment<ScheduleRecord>, operationId: string): boolean {
-  return assignment.schedules.length > 0 && assignment.schedules.every((schedule) => schedule.lifecycle_operation_id === operationId);
+const REPLACEMENT_WRITE_LEASE_MS = 5 * 60 * 1000;
+
+function lifecycleOperationMatches(marker: string | undefined, operationId: string): boolean {
+  return marker === operationId || marker?.startsWith(`${operationId}:`) === true;
 }
 
-async function updateLifecycleSchedules(assignment: PackageAssignment<ScheduleRecord>, nextStatus: "PAUSED" | "SCHEDULED" | "CANCELLED" | "DELETED", payments: readonly PaymentRecord[], now: string, operationId: string): Promise<void> {
-  if (assignmentClaimedBy(assignment, operationId)) return;
+function assignmentClaimedBy(assignment: PackageAssignment<ScheduleRecord>, operationId: string): boolean {
+  return assignment.schedules.length > 0 && assignment.schedules.every((schedule) => lifecycleOperationMatches(schedule.lifecycle_operation_id, operationId));
+}
+
+function replacementWritingMarker(operationId: string, now: string): string {
+  return `${operationId}:REPLACEMENT_WRITING:${new Date(new Date(now).getTime() + REPLACEMENT_WRITE_LEASE_MS).toISOString()}`;
+}
+
+function replacementWriteLeaseExpired(marker: string, operationId: string, now: string): boolean | null {
+  const prefix = `${operationId}:REPLACEMENT_WRITING:`;
+  if (!marker.startsWith(prefix)) return null;
+  const expiresAt = Date.parse(marker.slice(prefix.length));
+  if (!Number.isFinite(expiresAt)) return null;
+  return expiresAt <= new Date(now).getTime();
+}
+
+type ReplacementWriteClaim = {
+  schedules: ScheduleRecord[];
+};
+
+async function claimReplacementScheduleWrites(assignment: PackageAssignment<ScheduleRecord>, operationId: string, now: string): Promise<ReplacementWriteClaim | null> {
+  const completeMarker = `${operationId}:REPLACEMENT_COMPLETE`;
+  const markers = assignment.schedules.map((schedule) => schedule.lifecycle_operation_id ?? "");
+  if (markers.every((marker) => marker === completeMarker)) return null;
+
+  const writingMarkers = new Set(markers.filter((marker) => marker.startsWith(`${operationId}:REPLACEMENT_WRITING:`)));
+  const writingMarker = writingMarkers.size === 1 ? [...writingMarkers][0] : null;
+  const hasSingleWritingLease = writingMarker !== null && markers.every((marker) => marker === writingMarker);
+  const baseClaim = markers.every((marker) => marker === operationId);
+  const expiredClaim = hasSingleWritingLease && replacementWriteLeaseExpired(writingMarker, operationId, now) === true;
+  if (!baseClaim && !expiredClaim) {
+    if (hasSingleWritingLease) throw new Error("Replacement schedule write is already in progress");
+    throw new Error("Replacement schedule write state is invalid");
+  }
+
+  const marker = replacementWritingMarker(operationId, now);
+  const schedules = assignment.schedules.map((schedule) => ({ ...schedule, lifecycle_operation_id: marker, updated_at: now }));
+  if (!await updateSchedulesIfUnchanged({ updates: schedules.map((schedule, index) => ({ expectedSchedule: assignment.schedules[index] as ScheduleRecord, schedule })) })) {
+    throw new Error("Schedule changed before replacement schedule write");
+  }
+  return { schedules };
+}
+
+async function releaseReplacementScheduleWrites(claim: ReplacementWriteClaim, operationId: string, now: string): Promise<void> {
+  const schedules = claim.schedules.map((schedule) => ({ ...schedule, lifecycle_operation_id: operationId, updated_at: now }));
+  if (!await updateSchedulesIfUnchanged({ updates: schedules.map((schedule, index) => ({ expectedSchedule: claim.schedules[index] as ScheduleRecord, schedule })) })) {
+    throw new Error("Schedule changed while releasing replacement schedule write");
+  }
+}
+
+async function completeReplacementScheduleWrites(claim: ReplacementWriteClaim, operationId: string, now: string): Promise<void> {
+  const marker = `${operationId}:REPLACEMENT_COMPLETE`;
+  const schedules = claim.schedules.map((schedule) => ({ ...schedule, lifecycle_operation_id: marker, updated_at: now }));
+  if (!await updateSchedulesIfUnchanged({ updates: schedules.map((schedule, index) => ({ expectedSchedule: claim.schedules[index] as ScheduleRecord, schedule })) })) {
+    throw new Error("Schedule changed while finalizing replacement schedule write");
+  }
+}
+
+async function updateLifecycleSchedules(assignment: PackageAssignment<ScheduleRecord>, nextStatus: "PAUSED" | "SCHEDULED" | "CANCELLED" | "DELETED", payments: readonly PaymentRecord[], now: string, operationId: string): Promise<ScheduleRecord[]> {
+  if (assignmentClaimedBy(assignment, operationId)) return assignment.schedules;
   const schedules = assignment.schedules;
   const outstanding = new Set(outstandingAssignmentSchedules(assignment).map((schedule) => schedule.schedule_id));
   const paymentsById = new Map(payments.map((payment) => [payment.payment_id, payment]));
@@ -291,6 +363,7 @@ async function updateLifecycleSchedules(assignment: PackageAssignment<ScheduleRe
     };
   });
   if (!await updateSchedulesIfUnchanged({ updates })) throw new Error("Schedule changed before package lifecycle update");
+  return updates.map(({ schedule }) => schedule);
 }
 
 async function recordPackageLifecycleAction(input: {
@@ -402,26 +475,36 @@ export async function changePackageAssignmentAction(clientId: string, formData: 
     data.notes,
   ]);
   const claimed = assignmentClaimedBy(context.assignment, operationId);
-  if (context.assignment.schedules.some((schedule) => (schedule.lifecycle_operation_id ?? "").startsWith("change_") && schedule.lifecycle_operation_id !== operationId)) {
+  if (context.assignment.schedules.some((schedule) => (schedule.lifecycle_operation_id ?? "").startsWith("change_") && !lifecycleOperationMatches(schedule.lifecycle_operation_id, operationId))) {
     throw new Error("Package assignment was already changed by another operation");
   }
   requireAssignmentState(context.assignment, ["ACTIVE", "PAUSED", "COMPLETED", ...(claimed ? ["ENDED" as const] : [])], "change");
 
   const now = new Date().toISOString();
   const scheduledOutstandingSatang = Math.max(targetTotalSatang - paidSatang, 0);
-  await updateLifecycleSchedules(context.assignment, "CANCELLED", context.payments, now, operationId);
+  const lifecycleSchedules = await updateLifecycleSchedules(context.assignment, "CANCELLED", context.payments, now, operationId);
   const replacementAssignmentId = `assignment_${operationId}`;
   const schedules = scheduledOutstandingSatang > 0
     ? buildAssignedScheduleRows({ client: context.client, label: selectedPackage.package_name, paymentType, totalSatang: scheduledOutstandingSatang, paymentCount, intervalMonths, firstDueDate: data.first_due_date, notes: data.notes, now, assignmentId: replacementAssignmentId, assignmentKind: "PACKAGE", createScheduleId: (index) => `schedule_${operationId}_${index + 1}` })
     : [];
-  const schedulesById = new Map(context.schedules.map((schedule) => [schedule.schedule_id, schedule]));
-  for (const schedule of schedules) {
-    const existing = schedulesById.get(schedule.schedule_id);
-    if (existing) {
-      if (existing.assignment_id !== replacementAssignmentId || existing.client_id !== clientId) throw new Error("Replacement schedule identity conflicts with existing data");
-      continue;
+  const replacementAssignment = { ...context.assignment, schedules: lifecycleSchedules };
+  const replacementWriteClaim = schedules.length ? await claimReplacementScheduleWrites(replacementAssignment, operationId, now) : null;
+  if (replacementWriteClaim) {
+    try {
+      const schedulesById = new Map(context.schedules.map((schedule) => [schedule.schedule_id, schedule]));
+      for (const schedule of schedules) {
+        const existing = schedulesById.get(schedule.schedule_id);
+        if (existing) {
+          if (existing.assignment_id !== replacementAssignmentId || existing.client_id !== clientId) throw new Error("Replacement schedule identity conflicts with existing data");
+          continue;
+        }
+        await writeSchedule(schedule);
+      }
+    } catch (error) {
+      await releaseReplacementScheduleWrites(replacementWriteClaim, operationId, new Date().toISOString());
+      throw error;
     }
-    await writeSchedule(schedule);
+    await completeReplacementScheduleWrites(replacementWriteClaim, operationId, new Date().toISOString());
   }
   await generateAndSendInitialPayment(schedules.length ? [schedules[0].schedule_id] : []);
   await updateClient({
