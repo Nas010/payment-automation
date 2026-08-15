@@ -1,3 +1,5 @@
+import { normalizeLinePictureUrl } from "./profile";
+
 const VERIFY_URL = "https://api.line.me/oauth2/v2.1/verify";
 const LINE_ISSUER = "https://access.line.me";
 const LINE_USER_ID_PATTERN = /^U[a-f0-9]{32}$/;
@@ -14,7 +16,7 @@ function invalid(): never {
 }
 
 /** Verifies signature and identity through LINE; browser-decoded claims are never trusted. */
-export async function verifyLineIdToken({ idToken, channelId, now = new Date(), fetchFn = fetch }: { idToken: string; channelId: string; now?: Date; fetchFn?: typeof fetch }): Promise<{ lineUserId: string; displayName: string }> {
+export async function verifyLineIdToken({ idToken, channelId, now = new Date(), fetchFn = fetch }: { idToken: string; channelId: string; now?: Date; fetchFn?: typeof fetch }): Promise<{ lineUserId: string; displayName: string; pictureUrl: string }> {
   let response: Response;
   try {
     response = await fetchFn(VERIFY_URL, {
@@ -39,5 +41,5 @@ export async function verifyLineIdToken({ idToken, channelId, now = new Date(), 
   if (typeof claims.sub !== "string" || !LINE_USER_ID_PATTERN.test(claims.sub)) invalid();
   if (typeof claims.exp !== "number" || !Number.isFinite(claims.exp) || claims.exp <= Math.floor(now.getTime() / 1000)) invalid();
   const displayName = typeof claims.name === "string" ? claims.name.trim().slice(0, 200) : "";
-  return { lineUserId: claims.sub, displayName };
+  return { lineUserId: claims.sub, displayName, pictureUrl: normalizeLinePictureUrl(claims.picture) };
 }

@@ -20,14 +20,21 @@ function verified(overrides: Record<string, unknown> = {}): Record<string, unkno
 
 describe("LINE LIFF ID-token verification", () => {
   it("verifies the raw token through LINE and returns only trusted identity claims", async () => {
-    const fetchFn = vi.fn().mockResolvedValue(new Response(JSON.stringify(verified({ picture: "private", email: "private@example.test" })), { status: 200 }));
+    const pictureUrl = "https://profile.line-scdn.net/avatar/path";
+    const fetchFn = vi.fn().mockResolvedValue(new Response(JSON.stringify(verified({ picture: pictureUrl, email: "private@example.test" })), { status: 200 }));
 
-    await expect(verifyLineIdToken({ idToken, channelId, now, fetchFn })).resolves.toEqual({ lineUserId, displayName: "Nisa LINE" });
+    await expect(verifyLineIdToken({ idToken, channelId, now, fetchFn })).resolves.toEqual({ lineUserId, displayName: "Nisa LINE", pictureUrl });
     expect(fetchFn).toHaveBeenCalledWith("https://api.line.me/oauth2/v2.1/verify", expect.objectContaining({
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({ id_token: idToken, client_id: channelId }).toString(),
     }));
+  });
+
+  it("does not trust a picture URL outside LINE's profile CDN", async () => {
+    const fetchFn = vi.fn().mockResolvedValue(new Response(JSON.stringify(verified({ picture: "https://attacker.example/avatar" })), { status: 200 }));
+
+    await expect(verifyLineIdToken({ idToken, channelId, now, fetchFn })).resolves.toMatchObject({ pictureUrl: "" });
   });
 
   it.each([
