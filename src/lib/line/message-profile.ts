@@ -10,6 +10,10 @@ export type LineDueMessageProfile = {
   customPlaceholders: CustomLinePlaceholder[];
 };
 export type LineDueMessageProfiles = Record<LinePaymentType, LineDueMessageProfile>;
+export type ResolvedLineDueMessageProfile =
+  | { kind: "VALID"; profile: LineDueMessageProfile }
+  | { kind: "INVALID" };
+export type ResolvedLineDueMessageProfiles = Record<LinePaymentType, ResolvedLineDueMessageProfile>;
 export type LineDueMessageProfileActionResult = {
   ok: true;
   paymentType: LinePaymentType;
@@ -127,7 +131,7 @@ export function validateLineDueMessageProfile(
     if (!CUSTOM_NAME.test(definition.name) || system.has(definition.name) || custom.has(definition.name)) {
       throw new LineDueTemplateError("TEMPLATE_INVALID", `Invalid custom placeholder: ${definition.name}`);
     }
-    if (definition.template.length < 1 || definition.template.length > 1000) {
+    if (definition.template.trim().length < 1 || definition.template.length > 1000) {
       throw new LineDueTemplateError(
         "TEMPLATE_INVALID",
         `Custom placeholder ${definition.name} must contain 1-1,000 characters`,

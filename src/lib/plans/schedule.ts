@@ -27,10 +27,18 @@ type PaymentSchedule = Partial<DueSchedule> & {
   client_name: string;
   line_display_name: string;
   package_name: string;
+  payment_type: string;
   installment_number: string;
   installment_count: string;
   amount_thb: string;
   due_date: string;
+  created_at: string;
+};
+
+type PlanSchedule = Pick<PaymentSchedule, "client_id" | "package_name" | "installment_count" | "amount_thb"> & {
+  payment_type: string;
+  installment_number: string;
+  created_at: string;
 };
 
 function parseDateOnly(value: string): Date {
@@ -73,10 +81,36 @@ export function selectDueSchedules<T extends DueSchedule>(schedules: readonly T[
   return schedules.filter((schedule) => schedule.status === "SCHEDULED" && !schedule.payment_id && schedule.due_date <= today);
 }
 
-export function buildPaymentForSchedule(schedule: PaymentSchedule, input: { paymentId: string; publicToken: string; baseUrl: string; createdAt: string }): NewPaymentRecord {
+export function planTotalSatangForSchedule(target: PlanSchedule, schedules: readonly PlanSchedule[]): number {
+  const expectedCount = Number(target.installment_count);
+  if (!Number.isSafeInteger(expectedCount) || expectedCount < 1) throw new Error("Schedule installment count is invalid");
+  const group = schedules.filter((item) => item.client_id === target.client_id
+    && item.package_name === target.package_name
+    && item.payment_type === target.payment_type
+    && item.installment_count === target.installment_count
+    && item.created_at === target.created_at);
+  const positions = group.map((item) => Number(item.installment_number)).sort((left, right) => left - right);
+  if (group.length !== expectedCount || positions.some((position, index) => position !== index + 1)) {
+    throw new Error("Schedule plan group is incomplete");
+  }
+  return group.reduce((total, item) => {
+    const amount = parseSatang(item.amount_thb);
+    if (amount === null || amount <= 0) throw new Error("Schedule plan amount is invalid");
+    return total + amount;
+  }, 0);
+}
+
+export function buildPaymentForSchedule(schedule: PaymentSchedule, input: { paymentId: string; publicToken: string; baseUrl: string; createdAt: string; planTotalSatang: number }): NewPaymentRecord {
   const amountSatang = parseSatang(schedule.amount_thb);
   if (amountSatang === null || amountSatang <= 0) throw new Error(`Schedule ${schedule.schedule_id} has an invalid amount`);
   parseDateOnly(schedule.due_date);
+  const installmentNumber = Number(schedule.installment_number);
+  const installmentCount = Number(schedule.installment_count);
+  if (schedule.payment_type !== "ONE_TIME" && schedule.payment_type !== "INSTALLMENTS") throw new Error(`Schedule ${schedule.schedule_id} has an invalid payment type`);
+  if (!Number.isSafeInteger(installmentNumber) || !Number.isSafeInteger(installmentCount) || installmentNumber < 1 || installmentCount < 1 || installmentNumber > installmentCount) {
+    throw new Error(`Schedule ${schedule.schedule_id} has an invalid installment position`);
+  }
+  if (!Number.isSafeInteger(input.planTotalSatang) || input.planTotalSatang <= 0) throw new Error(`Schedule ${schedule.schedule_id} has an invalid plan total`);
   const paymentUrl = `${input.baseUrl.replace(/\/$/, "")}/p/${input.publicToken}`;
   return {
     payment_id: input.paymentId,
@@ -123,5 +157,10 @@ export function buildPaymentForSchedule(schedule: PaymentSchedule, input: { paym
     line_slip_error: "",
     line_reply_status: "",
     line_reply_at: "",
+    package_name: schedule.package_name,
+    payment_type: schedule.payment_type,
+    installment_number: schedule.installment_number,
+    installment_count: schedule.installment_count,
+    total_price_thb: String(input.planTotalSatang / 100),
   };
 }

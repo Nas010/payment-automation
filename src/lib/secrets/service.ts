@@ -1,13 +1,8 @@
 import "./server-only";
-import { lineConfig } from "@/lib/config";
 import { appendAudit } from "@/lib/sheets/payments";
 import { decryptSecret, encryptSecret } from "./crypto";
 import { getSecretRecord, listSecretMetadata, upsertSecretRecord } from "./repository";
 import type { LineSecretKeyName, SecretKeyName, SecretMetadata } from "./types";
-
-function configuredValue(value: string | undefined): string | null {
-  return value && value !== "CONFIG_REQUIRED" ? value : null;
-}
 
 function credentialLabel(keyName: LineSecretKeyName): string {
   return keyName === "line_channel_access_token" ? "LINE channel access token" : "LINE channel secret";
@@ -47,22 +42,20 @@ export async function getSecretMetadata(): Promise<SecretMetadata[]> {
   return listSecretMetadata();
 }
 
-export async function getLineChannelAccessToken(environment: Record<string, string | undefined> = process.env): Promise<string> {
+export async function getLineChannelAccessToken(): Promise<string> {
   const encrypted = await getSecret("line_channel_access_token");
-  const value = encrypted ?? configuredValue(lineConfig(environment).channelAccessToken);
-  if (!value) throw new Error("LINE channel access token is not configured");
-  return validateCredential("line_channel_access_token", value);
+  if (!encrypted) throw new Error("LINE channel access token is not configured");
+  return validateCredential("line_channel_access_token", encrypted);
 }
 
-export async function getLineChannelSecret(environment: Record<string, string | undefined> = process.env): Promise<string> {
+export async function getLineChannelSecret(): Promise<string> {
   const encrypted = await getSecret("line_channel_secret");
-  const value = encrypted ?? configuredValue(lineConfig(environment).channelSecret);
-  if (!value) throw new Error("LINE channel secret is not configured");
-  return validateCredential("line_channel_secret", value);
+  if (!encrypted) throw new Error("LINE channel secret is not configured");
+  return validateCredential("line_channel_secret", encrypted);
 }
 
-export async function getLineCredentials(environment: Record<string, string | undefined> = process.env): Promise<{ channelAccessToken: string; channelSecret: string }> {
-  const channelAccessToken = await getLineChannelAccessToken(environment);
-  const channelSecret = await getLineChannelSecret(environment);
+export async function getLineCredentials(): Promise<{ channelAccessToken: string; channelSecret: string }> {
+  const channelAccessToken = await getLineChannelAccessToken();
+  const channelSecret = await getLineChannelSecret();
   return { channelAccessToken, channelSecret };
 }

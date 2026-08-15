@@ -8,6 +8,21 @@ describe("evaluatePayment", () => {
     expect(evaluatePayment(payment, { imageDuplicate: false, transactionDuplicate: false, qrValid: true, transactionRef: "TX1", amountSatang: 300000, receiver: "NAS O", transactionDate: "2026-08-10T04:00:00.000Z" }).decision).toBe("AUTO_RECORDED");
   });
 
+  it("reviews a transaction from the Bangkok day before payment creation", () => {
+    const createdInBangkokMorning = { ...payment, createdAt: "2026-08-10T00:30:00.000Z" };
+
+    expect(evaluatePayment(createdInBangkokMorning, { imageDuplicate: false, transactionDuplicate: false, qrValid: true, transactionRef: "TX1", amountSatang: 300000, receiver: "NAS O", transactionDate: "2026-08-09T16:59:00.000Z" })).toMatchObject({ decision: "REVIEW", dateMatch: false });
+  });
+
+  it.each([
+    ["an earlier time on the creation day", "2026-08-09T17:01:00.000Z"],
+    ["a later day", "2026-08-11T03:00:00.000Z"],
+  ])("accepts %s in Bangkok", (_label, transactionDate) => {
+    const createdInBangkokMorning = { ...payment, createdAt: "2026-08-10T00:30:00.000Z" };
+
+    expect(evaluatePayment(createdInBangkokMorning, { imageDuplicate: false, transactionDuplicate: false, qrValid: true, transactionRef: "TX1", amountSatang: 300000, receiver: "NAS O", transactionDate })).toMatchObject({ decision: "AUTO_RECORDED", dateMatch: true });
+  });
+
   it("flags a transaction allocated to another payment", () => {
     expect(evaluatePayment(payment, { imageDuplicate: false, transactionDuplicate: true, qrValid: true, transactionRef: "TX1", amountSatang: 300000, receiver: "NAS O", transactionDate: "2026-08-10T04:00:00.000Z" }).decision).toBe("FLAGGED");
   });

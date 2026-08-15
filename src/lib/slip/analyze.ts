@@ -49,8 +49,8 @@ function extractReference(payload: string | null): { reference: string | null; b
   return { reference, bank };
 }
 
-async function readOcr(bytes: Uint8Array, receiverAliases: string[]): Promise<{ amount: number | null; receiver: string | null; date: string | null; reference: string | null; bank: string | null; success: boolean }> {
-  if (process.env.OCR_ENABLED === "false") return { amount: null, receiver: null, date: null, reference: null, bank: null, success: false };
+async function readOcr(bytes: Uint8Array, receiverAliases: string[], enabled: boolean): Promise<{ amount: number | null; receiver: string | null; date: string | null; reference: string | null; bank: string | null; success: boolean }> {
+  if (!enabled) return { amount: null, receiver: null, date: null, reference: null, bank: null, success: false };
   try {
     const { createWorker } = await import("tesseract.js");
     const worker = await createWorker(["eng", "tha"]);
@@ -68,7 +68,7 @@ async function readOcr(bytes: Uint8Array, receiverAliases: string[]): Promise<{ 
   } catch { return { amount: null, receiver: null, date: null, reference: null, bank: null, success: false }; }
 }
 
-export async function analyzeSlip(bytes: Uint8Array, declaredType: string, receiverAliases: string[] = []): Promise<SlipAnalysis> {
+export async function analyzeSlip(bytes: Uint8Array, declaredType: string, receiverAliases: string[] = [], options: { ocrEnabled?: boolean } = {}): Promise<SlipAnalysis> {
   const validation = await validateImageUpload({ bytes, declaredType, size: bytes.byteLength });
   if (!validation.ok) throw new Error(validation.reason);
   const normalized = await sharp(bytes).rotate().resize({ width: 2000, height: 2000, fit: "inside", withoutEnlargement: true }).toBuffer();
@@ -77,7 +77,7 @@ export async function analyzeSlip(bytes: Uint8Array, declaredType: string, recei
   const candidates = await decodeQrCandidates(normalized, metadata.width, metadata.height);
   const selection = selectSlipQrPayload(candidates);
   const parsed = extractReference(selection.payload);
-  const ocr = await readOcr(normalized, receiverAliases);
+  const ocr = await readOcr(normalized, receiverAliases, options.ocrEnabled ?? true);
   const transactionRef = selection.parsed?.transactionReference ?? parsed.reference ?? ocr.reference;
   const originatingBank = selection.parsed?.sendingBankCode ?? parsed.bank ?? ocr.bank;
   const reasons = selection.qrValid

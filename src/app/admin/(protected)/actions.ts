@@ -1,12 +1,11 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/admin-auth";
 import { DASHBOARD_COLLECTED_DELTA_DISPLAY_KEY, dashboardCollectedDeltaDisplaySchema } from "@/lib/admin/dashboard-metrics";
-import { paymentLinkBaseUrl } from "@/lib/config";
+import { runtimeConfig } from "@/lib/runtime-config";
 import { sendDueLinePaymentRequests } from "@/lib/line/due-payments";
 import { createLineLinkCode, expiresAt, normalizeLineLinkCode } from "@/lib/line/link-code";
 import { renderLineLinkInstruction } from "@/lib/line/link-message";
@@ -22,7 +21,6 @@ import { listSchedules, writeSchedule } from "@/lib/sheets/schedules";
 import { listPackages, savePackage, upsertOperationalSetting } from "@/lib/sheets/settings";
 
 const clientSchema = z.object({ client_name: z.string().trim().min(1), package_name: z.string().trim().min(1), payment_type: z.enum(["ONE_TIME", "INSTALLMENTS"]), total_price_thb: z.string(), installment_count: z.coerce.number().int().min(1), interval_months: z.coerce.number().int().min(0), first_due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), notes: z.string().trim() });
-const reservedOperationalSettingKeys = new Set(["line_due_message_template"]);
 const assignPackageSchema = z.object({ package_name: z.string().trim().min(1), first_due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), notes: z.string().trim() });
 const manualPaymentSchema = z.object({ description: z.string().trim().min(1), amount_thb: z.string(), frequency: z.enum(["ONE_TIME", "RECURRING"]), payment_count: z.coerce.number().int().min(1), interval_months: z.coerce.number().int().min(0), first_due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), notes: z.string().trim() });
 
@@ -55,7 +53,7 @@ export type LinePaymentAdminActionResult = { outcome: "SENT" | "ALREADY_ACCEPTED
 export async function sendLinePaymentAction(paymentId: string): Promise<LinePaymentAdminActionResult> {
   await requireAdmin();
   if (!paymentId.trim()) throw new Error("Payment ID is required");
-  const baseUrl = paymentLinkBaseUrl(process.env, (await headers()).get("origin"));
+  const baseUrl = (await runtimeConfig()).publicBaseUrl;
   const result = await sendDueLinePaymentRequests({ baseUrl, paymentIds: [paymentId] });
   revalidatePaymentPages(paymentId);
   if (result.accepted.includes(paymentId)) return { outcome: "SENT" };
@@ -108,7 +106,7 @@ function newScheduleId(): string {
 
 export async function generateDueLinksAction(): Promise<void> {
   await requireAdmin();
-  const baseUrl = paymentLinkBaseUrl(process.env, (await headers()).get("origin"));
+  const baseUrl = (await runtimeConfig()).publicBaseUrl;
   await generateDuePaymentLinks({ baseUrl });
   revalidatePath("/admin");
 }
@@ -234,10 +232,6 @@ export async function savePackageAction(formData: FormData): Promise<void> {
   if (!data.package_name || !total || total <= 0 || !Number.isInteger(count) || count < 1 || (type === "INSTALLMENTS" && (!Number.isInteger(interval) || interval < 1))) throw new Error("Enter a unique package, positive price, and valid payment plan");
   await savePackage({ package_name: data.package_name, total_price_thb: String(total / 100), payment_type: type, installment_count: String(type === "ONE_TIME" ? 1 : count), interval_months: String(type === "ONE_TIME" ? 0 : interval), active: data.active === "on" ? "TRUE" : "FALSE" });
   revalidatePath("/admin/packages");
-}
-
-export async function saveOperationalSettingAction(formData: FormData): Promise<void> {
-  await requireAdmin(); const data = values(formData); const key = data.key.trim(); if (!key) throw new Error("Setting key is required"); if (reservedOperationalSettingKeys.has(key)) throw new Error("Use the dedicated LINE due-message controls for this setting"); await upsertOperationalSetting(key, data.value.trim()); revalidatePath("/admin/settings");
 }
 
 export async function saveDashboardDisplaySettingsAction(formData: FormData): Promise<void> {

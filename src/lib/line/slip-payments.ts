@@ -2,7 +2,7 @@ import { replyLineMessage, getLineMessageContent } from "@/lib/line/client";
 import { getLineChannelAccessToken } from "@/lib/secrets/service";
 import { resolveLinePaymentCandidate } from "@/lib/line/payment-match";
 import { persistPaymentTransition, reconcileTerminalPaymentEffects } from "@/lib/payments/transition";
-import { configuredReceiverAliases, lineChatPaymentsEnabled } from "@/lib/config";
+import { runtimeConfig } from "@/lib/runtime-config";
 import { sha256 } from "@/lib/slip/hash";
 import { processSlipImage, type SlipProcessResult } from "@/lib/slip/process";
 import { analyzeSlip, type SlipAnalysis } from "@/lib/slip/analyze";
@@ -41,8 +41,9 @@ export type LineSlipDependencies = {
   now: () => string;
 };
 
-function defaultDependencies(): LineSlipDependencies {
-  return { listClients, listPayments, listSchedules, updatePayment, updatePaymentIfUnchanged, appendAudit, persistPaymentTransition, reconcileTerminalPaymentEffects, lineChatPaymentsEnabled, receiverAliases: configuredReceiverAliases, getLineChannelAccessToken, getLineMessageContent, hashSlipImage: sha256, analyzeSlip, resolveLinePaymentCandidate, processSlipImage, replyLineMessage, now: () => new Date().toISOString() };
+async function defaultDependencies(): Promise<LineSlipDependencies> {
+  const config = await runtimeConfig();
+  return { listClients, listPayments, listSchedules, updatePayment, updatePaymentIfUnchanged, appendAudit, persistPaymentTransition, reconcileTerminalPaymentEffects, lineChatPaymentsEnabled: () => config.lineChatPaymentsEnabled, receiverAliases: () => [config.recipientNameEn, config.recipientNameTh, ...config.recipientAliases].filter(Boolean), getLineChannelAccessToken, getLineMessageContent, hashSlipImage: sha256, analyzeSlip: (bytes, declaredType, aliases) => analyzeSlip(bytes, declaredType, aliases, { ocrEnabled: config.ocrEnabled }), resolveLinePaymentCandidate, processSlipImage, replyLineMessage, now: () => new Date().toISOString() };
 }
 
 function linkedClient(clients: ClientRecord[], lineUserId: string): ClientRecord | null {
@@ -50,7 +51,7 @@ function linkedClient(clients: ClientRecord[], lineUserId: string): ClientRecord
 }
 
 function eligiblePayments(payments: PaymentRecord[], clientId: string): PaymentRecord[] {
-  return payments.filter((payment) => payment.client_id === clientId && payment.status === "PENDING" && payment.line_slip_expected === "TRUE" && payment.line_slip_processing_status === "AWAITING");
+  return payments.filter((payment) => payment.client_id === clientId && payment.status === "PENDING" && payment.line_slip_expected === "TRUE" && ["AWAITING", "FAILED_TRANSIENT"].includes(payment.line_slip_processing_status));
 }
 
 async function audit(dependencies: LineSlipDependencies, payment: PaymentRecord, action: string, reason: string, event: LineSlipEvent): Promise<void> {
@@ -167,7 +168,8 @@ async function recoverAmbiguousFailure(dependencies: LineSlipDependencies, owner
 
 /** Handles one eligible direct-user LINE image after signature verification. */
 export async function processLineSlipEvent(event: LineSlipEvent, injected?: LineSlipDependencies): Promise<LineSlipResult> {
-  const dependencies = injected ?? defaultDependencies();
+  let dependencies: LineSlipDependencies;
+  try { dependencies = injected ?? await defaultDependencies(); } catch { return { kind: "ignored" }; }
   if (!dependencies.lineChatPaymentsEnabled()) return { kind: "ignored" };
   const client = linkedClient(await dependencies.listClients(), event.lineUserId);
   if (!client) return { kind: "ignored" };
@@ -193,7 +195,7 @@ export async function processLineSlipEvent(event: LineSlipEvent, injected?: Line
   const candidates = eligiblePayments(allPayments, client.client_id);
   const owner = [...candidates].sort((left, right) => left.payment_id.localeCompare(right.payment_id))[0];
   if (!owner) return { kind: "ignored" };
-  if (!await progress(dependencies, owner.payment_id, "AWAITING", "DOWNLOADING")) return { kind: "ignored" };
+  if (!await progress(dependencies, owner.payment_id, ["AWAITING", "FAILED_TRANSIENT"], "DOWNLOADING")) return { kind: "ignored" };
 
   let channelAccessToken: string;
   let content: { bytes: Uint8Array; mimeType: "image/jpeg" | "image/png" };

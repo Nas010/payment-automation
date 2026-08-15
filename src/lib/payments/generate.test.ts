@@ -25,7 +25,7 @@ describe("generateDuePaymentLinks", () => {
       {
         rowNumber: 8, schedule_id: "schedule_later", client_id: "client_1", client_name: "Nisa", line_user_id: "", line_display_name: "",
         package_name: "PT", payment_type: "INSTALLMENTS", installment_number: "2", installment_count: "2", amount_thb: "1500",
-        due_date: "2026-09-10", status: "SCHEDULED", generated_at: "", payment_id: "", payment_url: "", notes: "", created_at: "", updated_at: "",
+        due_date: "2026-09-10", status: "SCHEDULED", generated_at: "", payment_id: "", payment_url: "", notes: "", created_at: "2026-08-01T00:00:00.000Z", updated_at: "",
       },
     ]);
     listPayments.mockResolvedValueOnce([]);
@@ -42,6 +42,7 @@ describe("generateDuePaymentLinks", () => {
     expect(result.existing).toEqual([]);
     expect(result.failed).toEqual([]);
     expect(result.created[0]).toMatchObject({ payment_id: "pay_1", client_id: "client_1", status: "PENDING", payment_url: "https://pay.example/p/token_1" });
+    expect(appendPayment).toHaveBeenCalledWith(expect.objectContaining({ total_price_thb: "3000" }));
     expect(updateSchedule).toHaveBeenCalledWith(expect.objectContaining({ rowNumber: 7, status: "GENERATED", payment_id: "pay_1", generated_at: "2026-08-10T01:00:00.000Z" }));
   });
 });

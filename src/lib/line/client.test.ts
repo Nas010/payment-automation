@@ -86,7 +86,7 @@ describe("LINE HTTP client", () => {
 
     await expect(getLineMessageContent({ channelAccessToken: token, messageId: "message_1", fetchFn })).resolves.toEqual({ bytes: new Uint8Array([0xff, 0xd8, 0xff, 0x00]), mimeType: "image/jpeg" });
     expect(timeout).toHaveBeenCalledWith(10_000);
-    expect(fetchFn).toHaveBeenCalledWith("https://api.line.me/v2/bot/message/message_1/content", expect.objectContaining({ headers: { Authorization: `Bearer ${token}` }, signal: defaultSignal }));
+    expect(fetchFn).toHaveBeenCalledWith("https://api-data.line.me/v2/bot/message/message_1/content", expect.objectContaining({ headers: { Authorization: `Bearer ${token}` }, signal: defaultSignal }));
   });
 
   it("preserves a caller-provided content timeout signal", async () => {
@@ -97,7 +97,7 @@ describe("LINE HTTP client", () => {
     await expect(getLineMessageContent({ channelAccessToken: token, messageId: "message_1", fetchFn, signal: callerSignal })).resolves.toMatchObject({ mimeType: "image/jpeg" });
 
     expect(timeout).not.toHaveBeenCalled();
-    expect(fetchFn).toHaveBeenCalledWith("https://api.line.me/v2/bot/message/message_1/content", expect.objectContaining({ signal: callerSignal }));
+    expect(fetchFn).toHaveBeenCalledWith("https://api-data.line.me/v2/bot/message/message_1/content", expect.objectContaining({ signal: callerSignal }));
   });
 
   it("identifies PNG content from its magic bytes", async () => {

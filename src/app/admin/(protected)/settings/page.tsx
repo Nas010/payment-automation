@@ -1,96 +1,47 @@
-import { Settings2Icon } from "lucide-react";
-import { EmptyTableRow, PageHeader } from "@/components/admin/page-ui";
+import { PageHeader } from "@/components/admin/page-ui";
 import { LineIntegrationForm, type LineCredentialMetadata } from "@/components/admin/line-integration-form";
 import { LineDueTemplateForm } from "@/components/admin/line-due-template-form";
-import { DriveStorageForm } from "@/components/admin/drive-storage-form";
 import { GoogleDriveConnectionCard } from "@/components/admin/google-drive-connection-card";
-import { Button } from "@/components/ui/button";
+import { RuntimeConfigForm } from "@/components/admin/runtime-config-form";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { parseDashboardCollectedDeltaDisplay } from "@/lib/admin/dashboard-metrics";
-import { lineChatPaymentsEnabled, lineConfig, lineMessagingEnabled } from "@/lib/config";
-import { DEFAULT_LINE_DUE_TEMPLATE } from "@/lib/line/message-template";
-import { getSecretMetadata } from "@/lib/secrets/service";
-import { listOperationalSettings } from "@/lib/sheets/settings";
-import { selectSlipStorageFolderId, serviceAccountEmail, SLIP_STORAGE_FOLDER_SETTING, SLIP_STORAGE_VALIDATION_SETTING } from "@/lib/storage/drive-folder";
+import { Button } from "@/components/ui/button";
 import { googleDriveConfig } from "@/lib/config";
-import { getGoogleDriveConnection, googleDriveStatus } from "@/lib/storage/google-drive-connection";
-import { saveDashboardDisplaySettingsAction, saveOperationalSettingAction } from "../actions";
-import { previewLineDueTemplateAction, resetLineDueTemplateAction, saveAndTestLineCredentialsAction, saveLineDueTemplateAction } from "./line-actions";
-import { saveAndTestDriveFolderAction } from "./drive-actions";
+import { runtimeConfig } from "@/lib/runtime-config";
+import { getSecretMetadata } from "@/lib/secrets/service";
+import { listOperationalSettings, resolveLineDueMessageProfiles } from "@/lib/sheets/settings";
+import { getActiveWorkspaceConnection } from "@/lib/workspace/connection";
+import { previewLineDueMessageProfileAction, resetLineDueMessageProfileAction, saveAndTestLineCredentialsAction, saveLineDueMessageProfileAction } from "./line-actions";
 import { activateGoogleDriveFolderAction } from "@/app/admin/google-drive/actions";
+import { saveRuntimeConfigAction, testWorkspaceConnectionAction } from "./runtime-actions";
 
-export default async function SettingsPage({ searchParams }: { searchParams?: Promise<{ drive?: string; drive_error?: string }> }) {
+export default async function SettingsPage({ searchParams }: { searchParams?: Promise<{ workspace?: string; drive_error?: string }> }) {
   const query = await searchParams;
-  const [settings, secretMetadata, driveConnection] = await Promise.all([
+  const [settings, secretMetadata, connection, config] = await Promise.all([
     listOperationalSettings(),
     getSecretMetadata(),
-    getGoogleDriveConnection().catch(() => null),
+    getActiveWorkspaceConnection(),
+    runtimeConfig(),
   ]);
-  const collectedDeltaDisplay = parseDashboardCollectedDeltaDisplay(settings);
-  const validation = validationMetadata(settings.find((item) => item.key === "line_access_token_validation")?.value);
   const credentials = lineCredentialMetadata(secretMetadata);
-  const dueTemplate = settings.find((item) => item.key === "line_due_message_template")?.value || DEFAULT_LINE_DUE_TEMPLATE;
-  const activeDrive = selectSlipStorageFolderId(settings, process.env);
-  const driveValidation = activeDrive?.source === "workbook" ? driveValidationMetadata(settings.find((item) => item.key === SLIP_STORAGE_VALIDATION_SETTING)?.value) : undefined;
-  const driveStatus = googleDriveStatus(driveConnection);
+  const validation = validationMetadata(settings.find((item) => item.key === "line_access_token_validation")?.value);
+  const dueProfiles = resolveLineDueMessageProfiles(settings);
   const driveError = driveErrorMessage(query?.drive_error);
-  const visibleSettings = settings.filter((item) => !["line_access_token_validation", "line_due_message_template", SLIP_STORAGE_FOLDER_SETTING, SLIP_STORAGE_VALIDATION_SETTING].includes(item.key));
 
   return <div className="flex flex-col gap-6">
-    <PageHeader title="Settings" description="Operational values are stored in Sheets. Secrets remain server-side." />
-    <GoogleDriveConnectionCard status={driveStatus} canConnect={Boolean(googleDriveConfig())} autoOpenPicker={query?.drive === "select"} initialError={driveError} activateAction={activateGoogleDriveFolderAction} />
-    {!driveStatus.connected ? <div className="space-y-2"><h2 className="text-sm font-semibold">Legacy service-account fallback</h2><DriveStorageForm serviceAccountEmail={configuredServiceAccountEmail()} source={activeDrive?.source ?? "unconfigured"} folderName={driveValidation?.folderName} validatedAt={driveValidation?.validatedAt} action={saveAndTestDriveFolderAction} /></div> : null}
+    <PageHeader title="Settings" description="Business settings live in your workbook. Google and LINE secrets stay encrypted in the private key safe." />
+    {connection ? <Card><CardHeader><CardTitle>Operational database</CardTitle><CardDescription>This workbook is fixed after setup.</CardDescription></CardHeader><CardContent className="flex flex-wrap items-center gap-4 text-sm"><a className="font-medium text-primary underline" href={connection.spreadsheetUrl} target="_blank" rel="noreferrer">Open {connection.spreadsheetName}</a><a className="font-medium text-primary underline" href={connection.folderUrl} target="_blank" rel="noreferrer">Open {connection.folderName}</a><form action={testWorkspaceConnectionAction}><Button type="submit" variant="outline" size="sm">Test connection</Button></form></CardContent></Card> : null}
+    <GoogleDriveConnectionCard status={connection ? { connected: true, accountEmail: connection.accountEmail, folderName: connection.folderName, validatedAt: connection.validatedAt } : { connected: false }} canConnect={Boolean(googleDriveConfig())} autoOpenPicker={query?.workspace === "reconnect_pending"} initialError={driveError} activateAction={activateGoogleDriveFolderAction} />
+    <Card><CardHeader><CardTitle>Business and payment configuration</CardTitle><CardDescription>PromptPay changes must produce a valid QR preview before they can be saved.</CardDescription></CardHeader><CardContent><RuntimeConfigForm action={saveRuntimeConfigAction} defaultBaseUrl={config.publicBaseUrl} initial={config} allowLineFeatures={credentials.every((credential) => credential.configured)} submitLabel="Save settings" /></CardContent></Card>
     <LineIntegrationForm credentials={credentials} validation={validation} action={saveAndTestLineCredentialsAction} />
-    <LineDueTemplateForm template={dueTemplate} messagingEnabled={lineMessagingEnabled()} chatPaymentsEnabled={lineChatPaymentsEnabled()} previewAction={previewLineDueTemplateAction} saveAction={saveLineDueTemplateAction} resetAction={resetLineDueTemplateAction} />
-    <Card>
-      <CardHeader><CardTitle>Dashboard display</CardTitle><CardDescription>Choose how the collected-month comparison is described in the dashboard trend tooltip.</CardDescription></CardHeader>
-      <CardContent><form action={saveDashboardDisplaySettingsAction}><FieldGroup><Field><FieldLabel htmlFor="collected_delta_display">Collected month-over-month change</FieldLabel><Select name="collected_delta_display" defaultValue={collectedDeltaDisplay}><SelectTrigger id="collected_delta_display"><SelectValue /></SelectTrigger><SelectContent><SelectGroup><SelectItem value="absolute">Absolute THB amount</SelectItem><SelectItem value="percentage">Percentage change</SelectItem></SelectGroup></SelectContent></Select></Field><Button type="submit">Save dashboard display</Button></FieldGroup></form></CardContent>
-    </Card>
-    <Card>
-      <CardHeader><CardTitle>Operational configuration</CardTitle><CardDescription>Values update the connected workbook, not deployment secrets.</CardDescription></CardHeader>
-      <CardContent><Table><TableHeader><TableRow><TableHead>Key</TableHead><TableHead>Value</TableHead></TableRow></TableHeader><TableBody>{visibleSettings.length ? visibleSettings.map((item) => <TableRow key={item.rowNumber}><TableCell className="font-medium">{item.key}</TableCell><TableCell className="max-w-xl truncate">{item.value}</TableCell></TableRow>) : <EmptyTableRow colSpan={2} icon={<Settings2Icon />} title="No operational settings" description="Add the first workbook setting below." />}</TableBody></Table></CardContent>
-    </Card>
-    <Card>
-      <CardHeader><CardTitle>Add or update setting</CardTitle><CardDescription>Existing keys are updated in place.</CardDescription></CardHeader>
-      <CardContent><form action={saveOperationalSettingAction}><FieldGroup className="grid gap-4 sm:grid-cols-[1fr_2fr_auto]"><Field><FieldLabel htmlFor="key">Key</FieldLabel><Input id="key" name="key" required placeholder="business_display_name" /></Field><Field><FieldLabel htmlFor="value">Value</FieldLabel><Input id="value" name="value" required /></Field><div className="flex items-end"><Button type="submit">Save setting</Button></div></FieldGroup></form></CardContent>
-    </Card>
+    <LineDueTemplateForm profiles={dueProfiles} messagingEnabled={config.lineMessagingEnabled} chatPaymentsEnabled={config.lineChatPaymentsEnabled} previewAction={previewLineDueMessageProfileAction} saveAction={saveLineDueMessageProfileAction} resetAction={resetLineDueMessageProfileAction} />
   </div>;
 }
 
-function configuredServiceAccountEmail(): string {
-  try {
-    return serviceAccountEmail(process.env.GOOGLE_SERVICE_ACCOUNT_JSON ?? "");
-  } catch {
-    return "";
-  }
-}
-
-function driveValidationMetadata(value: string | undefined): { folderName: string; validatedAt: string } | undefined {
-  if (!value) return undefined;
-  try {
-    const parsed = JSON.parse(value) as { status?: unknown; folderName?: unknown; validatedAt?: unknown };
-    if (parsed.status === "VALID" && typeof parsed.folderName === "string" && typeof parsed.validatedAt === "string") return { folderName: parsed.folderName, validatedAt: parsed.validatedAt };
-  } catch {}
-  return undefined;
-}
-
 function lineCredentialMetadata(records: Awaited<ReturnType<typeof getSecretMetadata>>): LineCredentialMetadata[] {
-  const config = lineConfig();
-  return [
-    metadataFor("line_channel_access_token", config.channelAccessToken, records),
-    metadataFor("line_channel_secret", config.channelSecret, records),
-  ];
-}
-
-function metadataFor(keyName: LineCredentialMetadata["keyName"], environmentValue: string, records: Awaited<ReturnType<typeof getSecretMetadata>>): LineCredentialMetadata {
-  const encrypted = records.find((record) => record.keyName === keyName);
-  if (encrypted) return { keyName, configured: true, source: "encrypted", lastFour: encrypted.lastFour, updatedAt: encrypted.updatedAt };
-  if (environmentValue && environmentValue !== "CONFIG_REQUIRED") return { keyName, configured: true, source: "environment" };
-  return { keyName, configured: false, source: "unconfigured" };
+  return (["line_channel_access_token", "line_channel_secret"] as const).map((keyName) => {
+    const encrypted = records.find((record) => record.keyName === keyName);
+    return encrypted ? { keyName, configured: true, source: "encrypted" as const, lastFour: encrypted.lastFour, updatedAt: encrypted.updatedAt } : { keyName, configured: false, source: "unconfigured" as const };
+  });
 }
 
 function validationMetadata(value: string | undefined): { status: "VALID" | "FAILED"; validatedAt: string } | undefined {
@@ -107,7 +58,7 @@ function driveErrorMessage(value: string | undefined): string {
     case "oauth_not_configured": return "Google Drive connection is not configured.";
     case "oauth_denied": return "Google Drive authorization was canceled.";
     case "oauth_missing_refresh_token": return "Google did not return offline access. Reconnect and approve access.";
-    case "oauth_account_unavailable": return "Google account email was unavailable. Reconnect and try again.";
+    case "oauth_identity_invalid": return "Google identity could not be verified.";
     case "oauth_state_invalid":
     case "oauth_callback_invalid":
     case "oauth_exchange_failed":

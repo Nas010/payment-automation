@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildInstallmentPlan, buildPaymentForSchedule, selectDueSchedules } from "./schedule";
+import { buildInstallmentPlan, buildPaymentForSchedule, planTotalSatangForSchedule, selectDueSchedules } from "./schedule";
 
 describe("buildInstallmentPlan", () => {
   it("puts indivisible satang on the last installment so all scheduled amounts equal plan total", () => {
@@ -29,8 +29,8 @@ describe("buildInstallmentPlan", () => {
   it("builds an amount-specific public payment from the canonical schedule row", () => {
     const payment = buildPaymentForSchedule({
       schedule_id: "schedule_1", client_id: "client_1", client_name: "Nisa", line_display_name: "", package_name: "PT",
-      installment_number: "2", installment_count: "3", amount_thb: "1000.50", due_date: "2026-08-10",
-    }, { paymentId: "pay_1", publicToken: "token", baseUrl: "https://pay.example/", createdAt: "2026-08-10T03:00:00.000Z" });
+      payment_type: "INSTALLMENTS", installment_number: "2", installment_count: "3", amount_thb: "1000.50", due_date: "2026-08-10", created_at: "2026-08-01T00:00:00.000Z",
+    }, { paymentId: "pay_1", publicToken: "token", baseUrl: "https://pay.example/", createdAt: "2026-08-10T03:00:00.000Z", planTotalSatang: 300_150 });
 
     expect(payment).toMatchObject({
       payment_id: "pay_1", client_id: "client_1", period: "2026-08", amount_thb: "1000.50", due_date: "2026-08-10",
@@ -52,6 +52,56 @@ describe("buildInstallmentPlan", () => {
       line_slip_error: "",
       line_reply_status: "",
       line_reply_at: "",
+      package_name: "PT",
+      payment_type: "INSTALLMENTS",
+      installment_number: "2",
+      installment_count: "3",
+      total_price_thb: "3001.5",
+    });
+  });
+
+  it("calculates exact plan total from rows created in one assignment", () => {
+    const rows = ["333.33", "333.33", "333.34"].map((amount_thb, index) => ({
+      schedule_id: `s${index + 1}`,
+      client_id: "client_1",
+      package_name: "PT",
+      payment_type: "INSTALLMENTS",
+      installment_number: String(index + 1),
+      installment_count: "3",
+      amount_thb,
+      created_at: "2026-08-01T00:00:00.000Z",
+    }));
+
+    expect(planTotalSatangForSchedule(rows[1], rows)).toBe(100_000);
+  });
+
+  it("snapshots client-facing plan data onto the generated payment", () => {
+    const payment = buildPaymentForSchedule({
+      schedule_id: "schedule_2",
+      client_id: "client_1",
+      client_name: "Nisa",
+      line_display_name: "",
+      package_name: "PT",
+      payment_type: "INSTALLMENTS",
+      installment_number: "2",
+      installment_count: "3",
+      amount_thb: "1000",
+      due_date: "2026-09-10",
+      created_at: "2026-08-01T00:00:00.000Z",
+    }, {
+      paymentId: "pay_1",
+      publicToken: "token",
+      baseUrl: "https://pay.example",
+      createdAt: "2026-08-10T03:00:00.000Z",
+      planTotalSatang: 300_000,
+    });
+
+    expect(payment).toMatchObject({
+      package_name: "PT",
+      payment_type: "INSTALLMENTS",
+      installment_number: "2",
+      installment_count: "3",
+      total_price_thb: "3000",
     });
   });
 });

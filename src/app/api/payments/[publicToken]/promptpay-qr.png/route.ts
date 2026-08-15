@@ -1,5 +1,5 @@
 import QRCode from "qrcode";
-import { serverConfig } from "@/lib/config";
+import { runtimeConfig } from "@/lib/runtime-config";
 import { buildPaymentPromptPayPayload, InvalidPaymentAmountError } from "@/lib/payments/promptpay";
 import { getPaymentByToken } from "@/lib/sheets/payments";
 
@@ -17,7 +17,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ pub
 
   let config;
   try {
-    config = serverConfig();
+    config = await runtimeConfig();
   } catch {
     return new Response("Internal Server Error", { status: 500 });
   }

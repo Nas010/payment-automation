@@ -1,7 +1,7 @@
 import QRCode from "qrcode";
 import { notFound } from "next/navigation";
 import { SlipUpload } from "@/components/slip-upload";
-import { serverConfig } from "@/lib/config";
+import { runtimeConfig } from "@/lib/runtime-config";
 import { formatThb, parseSatang } from "@/lib/money";
 import { buildPaymentPromptPayPayload } from "@/lib/payments/promptpay";
 import { getPaymentByToken } from "@/lib/sheets/payments";
@@ -13,7 +13,8 @@ export default async function PaymentPage({ params }: { params: Promise<{ token:
   let payment;
   try { payment = await getPaymentByToken(token); } catch { return <main className="payment"><h1 className="brand">Coaching Payments</h1><p className="status">Payment links are being securely configured. Please contact your coach.</p></main>; }
   if (!payment) notFound();
-  const config = serverConfig();
+  let config;
+  try { config = await runtimeConfig(); } catch { return <main className="payment"><h1 className="brand">Coaching Payments</h1><p className="status">Payment links are being securely configured. Please contact your coach.</p></main>; }
   // Sheets returns a formatted currency cell (for example "฿1.00") after a
   // payment row has been updated, so do not rely on Number(...) here.
   const amountSatang = parseSatang(payment.amount_thb);

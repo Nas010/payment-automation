@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   appendAudit: vi.fn(),
   processLineSlipEvent: vi.fn(),
   fetchFn: vi.fn(),
+  runtimeConfig: vi.fn(),
 }));
 
 vi.mock("@/lib/secrets/service", () => ({
@@ -29,6 +30,7 @@ vi.mock("@/lib/sheets/clients", () => ({
 vi.mock("@/lib/sheets/payments", () => ({ appendAudit: mocks.appendAudit }));
 
 vi.mock("@/lib/line/slip-payments", () => ({ processLineSlipEvent: mocks.processLineSlipEvent }));
+vi.mock("@/lib/runtime-config", () => ({ runtimeConfig: mocks.runtimeConfig }));
 
 vi.stubGlobal("fetch", mocks.fetchFn);
 
@@ -60,7 +62,7 @@ function event(overrides: Record<string, unknown> = {}): Record<string, unknown>
 
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.stubEnv("LINE_LINKING_ENABLED", "true");
+  mocks.runtimeConfig.mockResolvedValue({ lineLinkingEnabled: true });
   mocks.getLineChannelSecret.mockResolvedValue(secret);
   mocks.getLineChannelAccessToken.mockResolvedValue(accessToken);
   mocks.listClients.mockResolvedValue([client()]);
@@ -78,7 +80,7 @@ describe("POST /api/line/webhook", () => {
   });
 
   it("returns 404 without reading or processing a webhook when LINE linking is disabled", async () => {
-    vi.stubEnv("LINE_LINKING_ENABLED", "false");
+    mocks.runtimeConfig.mockResolvedValue({ lineLinkingEnabled: false });
     const request = signedRequest({ events: [event()] });
     const text = vi.spyOn(request, "text");
 

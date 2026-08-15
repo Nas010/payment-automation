@@ -84,6 +84,7 @@ describe("LINE due message profiles", () => {
     ["bad name", { version: 1, message: "{{amount}} {{due_date}} {{payment_url}}", customPlaceholders: [{ name: "Bad Name", template: "text" }] }],
     ["duplicate", { version: 1, message: "{{amount}} {{due_date}} {{payment_url}}", customPlaceholders: [{ name: "label", template: "one" }, { name: "label", template: "two" }] }],
     ["empty content", { version: 1, message: "{{amount}} {{due_date}} {{payment_url}}", customPlaceholders: [{ name: "label", template: "" }] }],
+    ["whitespace-only content", { version: 1, message: "{{amount}} {{due_date}} {{payment_url}}", customPlaceholders: [{ name: "label", template: " \n\t " }] }],
     ["installment token in one-time", { version: 1, message: "{{installment_ordinal}} {{amount}} {{due_date}} {{payment_url}}", customPlaceholders: [] }],
     ["unknown main token", { version: 1, message: "{{bank_name}} {{amount}} {{due_date}} {{payment_url}}", customPlaceholders: [] }],
     ["malformed main token", { version: 1, message: "{{client name}} {{amount}} {{due_date}} {{payment_url}}", customPlaceholders: [] }],

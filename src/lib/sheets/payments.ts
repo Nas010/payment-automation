@@ -27,7 +27,7 @@ function paymentStateConflict(error: unknown): boolean {
 }
 
 async function paymentSheetMetadata(): Promise<{ sheetId: number; namedRanges: Array<{ name?: string | null; namedRangeId?: string | null }> }> {
-  const { sheets, spreadsheetId } = getGoogleSheets();
+  const { sheets, spreadsheetId } = await getGoogleSheets();
   const response = await sheets.spreadsheets.get({ spreadsheetId, fields: "sheets(properties(sheetId,title)),namedRanges(namedRangeId,name)" });
   const sheetId = response.data.sheets?.find((sheet) => sheet.properties?.title === "Payments")?.properties?.sheetId;
   if (sheetId === undefined || sheetId === null) throw new Error("Payments sheet is required");
@@ -53,8 +53,8 @@ function samePaymentState(left: PaymentRecord, right: PaymentRecord): boolean {
 }
 
 async function readPaymentRow(payment: PaymentRecord): Promise<PaymentRecord | null> {
-  const { sheets, spreadsheetId } = getGoogleSheets();
-  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: `Payments!A${payment.rowNumber}:AR${payment.rowNumber}` });
+  const { sheets, spreadsheetId } = await getGoogleSheets();
+  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: `Payments!A${payment.rowNumber}:AW${payment.rowNumber}` });
   const row = response.data.values?.[0];
   if (!row) return null;
   return { ...rowToRecord(PAYMENT_HEADERS, row), rowNumber: payment.rowNumber } as PaymentRecord;
@@ -68,7 +68,7 @@ function tokenRanges(metadata: Awaited<ReturnType<typeof paymentSheetMetadata>>,
 const PAYMENT_TOKEN_REPAIR_ATTEMPTS = 3;
 
 async function stabilizePaymentStateToken(payment: PaymentRecord): Promise<void> {
-  const { sheets, spreadsheetId } = getGoogleSheets();
+  const { sheets, spreadsheetId } = await getGoogleSheets();
   let lastRepairError: unknown;
   for (let attempt = 0; attempt < PAYMENT_TOKEN_REPAIR_ATTEMPTS; attempt += 1) {
     const actualBeforeMetadata = await readPaymentRow(payment);
@@ -104,8 +104,8 @@ async function stabilizePaymentStateToken(payment: PaymentRecord): Promise<void>
 
 export async function listPayments(): Promise<PaymentRecord[]> {
   await ensurePaymentSchema();
-  const { sheets, spreadsheetId } = getGoogleSheets();
-  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: "Payments!A:AR" });
+  const { sheets, spreadsheetId } = await getGoogleSheets();
+  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: "Payments!A:AW" });
   return (response.data.values ?? []).slice(1).map((row, index) => ({ ...rowToRecord(PAYMENT_HEADERS, row), rowNumber: index + 2 }) as PaymentRecord).filter((row) => row.payment_id);
 }
 
@@ -119,14 +119,14 @@ export async function getPaymentById(paymentId: string): Promise<PaymentRecord |
 
 export async function appendPayment(payment: NewPaymentRecord): Promise<void> {
   await ensurePaymentSchema();
-  const { sheets, spreadsheetId } = getGoogleSheets();
-  await sheets.spreadsheets.values.append({ spreadsheetId, range: "Payments!A:AR", valueInputOption: "USER_ENTERED", requestBody: { values: [recordToRow(PAYMENT_HEADERS, payment)] } });
+  const { sheets, spreadsheetId } = await getGoogleSheets();
+  await sheets.spreadsheets.values.append({ spreadsheetId, range: "Payments!A:AW", valueInputOption: "USER_ENTERED", requestBody: { values: [recordToRow(PAYMENT_HEADERS, payment)] } });
 }
 
 export async function updatePayment(payment: PaymentRecord): Promise<void> {
   if (!Number.isInteger(payment.rowNumber) || payment.rowNumber < 2) throw new Error("Payment physical row is required");
   await ensurePaymentSchema();
-  const { sheets, spreadsheetId } = getGoogleSheets();
+  const { sheets, spreadsheetId } = await getGoogleSheets();
   let metadata = await paymentSheetMetadata();
   let tokens = tokenRanges(metadata, payment.payment_id);
   if (!tokens.length) {
@@ -161,7 +161,7 @@ export async function updatePaymentIfUnchanged({ payment, expectedPayment }: { p
   if (!Number.isInteger(payment.rowNumber) || payment.rowNumber < 2) throw new Error("Payment physical row is required");
   if (payment.rowNumber !== expectedPayment.rowNumber) throw new Error("Payment and expected payment must target the same physical row");
   await ensurePaymentSchema();
-  const { sheets, spreadsheetId } = getGoogleSheets();
+  const { sheets, spreadsheetId } = await getGoogleSheets();
   const initialActual = await readPaymentRow(expectedPayment);
   if (!initialActual || !samePaymentState(initialActual, expectedPayment)) return false;
   let metadata = await paymentSheetMetadata();
@@ -208,7 +208,7 @@ export async function updatePaymentIfUnchanged({ payment, expectedPayment }: { p
 }
 
 export async function appendAudit(record: PaymentAuditInput): Promise<void> {
-  const { sheets, spreadsheetId } = getGoogleSheets();
+  const { sheets, spreadsheetId } = await getGoogleSheets();
   await sheets.spreadsheets.values.append({ spreadsheetId, range: "Audit Log!A:I", valueInputOption: "USER_ENTERED", requestBody: { values: [[new Date().toISOString(), record.paymentId, record.clientId, record.action, record.previousStatus, record.newStatus, record.reason, record.source, record.metadata ?? ""]] } });
 }
 

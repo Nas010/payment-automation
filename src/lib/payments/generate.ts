@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { buildPaymentForSchedule, selectDueSchedules } from "@/lib/plans/schedule";
+import { buildPaymentForSchedule, planTotalSatangForSchedule, selectDueSchedules } from "@/lib/plans/schedule";
 import { appendAudit, appendPayment, listPayments, type NewPaymentRecord } from "@/lib/sheets/payments";
 import { listSchedules, updateSchedule, type ScheduleRecord } from "@/lib/sheets/schedules";
 import { createPublicToken } from "./token";
@@ -39,11 +39,13 @@ export async function generateDuePaymentLinks(options: GenerateDuePaymentLinksOp
       continue;
     }
     try {
+      const planTotalSatang = planTotalSatangForSchedule(schedule, schedules);
       const payment = buildPaymentForSchedule(schedule, {
         paymentId: options.createPaymentId?.() ?? `pay_${randomUUID().replaceAll("-", "")}`,
         publicToken: options.createToken?.() ?? createPublicToken(),
         baseUrl: options.baseUrl,
         createdAt: now,
+        planTotalSatang,
       });
       await appendPayment(payment);
       await updateSchedule({ ...schedule, status: "GENERATED", generated_at: now, payment_id: payment.payment_id, payment_url: payment.payment_url, updated_at: now });

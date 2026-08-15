@@ -1,14 +1,17 @@
 import { randomUUID } from "node:crypto";
 import { bangkokDateKey } from "@/lib/date";
-import { formatThb, parseSatang } from "@/lib/money";
-import { lineMessagingEnabled } from "@/lib/config";
+import { parseSatang } from "@/lib/money";
+import { runtimeConfig } from "@/lib/runtime-config";
 import { getLineChannelAccessToken } from "@/lib/secrets/service";
 import { listClients, type ClientRecord } from "@/lib/sheets/clients";
 import { hasLineAuditEvent, type LineAuditEventIdentity } from "@/lib/sheets/audit";
 import { appendAudit, listPayments, updatePayment, type PaymentAuditInput, type PaymentRecord } from "@/lib/sheets/payments";
-import { getLineDueTemplate } from "@/lib/sheets/settings";
+import { readPaymentClientSnapshot } from "@/lib/sheets/payment-client-snapshot";
+import { listSchedules, type ScheduleRecord } from "@/lib/sheets/schedules";
+import { getLineDueMessageProfiles } from "@/lib/sheets/settings";
 import { sendLinePushMessage } from "./client";
-import { renderLineDueTemplate } from "./message-template";
+import { LineDueTemplateError, renderLineDueMessageProfile, type ResolvedLineDueMessageProfiles } from "./message-profile";
+import { resolveLineDueMessageValues } from "./message-values";
 import { isLinkedLinePaymentRecipient } from "./recipient";
 
 type LinePushResult = { accepted: boolean; retryable: boolean; requestId: string; errorCode: string };
@@ -17,10 +20,12 @@ type LinePushRequest = Omit<Parameters<typeof sendLinePushMessage>[0], "fetchFn"
 export type LineDueDependencies = {
   listPayments: () => Promise<PaymentRecord[]>;
   listClients: () => Promise<ClientRecord[]>;
+  listSchedules: () => Promise<ScheduleRecord[]>;
+  readPaymentClientSnapshot?: typeof readPaymentClientSnapshot;
   updatePayment: (payment: PaymentRecord) => Promise<void>;
   appendAudit: (record: PaymentAuditInput) => Promise<void>;
   hasAuditEvent: (identity: LineAuditEventIdentity) => Promise<boolean>;
-  getLineDueTemplate: () => Promise<string>;
+  getLineDueMessageProfiles: () => Promise<ResolvedLineDueMessageProfiles>;
   getLineChannelAccessToken: () => Promise<string>;
   sendPush: (input: LinePushRequest) => Promise<LinePushResult>;
   lineMessagingEnabled: () => boolean;
@@ -42,19 +47,24 @@ export type SendDueLinePaymentRequestsResult = {
   disabled: boolean;
 };
 
-const defaultDependencies: LineDueDependencies = {
-  listPayments,
-  listClients,
-  updatePayment,
-  appendAudit,
-  hasAuditEvent: hasLineAuditEvent,
-  getLineDueTemplate,
-  getLineChannelAccessToken,
-  sendPush: (input) => sendLinePushMessage({ ...input, fetchFn: fetch }),
-  lineMessagingEnabled,
-  createRetryKey: randomUUID,
-  now: () => new Date().toISOString(),
-};
+async function runtimeDependencies(): Promise<LineDueDependencies> {
+  const config = await runtimeConfig();
+  return {
+    listPayments,
+    listClients,
+    listSchedules,
+    readPaymentClientSnapshot,
+    updatePayment,
+    appendAudit,
+    hasAuditEvent: hasLineAuditEvent,
+    getLineDueMessageProfiles,
+    getLineChannelAccessToken,
+    sendPush: (input) => sendLinePushMessage({ ...input, fetchFn: fetch }),
+    lineMessagingEnabled: () => config.lineMessagingEnabled,
+    createRetryKey: randomUUID,
+    now: () => new Date().toISOString(),
+  };
+}
 
 const retryableLineStates = new Set(["SENDING", "FAILED_RETRYABLE"]);
 const deliverableLineStates = new Set(["", "PENDING", "SKIPPED_MISSING_USER_ID", "FAILED_RETRYABLE", "SENDING"]);
@@ -100,11 +110,6 @@ function hasFrozenRetryMessage(payment: PaymentRecord): boolean {
   return Boolean(payment.line_message)
     && Boolean(payment.line_retry_key)
     && retryableLineStates.has(payment.line_message_status);
-}
-
-function paymentLabel(dueDate: string): string {
-  const month = new Intl.DateTimeFormat("en-US", { month: "long", timeZone: "Asia/Bangkok" }).format(new Date(`${dueDate}T12:00:00+07:00`));
-  return `${month} Coaching`;
 }
 
 function qrImageUrl(baseUrl: string, publicToken: string): string {
@@ -225,24 +230,52 @@ async function recordWorkflowFailure(
   } catch {}
 }
 
+async function recordTemplateFailure(
+  dependencies: LineDueDependencies,
+  payment: PaymentRecord,
+  previousStatus: string,
+  now: string,
+  requestCode: "TEMPLATE_INVALID" | "TEMPLATE_DATA_MISSING",
+): Promise<void> {
+  try {
+    const failedPayment = await persistPayment(dependencies, payment, {
+      line_message: "",
+      line_retry_key: "",
+      line_message_status: "FAILED_RETRYABLE",
+      line_message_error: requestCode,
+      updated_at: now,
+    });
+    await appendLineAudit(dependencies, failedPayment, "LINE_DUE_MESSAGE_FAILED", previousStatus, "FAILED_RETRYABLE", "LINE due-payment workflow failed", requestCode);
+  } catch {}
+}
+
 function blankResult(disabled: boolean): SendDueLinePaymentRequestsResult {
   return { accepted: [], alreadyAccepted: [], skippedMissingUserId: [], failed: [], disabled };
+}
+
+async function loadPaymentClientSnapshot(dependencies: LineDueDependencies) {
+  if (dependencies.readPaymentClientSnapshot) return dependencies.readPaymentClientSnapshot();
+  const [payments, clients, schedules] = await Promise.all([dependencies.listPayments(), dependencies.listClients(), dependencies.listSchedules()]);
+  return { payments, clients, schedules };
 }
 
 /** Sends due LINE payment requests sequentially so one row's outcome is persisted before the next request. */
 export async function sendDueLinePaymentRequests(
   options: SendDueLinePaymentRequestsOptions,
-  dependencies: LineDueDependencies = defaultDependencies,
+  injectedDependencies?: LineDueDependencies,
 ): Promise<SendDueLinePaymentRequestsResult> {
+  let dependencies: LineDueDependencies;
+  try { dependencies = injectedDependencies ?? await runtimeDependencies(); } catch { return blankResult(true); }
   if (!dependencies.lineMessagingEnabled()) return blankResult(true);
 
   const today = options.today ?? bangkokDateKey();
   const now = dependencies.now();
   const selectedIds = options.paymentIds ? new Set(options.paymentIds) : null;
   const result = blankResult(false);
-  const [payments, clients] = await Promise.all([dependencies.listPayments(), dependencies.listClients()]);
+  const { payments, clients, schedules } = await loadPaymentClientSnapshot(dependencies);
   const clientsById = new Map(clients.map((client) => [client.client_id, client]));
   let channelAccessToken: string | null = null;
+  let profilesPromise: Promise<ResolvedLineDueMessageProfiles> | null = null;
 
   for (const originalPayment of payments) {
     if (selectedIds && !selectedIds.has(originalPayment.payment_id)) continue;
@@ -290,17 +323,33 @@ export async function sendDueLinePaymentRequests(
       continue;
     }
 
+    let lineMessage: string;
+    try {
+      if (hasFrozenRetryMessage(payment)) {
+        lineMessage = payment.line_message;
+      } else {
+        profilesPromise ??= dependencies.getLineDueMessageProfiles();
+        const profiles = await profilesPromise;
+        const { paymentType, values } = resolveLineDueMessageValues({ payment, client: recipient, schedules });
+        const profile = profiles[paymentType];
+        if (profile.kind === "INVALID") throw new LineDueTemplateError("TEMPLATE_INVALID", "Stored LINE profile is invalid");
+        lineMessage = renderLineDueMessageProfile(profile.profile, paymentType, values);
+      }
+    } catch (error) {
+      if (error instanceof LineDueTemplateError) {
+        await recordTemplateFailure(dependencies, payment, previousStatus, now, error.code);
+        result.failed.push(payment.payment_id);
+        continue;
+      }
+      await recordWorkflowFailure(dependencies, payment, previousStatus, now, "DELIVERY_ERROR");
+      result.failed.push(payment.payment_id);
+      continue;
+    }
+
     try {
       const retryKey = payment.line_retry_key || dependencies.createRetryKey();
       const firstAttemptAt = payment.line_retry_key && payment.line_message_attempted_at ? payment.line_message_attempted_at : now;
       let sawAmbiguousFailure = payment.line_message_status === "SENDING" || payment.line_message_error === "NETWORK_ERROR";
-      const lineMessage = hasFrozenRetryMessage(payment) ? payment.line_message : renderLineDueTemplate(await dependencies.getLineDueTemplate(), {
-        client_name: recipient.client_name,
-        payment_label: paymentLabel(payment.due_date),
-        amount: formatThb(parseSatang(payment.amount_thb)!),
-        due_date: payment.due_date,
-        payment_url: payment.payment_url,
-      });
       const imageUrl = qrImageUrl(options.baseUrl, payment.public_token);
       channelAccessToken ??= await dependencies.getLineChannelAccessToken();
       let pushResult: LinePushResult = { accepted: false, retryable: true, requestId: "", errorCode: "NETWORK_ERROR" };

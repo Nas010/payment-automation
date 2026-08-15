@@ -1,107 +1,71 @@
-# Coaching Payments — Automated
+# Coaching Payments Automation
 
-PromptPay payment links and trusted-client slip recording for a single coach. The Google Spreadsheet is the only admin system of record; the client app never claims bank verification.
+A single-owner payment dashboard built with Next.js, Google Sheets, Google Drive, PromptPay, optional LINE messaging, and Vercel Cron.
 
-## Production setup
+## Ownership model
 
-1. Add the bootstrap values from `.env.example` to Vercel. Keep `GOOGLE_SERVICE_ACCOUNT_JSON` server-only and share only the application workbook with that service-account email.
-2. Set your real PromptPay identifier and receiver aliases in Vercel and `Settings`; never commit them.
-3. Set `PRODUCTION_BASE_URL` after deployment. The protected `POST /api/admin/generate` needs `x-admin-secret`; Vercel Cron calls `/api/cron/generate` with `Authorization: Bearer $CRON_SECRET`.
+- The developer owns the Vercel deployment and infrastructure secrets.
+- The workbook in `SPREADSHEET_ID` is a private bootstrap/key-safe workbook. The service account uses only this workbook.
+- The first verified Google account to sign in becomes the permanent installation owner.
+- The owner creates one operational workbook and chooses one private slip folder from `/admin/setup`.
+- Business, recipient, PromptPay, retention, OCR, LINE flags, and LINE credentials are managed in the dashboard. They are not deployment variables.
+- The operational workbook is fixed after setup. Settings can test/reconnect Google and replace the slip folder without switching databases.
 
-## Google Drive slip storage
+## Developer deployment configuration
 
-Protected **Settings** is the normal place to connect or switch the private exception-slip folder. The normal flow is OAuth, not service-account sharing:
+Copy `.env.example` and configure:
 
-1. In Google Cloud project coaching-payments-automation, enable Google Drive API and Google Picker API.
-2. Configure the OAuth consent screen and create a Web application OAuth client. Add the production callback https://coaching-payments-automated.vercel.app/admin/google-drive/callback as an authorized redirect URI.
-3. Create a browser API key restricted to the production web origin and Google Picker API.
-4. Add GOOGLE_DRIVE_OAUTH_CLIENT_ID, GOOGLE_DRIVE_OAUTH_CLIENT_SECRET, GOOGLE_DRIVE_PICKER_API_KEY, and GOOGLE_DRIVE_PROJECT_NUMBER to the server deployment. Keep the client secret server-only; never put refresh tokens or folder IDs in deployment docs.
-5. Open /admin/settings and click **Connect Google Drive**.
-6. Choose the Google account that should own private slip files, then choose the destination folder in Google's Picker.
-7. The server checks the folder and creates/removes a zero-content probe file. The card reports **Connected** only after that write test succeeds.
+- `SPREADSHEET_ID` — private developer-owned key-safe workbook, not the target workbook.
+- `GOOGLE_SERVICE_ACCOUNT_JSON` — service account with access only to the key safe.
+- `ADMIN_SECRET` — signs 30-day owner sessions.
+- `CRON_SECRET` — authenticates Vercel Cron.
+- `SETTINGS_ENCRYPTION_KEY` — base64-encoded 32-byte key for Google and LINE secrets.
+- `GOOGLE_DRIVE_OAUTH_CLIENT_ID` and `GOOGLE_DRIVE_OAUTH_CLIENT_SECRET`.
+- `GOOGLE_DRIVE_PICKER_API_KEY` and `GOOGLE_DRIVE_PROJECT_NUMBER`.
 
-The active connection stores one encrypted refresh token, account email, selected folder, and validation time. The browser sees only a short-lived Picker access token. Any authenticated administrator can use **Change folder** or **Reconnect account**. A canceled consent, canceled Picker, permission error, revoked token, or failed probe leaves the previous working connection active.
-
-The active OAuth account owns newly stored REVIEW/FLAGGED slip files. Existing slip links continue pointing to their original files. If Drive upload fails, the payment evidence remains reviewable and the system does not claim successful storage.
-
-SLIP_STORAGE_FOLDER_ID remains an optional service-account fallback for migration, recovery, or a deliberate Google Workspace Shared Drive deployment. The protected legacy Save & Test card is shown only when no OAuth connection is active. Service-account JSON and private keys never belong in workbook settings or browser fields. The OAuth flow is required for personal My Drive folders because service accounts have no personal Drive storage quota.
-
-## LINE linking rollout
-
-LINE credentials live primarily in the workbook's encrypted `Integration Secrets` sheet. The protected **Settings** dashboard is the normal place to enter or rotate them; it shows metadata only, never plaintext. The deployment needs one server-only master key before the dashboard can save credentials:
-
-```sh
-openssl rand -base64 32
-```
-
-Set that output as `SETTINGS_ENCRYPTION_KEY` in the production deployment. It must be one base64-encoded 32-byte value; store the exact value in the deployment secret manager and a separate approved recovery location. Never commit it or place it in the workbook.
-
-There is no recovery for encrypted credentials if every copy of this key is lost. First restore the original key from the deployment secret history or secure backup. If that is impossible, set a newly generated key, then use protected **Settings** to enter both current LINE credentials again in the same Save & Test submission; this replaces the unusable encrypted records. Rotate the LINE credentials in LINE Developers afterward. Do not rotate or remove the old key until all encrypted records that need it have been recovered or replaced.
-
-`LINE_CHANNEL_ACCESS_TOKEN` and `LINE_CHANNEL_SECRET` are optional server-only migration/development fallbacks, not the production source of truth. Encrypted dashboard values take precedence. If using fallback values for a migration, paste both values into protected **Settings**, click **Save & Test**, confirm validation, then remove both environment variables and redeploy. Never put real credentials in `.env.example`, source, Sheets cells outside `Integration Secrets`, or client-side configuration.
-
-`LINE_LINKING_ENABLED` defaults to `false`. Only a trimmed, case-insensitive value of `true` enables the webhook. While disabled, `POST /api/line/webhook` returns `404` before it reads the request body, LINE credentials, or client data. Keep it `false` until credentials and rollout checks are ready; set it to `true` in the production deployment and redeploy to activate linking.
-
-Production rollout:
-
-1. In LINE Developers, enable Messaging API on the existing LINE Official Account. Obtain its channel access token and channel secret; keep both private.
-2. In Vercel, set the normal production values from `.env.example`, a newly generated `SETTINGS_ENCRYPTION_KEY`, and `LINE_LINKING_ENABLED=false` for the initial deployment. Deploy the app.
-3. Sign in to protected `/admin/settings`. Enter the channel access token and secret in **LINE integration**, then click **Save & Test**. It writes encrypted records to `Integration Secrets` and performs only the harmless authenticated `GET https://api.line.me/v2/bot/info` credential check. It does not replace webhook signature verification: every enabled webhook request still needs a valid `x-line-signature` HMAC made with the channel secret.
-4. Remove any temporary `LINE_CHANNEL_ACCESS_TOKEN` and `LINE_CHANNEL_SECRET` deployment fallbacks after successful dashboard entry. Set `LINE_LINKING_ENABLED=true`, then redeploy.
-5. In the Messaging API channel's webhook settings, set the webhook URL to `https://<production-domain>/api/line/webhook`. Click **Verify**, then enable **Use webhook**. Do not use a preview URL.
-6. Create one active test client, copy that client's complete LINE instruction, and have the test account add the Official Account and send its exact `LINK <code>` message. Confirm the LINE success reply and `LINKED` state/display name in the protected client view before rolling out further.
-7. In the coach workbook, use **Coaching Payments** → **Generate missing LINE link codes** for the remaining active roster. Give each client only that client's complete generated instruction. Codes expire after seven days; renew an expired code from the protected client view or the workbook's selected-client menu.
-
-## LINE payment automation rollout
-
-Vercel runs `/api/cron/generate` daily at **02:05 UTC** (`5 2 * * *`). The job generates due payment links, reconciles manual confirmations, then sends eligible LINE due-payment requests in that order. It catches up any still-pending payment whose due date is on or before its Bangkok business date; it does not send another QR request for a terminal payment or a payment already accepted by LINE.
-
-The `Payments` migration is append-only. On its first payment read or write, the app expands the sheet from the legacy 30 columns to 44 and fills only blank appended LINE header cells (`AE:AR`). It never replaces existing headers or payment values. Back up the workbook through your normal Google Sheets process before rollout, then let the application perform this non-destructive migration; do not paste a replacement header row.
-
-The old Apps Script daily `generateDuePaymentLinks` trigger must be removed manually. In the workbook choose **Coaching Payments** → **Remove legacy daily payment scheduler**. That action deletes only triggers whose handler is `generateDuePaymentLinks`; it leaves other workbook automation alone. **Generate links due today** remains a manual menu item, but Apps Script no longer installs or owns a daily scheduler.
-
-Keep both payment flags disabled for the first deployment:
-
-- `LINE_MESSAGING_ENABLED=false` prevents automated LINE due-payment pushes.
-- `LINE_CHAT_PAYMENTS_ENABLED=false` prevents LINE chat-slip payment intake.
-
-Enable them separately, only after LINE linking is working. The protected Settings page stores the `line_due_message_template`: it starts from the documented default, supports a server-rendered preview and a validated custom template, and can reset to that default. Invalid saves keep the last valid template. No template value or LINE credential belongs in client-side configuration.
-
-Default due-message template:
+Use this OAuth callback for each deployed origin:
 
 ```text
-Hi {{client_name}} 👋
-
-Your {{payment_label}} payment is due.
-
-Amount: {{amount}}
-Due date: {{due_date}}
-
-Please scan the PromptPay QR below. After paying, send the bank payment slip back in this chat.
-
-If you have trouble with the QR, use your payment page:
-{{payment_url}}
+https://YOUR_DEPLOYMENT/admin/google-drive/callback
 ```
 
-Safe staged rollout:
+Enable Google Sheets API and Google Drive API. The app requests `openid`, `email`, and `drive.file`; it can create and use files the owner creates or selects through the app without broad Drive access.
 
-1. Deploy with LINE linking, messaging, and chat payments disabled; confirm workbook access and append-only migration with normal admin reads.
-2. Configure encrypted LINE credentials in protected Settings, enable `LINE_LINKING_ENABLED`, and link one authorized test client.
-3. `LINE_MESSAGING_ENABLED` is global; it cannot be enabled for one client only. Before setting it to `true`, verify there are no other linked, eligible pending due rows. Then use the protected single-payment **Send LINE payment request** action for the authorized test payment, and turn the global flag back off after reviewing the accepted result. The due request freezes its rendered text and retry key before sending, includes an exact-payment PromptPay QR, and records LINE acceptance—not delivery or payment.
-4. Enable `LINE_CHAT_PAYMENTS_ENABLED` separately. Only a linked direct user with an awaiting payment can have an image downloaded or evaluated. Eligible chat slips and website uploads use the same local evaluator; normal coaching images are ignored.
-5. Keep `/p/[token]` available throughout rollout as the website payment and slip-upload fallback. Any low-value production payment, message, or slip test requires explicit coach and participating-user authorization; use a dedicated low-value test payment and review its recorded outcome before wider enablement.
+Publish the OAuth consent app as **Production** before handoff. External apps left in Testing can receive refresh tokens that expire after seven days.
 
-## Safety model
+## Owner setup
 
-- `AUTO_RECORDED` = strong local heuristic match, operationally paid only.
-- `REVIEW` = uncertain/partial local signals; inspect privately.
-- `FLAGGED` = duplicate or contradictory signals.
-- `MANUAL_CONFIRMED` = coach verified independently in SCB.
+1. Open `/admin/login` and continue with Google.
+2. The first verified Google identity claims the installation.
+3. Create `Coaching Payments - Automated` from the setup wizard.
+4. Create `Coaching Payment Slips` or choose an existing Drive folder.
+5. Enter business, recipient, PromptPay, public URL, retention, OCR, and LINE feature settings.
+6. Confirm the PromptPay QR preview and finish setup.
+7. The app validates the workbook schema, tests folder write/delete, stores settings, activates the staged connection, and opens the dashboard.
 
-Run `npm run lint`, `npm test`, and `npm run build` before deployment.
+Setup is resumable. A canceled picker or failed probe never replaces a working active connection.
 
-After secure configuration, run `npm run smoke` to check production health. Set `SMOKE_PAYMENT_TOKEN` only for a dedicated test payment: it submits a tiny valid PNG and intentionally creates an auditable `REVIEW`/`FLAGGED` result.
+## Workbook layout
 
-## Coach workbook workflow
+The owner workbook contains exactly:
 
-Use the `Dashboard` tab to enter a client, choose an active package from `Settings`, and submit via the **Coaching Payments** spreadsheet menu. Packages set defaults for one-time or installment plans; the coach may override price, installment count, and interval. The bound Apps Script creates a private `Installment Schedule`; Vercel now owns daily payment-link generation at 02:05 UTC. For linked, eligible clients, LINE can send the due request and exact-payment QR first, then accept a chat slip for local evaluation. Clients can always use their `/p/[token]` payment page instead.
+- `Clients`
+- `Installment Schedule`
+- `Payments`
+- `Settings`
+- `Audit Log`
+
+Encrypted Google and LINE secrets remain in the private key-safe workbook. There is no Apps Script deployment.
+
+## Local development and verification
+
+```bash
+npm run dev
+npm run lint
+npm test
+npm run build
+```
+
+Vercel Cron calls `/api/cron/generate` daily and `/api/cron/dashboard-metrics` monthly. Authenticated cron requests return `503` without writes until setup is complete. Disabled or incomplete LINE setup returns `404` before webhook bodies are read.
+
+The health endpoint exposes only safe categories: bootstrap, owner, workspace, workbook, folder, and business configuration.

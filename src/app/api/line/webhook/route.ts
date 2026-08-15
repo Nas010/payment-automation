@@ -6,7 +6,7 @@ import { parseLineLinkCommand } from "@/lib/line/link-command";
 import { createLineLinkService, type LinkResult } from "@/lib/line/linking";
 import { processLineSlipEvent, type LineSlipEvent } from "@/lib/line/slip-payments";
 import { verifyLineSignature } from "@/lib/line/signature";
-import { lineLinkingEnabled } from "@/lib/config";
+import { runtimeConfig } from "@/lib/runtime-config";
 
 export const runtime = "nodejs";
 
@@ -107,7 +107,9 @@ async function processEvent(event: DirectLinkEvent): Promise<void> {
 }
 
 export async function POST(request: Request): Promise<Response> {
-  if (!lineLinkingEnabled()) return new Response("Not Found", { status: 404 });
+  let config;
+  try { config = await runtimeConfig(); } catch { return new Response("Not Found", { status: 404 }); }
+  if (!config.lineLinkingEnabled) return new Response("Not Found", { status: 404 });
 
   const rawBody = await request.text();
   let channelSecret: string;

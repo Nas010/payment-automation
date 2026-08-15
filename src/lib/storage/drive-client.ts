@@ -2,8 +2,7 @@ import { Readable } from "node:stream";
 import { google } from "googleapis";
 import { googleDriveConfig, googleDriveRedirectUri, type GoogleDriveConfig } from "@/lib/config";
 import { createGoogleDriveOAuthClient } from "./google-drive-auth";
-import { getGoogleDriveConnection, type GoogleDriveConnection } from "./google-drive-connection";
-import { serviceAccountEmail } from "./drive-folder";
+import { getActiveWorkspaceConnection } from "@/lib/workspace/connection";
 
 type DriveFolderMetadata = {
   id?: string | null;
@@ -17,26 +16,14 @@ export type DriveClientLike = {
   files: {
     get: (input: { fileId: string; fields?: string; supportsAllDrives?: boolean; alt?: string }) => Promise<{ data: DriveFolderMetadata | ArrayBuffer; headers?: Record<string, string | undefined> }>;
     create: (input: {
-      requestBody: { name: string; parents: string[]; mimeType: string };
-      media: { mimeType: string; body: Readable };
+      requestBody: { name: string; parents?: string[]; mimeType: string };
+      media?: { mimeType: string; body: Readable };
       fields: string;
       supportsAllDrives: boolean;
     }) => Promise<{ data: { id?: string | null } }>;
     delete?: (input: { fileId: string; supportsAllDrives: boolean }) => Promise<unknown>;
   };
 };
-
-export function createDriveClient(serviceAccountJson: string = process.env.GOOGLE_SERVICE_ACCOUNT_JSON ?? ""): DriveClientLike {
-  serviceAccountEmail(serviceAccountJson);
-  let credentials: Record<string, string>;
-  try {
-    credentials = JSON.parse(serviceAccountJson) as Record<string, string>;
-  } catch {
-    throw new Error("Google service account is not configured correctly.");
-  }
-  const auth = new google.auth.GoogleAuth({ credentials, scopes: ["https://www.googleapis.com/auth/drive.file"] });
-  return google.drive({ version: "v3", auth }) as unknown as DriveClientLike;
-}
 
 export function createOAuthDriveClient(connection: { refreshToken: string }, config: GoogleDriveConfig = googleDriveConfig() ?? (() => { throw new Error("Google Drive OAuth is not configured."); })()): DriveClientLike {
   const redirectUri = googleDriveRedirectUri("http://localhost:3000");
@@ -46,14 +33,9 @@ export function createOAuthDriveClient(connection: { refreshToken: string }, con
 }
 
 export async function getConfiguredDriveClient(): Promise<DriveClientLike> {
-  let connection: GoogleDriveConnection | null = null;
-  try {
-    connection = await getGoogleDriveConnection();
-  } catch {
-    return createDriveClient();
-  }
-  if (connection) return createOAuthDriveClient(connection);
-  return createDriveClient();
+  const connection = await getActiveWorkspaceConnection();
+  if (!connection) throw new Error("Google Workspace is not connected.");
+  return createOAuthDriveClient(connection);
 }
 
 function googleStatus(error: unknown): number | null {
@@ -65,20 +47,20 @@ function googleStatus(error: unknown): number | null {
 }
 
 export async function validateDriveFolder(folderId: string, {
-  drive = createDriveClient(),
+  drive,
   now = () => new Date().toISOString(),
-  permissionMessage = "Service account needs Editor access to this folder.",
+  permissionMessage = "Connected Google account needs Editor access to this folder.",
 }: {
-  drive?: DriveClientLike;
+  drive: DriveClientLike;
   now?: () => string;
   permissionMessage?: string;
-} = {}): Promise<{ folderId: string; folderName: string; validatedAt: string }> {
+}): Promise<{ folderId: string; folderName: string; validatedAt: string }> {
   let folder: DriveFolderMetadata;
   try {
     const response = await drive.files.get({ fileId: folderId, fields: "id,name,mimeType,trashed,capabilities(canAddChildren)", supportsAllDrives: true });
     folder = response.data as DriveFolderMetadata;
   } catch (error) {
-    if (googleStatus(error) === 404) throw new Error("Folder not found. Share it with the service-account email and try again.");
+    if (googleStatus(error) === 404) throw new Error("Folder not found. Choose a folder available to the connected Google account.");
     throw new Error("Could not validate Google Drive folder. Try again.");
   }
 
@@ -107,6 +89,23 @@ export async function testDriveFolderWrite(folderId: string, drive: DriveClientL
     await drive.files.delete({ fileId: probeId, supportsAllDrives: true });
   } catch {
     throw new Error("Could not validate Google Drive folder. Try again.");
+  }
+}
+
+export async function createDriveFolder(name: string, drive: DriveClientLike): Promise<{ folderId: string; folderName: string; folderUrl: string }> {
+  const folderName = name.trim();
+  if (!folderName) throw new Error("Drive folder name is required.");
+  try {
+    const created = await drive.files.create({
+      requestBody: { name: folderName, mimeType: "application/vnd.google-apps.folder" },
+      fields: "id",
+      supportsAllDrives: true,
+    });
+    const folderId = created.data.id;
+    if (!folderId) throw new Error("folder id missing");
+    return { folderId, folderName, folderUrl: `https://drive.google.com/drive/folders/${folderId}` };
+  } catch {
+    throw new Error("Could not create Google Drive folder. Try again.");
   }
 }
 

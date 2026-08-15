@@ -14,7 +14,7 @@ function columnName(column: number): string {
 
 /** Adds blank header cells without replacing any existing workbook values. */
 async function ensureSheetSchema(title: string, headers: readonly string[], firstHeaderToFill = 0): Promise<void> {
-  const { sheets, spreadsheetId } = getGoogleSheets();
+  const { sheets, spreadsheetId } = await getGoogleSheets();
   const metadata = await sheets.spreadsheets.get({ spreadsheetId, fields: "sheets(properties(sheetId,title,gridProperties(columnCount)))" });
   const sheet = metadata.data.sheets?.find((item) => item.properties?.title === title);
   const properties = sheet?.properties;
@@ -41,12 +41,27 @@ async function ensureSheetSchema(title: string, headers: readonly string[], firs
   }));
 }
 
-/** Adds blank client header cells without replacing any existing workbook values. */
-export async function ensureClientSchema(): Promise<void> {
-  await ensureSheetSchema("Clients", CLIENT_HEADERS);
+let clientSchemaCheck: Promise<void> | null = null;
+let paymentSchemaCheck: Promise<void> | null = null;
+
+/** Adds blank client header cells once per warm process without replacing existing values. */
+export function ensureClientSchema(): Promise<void> {
+  if (clientSchemaCheck) return clientSchemaCheck;
+  const cached = ensureSheetSchema("Clients", CLIENT_HEADERS).catch((error) => {
+    if (clientSchemaCheck === cached) clientSchemaCheck = null;
+    throw error;
+  });
+  clientSchemaCheck = cached;
+  return cached;
 }
 
-/** Extends legacy payment sheets and fills blank appended LINE transport headers only. */
-export async function ensurePaymentSchema(): Promise<void> {
-  await ensureSheetSchema("Payments", PAYMENT_HEADERS, 30);
+/** Extends legacy payment sheets once per warm process and fills blank appended LINE headers. */
+export function ensurePaymentSchema(): Promise<void> {
+  if (paymentSchemaCheck) return paymentSchemaCheck;
+  const cached = ensureSheetSchema("Payments", PAYMENT_HEADERS, 30).catch((error) => {
+    if (paymentSchemaCheck === cached) paymentSchemaCheck = null;
+    throw error;
+  });
+  paymentSchemaCheck = cached;
+  return cached;
 }

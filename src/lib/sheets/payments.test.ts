@@ -18,7 +18,7 @@ function payment(overrides: Partial<PaymentRecord> = {}): PaymentRecord {
 }
 
 function row(record: PaymentRecord): string[] {
-  return [record.payment_id, record.client_id, record.client_name, record.period, record.amount_thb, record.due_date, record.public_token, record.payment_url, record.status, record.created_at, record.submitted_at, record.recorded_at, record.manual_confirmed_at, record.transaction_ref, record.originating_bank, record.slip_hash, record.qr_valid, record.ocr_amount, record.amount_match, record.ocr_receiver, record.receiver_match, record.ocr_transaction_date, record.date_match, record.check_score, record.review_reason, record.slip_url, record.admin_notes, record.line_message, record.updated_at, record.qr_payload_hash, record.line_message_status, record.line_retry_key, record.line_message_attempted_at, record.line_message_sent_at, record.line_request_id, record.line_message_error, record.line_payment_requested_at, record.line_slip_expected, record.line_slip_received_at, record.line_source_message_id, record.line_slip_processing_status, record.line_slip_error, record.line_reply_status, record.line_reply_at].map((value) => value ?? "");
+  return [...PAYMENT_HEADERS.map((header) => record[header])].map((value) => value ?? "");
 }
 
 function metadata(namedRanges: Array<{ name: string; namedRangeId: string }> = []) {
@@ -153,7 +153,7 @@ describe("updatePaymentIfUnchanged", () => {
     expect(batchUpdate).toHaveBeenNthCalledWith(2, expect.objectContaining({ requestBody: { requests: expect.arrayContaining([
       { deleteNamedRange: { namedRangeId: "token_1" } },
       expect.objectContaining({ addNamedRange: expect.any(Object) }),
-      expect.objectContaining({ updateCells: expect.objectContaining({ range: expect.objectContaining({ sheetId: 12, startRowIndex: 1, endRowIndex: 2, endColumnIndex: 44 }) }) }),
+      expect.objectContaining({ updateCells: expect.objectContaining({ range: expect.objectContaining({ sheetId: 12, startRowIndex: 1, endRowIndex: 2, endColumnIndex: 49 }) }) }),
     ]) } }));
   });
 
@@ -290,7 +290,7 @@ describe("updatePaymentIfUnchanged", () => {
 describe("reconcileManualConfirmations", () => {
   it("clears LINE slip expectation while reconciling a directly edited manual confirmation", async () => {
     const confirmed = payment({ status: "MANUAL_CONFIRMED", manual_confirmed_at: "", line_slip_expected: "TRUE" });
-    get.mockImplementation(async ({ range }: { range: string }) => ({ data: { values: range === "Payments!A:AR" ? [PAYMENT_HEADERS, row(confirmed)] : [row(confirmed)] } }));
+    get.mockImplementation(async ({ range }: { range: string }) => ({ data: { values: range === "Payments!A:AW" ? [PAYMENT_HEADERS, row(confirmed)] : [row(confirmed)] } }));
     spreadsheetGet
       .mockResolvedValueOnce(metadata([]))
       .mockResolvedValue(metadata([{ name: paymentStateTokenName(confirmed), namedRangeId: "token_1" }]));
@@ -304,7 +304,7 @@ describe("reconcileManualConfirmations", () => {
   it("sweeps pending ADMIN and CLIENT_UPLOAD terminal-effect markers during the cron manual-reconciliation phase", async () => {
     const admin = payment({ payment_id: "admin", status: "MANUAL_CONFIRMED", manual_confirmed_at: "done", line_slip_error: "TRANSITION_EFFECTS_PENDING:ADMIN:REVIEW" });
     const upload = payment({ rowNumber: 3, payment_id: "upload", status: "AUTO_RECORDED", line_slip_error: "TRANSITION_EFFECTS_PENDING:CLIENT_UPLOAD:PENDING" });
-    get.mockImplementation(async ({ range }: { range: string }) => ({ data: { values: range === "Payments!A:AR" ? [PAYMENT_HEADERS, row(admin), row(upload)] : [] } }));
+    get.mockImplementation(async ({ range }: { range: string }) => ({ data: { values: range === "Payments!A:AW" ? [PAYMENT_HEADERS, row(admin), row(upload)] : [] } }));
     listSchedules.mockResolvedValue([
       { schedule_id: "schedule_admin", payment_id: "admin", status: "GENERATED" },
       { schedule_id: "schedule_upload", payment_id: "upload", status: "GENERATED" },
