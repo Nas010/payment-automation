@@ -95,6 +95,10 @@ function newScheduleId(): string {
   return `schedule_${crypto.randomUUID().replaceAll("-", "")}`;
 }
 
+function newAssignmentId(): string {
+  return `assignment_${crypto.randomUUID().replaceAll("-", "")}`;
+}
+
 async function generateAndSendInitialPayment(scheduleIds: string[]): Promise<void> {
   if (!scheduleIds.length) return;
   const baseUrl = (await runtimeConfig()).publicBaseUrl;
@@ -150,7 +154,7 @@ export async function assignPackageAction(clientId: string, formData: FormData):
   const intervalMonths = paymentType === "ONE_TIME" ? 0 : data.interval_months;
   if (paymentType === "INSTALLMENTS" && (paymentCount < 2 || intervalMonths < 1)) throw new Error("Installment plans need at least two payments and a one-month interval");
   const now = new Date().toISOString();
-  const schedules = buildAssignedScheduleRows({ client, label: selectedPackage.package_name, paymentType, totalSatang, paymentCount, intervalMonths, firstDueDate: data.first_due_date, notes: data.notes, now, createScheduleId: newScheduleId });
+  const schedules = buildAssignedScheduleRows({ client, label: selectedPackage.package_name, paymentType, totalSatang, paymentCount, intervalMonths, firstDueDate: data.first_due_date, notes: data.notes, now, assignmentId: newAssignmentId(), assignmentKind: "PACKAGE", createScheduleId: newScheduleId });
 
   for (const schedule of schedules) await writeSchedule(schedule);
   await generateAndSendInitialPayment([schedules[0].schedule_id]);
@@ -185,7 +189,7 @@ export async function createManualPaymentAction(clientId: string, formData: Form
   const intervalMonths = data.frequency === "ONE_TIME" ? 0 : data.interval_months;
   if (data.frequency === "RECURRING" && (paymentCount < 2 || intervalMonths < 1)) throw new Error("Recurring payments need at least two payments and a one-month interval");
   const now = new Date().toISOString();
-  const schedules = buildAssignedScheduleRows({ client, label: data.description, paymentType, totalSatang, paymentCount, intervalMonths, firstDueDate: data.first_due_date, notes: data.notes, now, createScheduleId: newScheduleId });
+  const schedules = buildAssignedScheduleRows({ client, label: data.description, paymentType, totalSatang, paymentCount, intervalMonths, firstDueDate: data.first_due_date, notes: data.notes, now, assignmentId: newAssignmentId(), assignmentKind: "MANUAL", createScheduleId: newScheduleId });
 
   for (const schedule of schedules) await writeSchedule(schedule);
   await generateAndSendInitialPayment([schedules[0].schedule_id]);

@@ -221,9 +221,13 @@ describe("existing client billing actions", () => {
       installment_count: "3",
       amount_thb: "600",
       due_date: "2026-08-31",
+      assignment_id: expect.stringMatching(/^assignment_[a-z0-9]+$/),
+      assignment_kind: "PACKAGE",
     }));
-    expect(mocks.writeSchedule).toHaveBeenNthCalledWith(2, expect.objectContaining({ due_date: "2026-10-31", amount_thb: "600" }));
+    expect(mocks.writeSchedule).toHaveBeenNthCalledWith(2, expect.objectContaining({ due_date: "2026-10-31", amount_thb: "600", assignment_kind: "PACKAGE" }));
     expect(mocks.writeSchedule).toHaveBeenNthCalledWith(3, expect.objectContaining({ due_date: "2026-12-31", amount_thb: "600" }));
+    const packageAssignmentIds = new Set(mocks.writeSchedule.mock.calls.map(([row]) => row.assignment_id));
+    expect([...packageAssignmentIds]).toHaveLength(1);
     expect(mocks.updateClient).toHaveBeenCalledWith(expect.objectContaining({
       client_id: "client_1",
       package_name: "Extended coaching",
@@ -307,8 +311,10 @@ describe("existing client billing actions", () => {
     await createManualPaymentAction("client_1", formData);
 
     expect(mocks.writeSchedule).toHaveBeenCalledTimes(3);
-    expect(mocks.writeSchedule).toHaveBeenNthCalledWith(1, expect.objectContaining({ package_name: "Nutrition check-in", payment_type: "INSTALLMENTS", installment_count: "3", amount_thb: "400", due_date: "2026-08-15" }));
+    expect(mocks.writeSchedule).toHaveBeenNthCalledWith(1, expect.objectContaining({ package_name: "Nutrition check-in", payment_type: "INSTALLMENTS", installment_count: "3", amount_thb: "400", due_date: "2026-08-15", assignment_id: expect.stringMatching(/^assignment_[a-z0-9]+$/), assignment_kind: "MANUAL" }));
     expect(mocks.writeSchedule).toHaveBeenNthCalledWith(3, expect.objectContaining({ installment_number: "3", due_date: "2026-10-15" }));
+    const manualAssignmentIds = new Set(mocks.writeSchedule.mock.calls.map(([row]) => row.assignment_id));
+    expect([...manualAssignmentIds]).toHaveLength(1);
     expect(mocks.updateClient).not.toHaveBeenCalled();
     expect(mocks.appendAudit).toHaveBeenCalledWith(expect.objectContaining({
       clientId: "client_1",
