@@ -137,6 +137,9 @@ describe("LINE message test profile", () => {
     expect(fixture.payment.payment_url).toBe("https://pay.example/line/message-test");
     expect(fixture.payment.public_token).toBe("");
     expect(fixture.payment.rowNumber).toBe(0);
+    expect(fixture.client.line_link_token_hash).toBe("");
+    expect(fixture.client.line_link_token_encrypted).toBe("");
+    expect(fixture.client.line_link_token_expires_at).toBe("");
     expect(fixture.schedules.every((schedule) => schedule.schedule_id.startsWith("line_test_"))).toBe(true);
   });
 

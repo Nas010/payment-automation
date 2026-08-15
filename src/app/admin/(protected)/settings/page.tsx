@@ -10,6 +10,7 @@ import { RuntimeConfigForm } from "@/components/admin/runtime-config-form";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { googleDriveConfig } from "@/lib/config";
+import { bangkokDateKey } from "@/lib/date";
 import { DEFAULT_LINE_WELCOME_TEMPLATE } from "@/lib/line/message-template";
 import { buildLineConnectUrl, recoverLineConnectionToken } from "@/lib/line/connection-token";
 import { createDefaultLineMessageTestProfile, LINE_MESSAGE_TEST_SUBJECT_ID, toLineMessageTestAdminView } from "@/lib/line/message-test-profile";
@@ -53,7 +54,7 @@ export default async function SettingsPage({ searchParams }: { searchParams?: Pr
   const validation = validationMetadata(settings.find((item) => item.key === "line_access_token_validation")?.value);
   const dueProfiles = resolveLineDueMessageProfiles(settings);
   const reminderConfig = resolveLineInstallmentReminderConfig(settings);
-  const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Bangkok" });
+  const today = bangkokDateKey();
   const resolvedTestProfile = resolveLineMessageTestProfile(settings, createDefaultLineMessageTestProfile(today));
   const welcomeTemplate = settings.find((item) => item.key === "line_welcome_message_template")?.value || DEFAULT_LINE_WELCOME_TEMPLATE;
   const driveError = driveErrorMessage(query?.drive_error);

@@ -71,7 +71,9 @@ function testAudit(input: {
     previousStatus: input.previousStatus,
     newStatus: input.newStatus,
     reason: input.reason,
-    source: input.action === "LINE_MESSAGE_TEST_LINKED" ? "LINE_CONNECT" : "LINE_TRAINER",
+    source: input.action === "LINE_MESSAGE_TEST_LINKED" || input.action === "LINE_MESSAGE_TEST_CONFLICT"
+      ? "LINE_CONNECT"
+      : "LINE_TRAINER",
     metadata: JSON.stringify({
       subject: LINE_MESSAGE_TEST_SUBJECT_ID,
       status: input.newStatus,

@@ -266,9 +266,9 @@ function syntheticClient(profile: LineMessageTestProfile, paymentType: LineMessa
     line_linked_at: profile.lineLinkedAt,
     line_link_message: "",
     line_link_error: profile.lineLinkError,
-    line_link_token_hash: profile.lineLinkTokenHash,
-    line_link_token_encrypted: profile.lineLinkTokenEncrypted,
-    line_link_token_expires_at: profile.lineLinkTokenExpiresAt,
+    line_link_token_hash: "",
+    line_link_token_encrypted: "",
+    line_link_token_expires_at: "",
     line_picture_url: profile.linePictureUrl,
   };
 }
