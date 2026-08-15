@@ -15,6 +15,14 @@ import {
   type LinePaymentType,
   type ResolvedLineDueMessageProfiles,
 } from "@/lib/line/message-profile";
+import {
+  LINE_TERMS_ACTIVE_VERSION_KEY,
+  LINE_TERMS_VERSIONS_KEY,
+  activateLineTermsImageVersion,
+  parseLineTermsImageState,
+  type LineTermsImageState,
+  type LineTermsImageVersion,
+} from "@/lib/line/terms-image";
 
 export type OperationalSetting = { rowNumber: number; key: string; value: string };
 export type PackageRecord = { rowNumber: number; package_name: string; total_price_thb: string; payment_type: string; installment_count: string; interval_months: string; active: string };
@@ -92,6 +100,18 @@ export async function getLineDueMessageProfiles(): Promise<ResolvedLineDueMessag
 export async function saveLineDueMessageProfile(paymentType: LinePaymentType, profile: LineDueMessageProfile): Promise<void> {
   validateLineDueMessageProfile(profile, paymentType);
   await upsertOperationalSetting(LINE_DUE_PROFILE_SETTING_KEYS[paymentType], JSON.stringify(profile));
+}
+
+export async function getLineTermsImageState(): Promise<LineTermsImageState> {
+  return parseLineTermsImageState(await listOperationalSettings());
+}
+
+export async function saveLineTermsImageVersion(version: LineTermsImageVersion): Promise<void> {
+  const next = activateLineTermsImageVersion(await getLineTermsImageState(), version);
+  await upsertOperationalSettings([
+    { key: LINE_TERMS_ACTIVE_VERSION_KEY, value: next.activeVersionId },
+    { key: LINE_TERMS_VERSIONS_KEY, value: JSON.stringify(next.versions) },
+  ]);
 }
 
 export async function listPackages(): Promise<PackageRecord[]> {

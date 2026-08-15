@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/sheets/settings", () => ({
   listOperationalSettings: mocks.listOperationalSettings,
+  saveLineTermsImageVersion: vi.fn(),
   resolveLineDueMessageProfiles: (settings: Array<{ key: string; value: string }>) => ({
     ONE_TIME: { kind: "VALID", profile: JSON.parse(settings.find((setting) => setting.key === LINE_DUE_PROFILE_SETTING_KEYS.ONE_TIME)?.value ?? JSON.stringify(DEFAULT_LINE_DUE_PROFILES.ONE_TIME)) },
     INSTALLMENTS: { kind: "INVALID" },

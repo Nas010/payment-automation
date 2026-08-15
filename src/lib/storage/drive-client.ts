@@ -14,7 +14,7 @@ type DriveFolderMetadata = {
 
 export type DriveClientLike = {
   files: {
-    get: (input: { fileId: string; fields?: string; supportsAllDrives?: boolean; alt?: string }) => Promise<{ data: DriveFolderMetadata | ArrayBuffer; headers?: Record<string, string | undefined> }>;
+    get: (input: { fileId: string; fields?: string; supportsAllDrives?: boolean; alt?: string }) => Promise<{ data: DriveFolderMetadata | ArrayBuffer | Uint8Array; headers?: Record<string, string | undefined> }>;
     create: (input: {
       requestBody: { name: string; parents?: string[]; mimeType: string };
       media?: { mimeType: string; body: Readable };
@@ -125,4 +125,42 @@ export async function createDriveSlipFile(input: {
   });
   if (!created.data.id) throw new Error("Private slip storage did not return a file ID");
   return created.data.id;
+}
+
+export async function createDriveTermsImageFile(input: {
+  bytes: Uint8Array;
+  mimeType: "image/jpeg" | "image/png";
+  versionId: string;
+  folderId: string;
+}, { drive }: { drive?: DriveClientLike } = {}): Promise<string> {
+  try {
+    const configuredDrive = drive ?? await getConfiguredDriveClient();
+    const extension = input.mimeType === "image/png" ? "png" : "jpg";
+    const created = await configuredDrive.files.create({
+      requestBody: { name: `line-terms-${input.versionId}.${extension}`, parents: [input.folderId], mimeType: input.mimeType },
+      media: { mimeType: input.mimeType, body: Readable.from(Buffer.from(input.bytes)) },
+      fields: "id",
+      supportsAllDrives: true,
+    });
+    if (!created.data.id) throw new Error("missing file id");
+    return created.data.id;
+  } catch {
+    throw new Error("Could not store T&S image. Try again.");
+  }
+}
+
+export async function readDriveTermsImageFile(fileId: string, { drive }: { drive?: DriveClientLike } = {}): Promise<{ bytes: Uint8Array; declaredMimeType: string }> {
+  try {
+    const configuredDrive = drive ?? await getConfiguredDriveClient();
+    const file = await configuredDrive.files.get({ fileId, alt: "media", supportsAllDrives: true });
+    const bytes = file.data instanceof ArrayBuffer
+      ? new Uint8Array(file.data)
+      : file.data instanceof Uint8Array
+        ? new Uint8Array(file.data)
+        : null;
+    if (!bytes) throw new Error("invalid media body");
+    return { bytes, declaredMimeType: file.headers?.["content-type"] ?? "" };
+  } catch {
+    throw new Error("T&S image is unavailable.");
+  }
 }

@@ -1,6 +1,7 @@
 import { PageHeader } from "@/components/admin/page-ui";
 import { LineIntegrationForm, type LineCredentialMetadata } from "@/components/admin/line-integration-form";
 import { LineDueTemplateForm } from "@/components/admin/line-due-template-form";
+import { LineTermsImageForm } from "@/components/admin/line-terms-image-form";
 import { LineWelcomeTemplateForm } from "@/components/admin/line-welcome-template-form";
 import { GoogleDriveConnectionCard } from "@/components/admin/google-drive-connection-card";
 import { RuntimeConfigForm } from "@/components/admin/runtime-config-form";
@@ -8,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { googleDriveConfig } from "@/lib/config";
 import { DEFAULT_LINE_WELCOME_TEMPLATE } from "@/lib/line/message-template";
+import { activeLineTermsImageVersion, lineTermsImagePath, parseLineTermsImageState } from "@/lib/line/terms-image";
 import { runtimeConfig } from "@/lib/runtime-config";
 import { getSecretMetadata } from "@/lib/secrets/service";
 import { listOperationalSettings, resolveLineDueMessageProfiles } from "@/lib/sheets/settings";
@@ -23,6 +25,7 @@ import {
 } from "./line-actions";
 import { activateGoogleDriveFolderAction } from "@/app/admin/google-drive/actions";
 import { saveRuntimeConfigAction, testWorkspaceConnectionAction } from "./runtime-actions";
+import { uploadLineTermsImageAction } from "./terms-image-actions";
 
 export default async function SettingsPage({ searchParams }: { searchParams?: Promise<{ workspace?: string; drive_error?: string }> }) {
   const query = await searchParams;
@@ -37,6 +40,17 @@ export default async function SettingsPage({ searchParams }: { searchParams?: Pr
   const dueProfiles = resolveLineDueMessageProfiles(settings);
   const welcomeTemplate = settings.find((item) => item.key === "line_welcome_message_template")?.value || DEFAULT_LINE_WELCOME_TEMPLATE;
   const driveError = driveErrorMessage(query?.drive_error);
+  let termsImage: { previewUrl: string; uploadedAt: string } | null = null;
+  let termsImageError = "";
+  try {
+    const activeTermsImage = activeLineTermsImageVersion(parseLineTermsImageState(settings));
+    termsImage = activeTermsImage ? {
+      previewUrl: lineTermsImagePath(activeTermsImage.publicToken),
+      uploadedAt: activeTermsImage.uploadedAt,
+    } : null;
+  } catch {
+    termsImageError = "T&S image configuration needs attention.";
+  }
 
   return <div className="flex flex-col gap-6">
     <PageHeader title="Settings" description="Business settings live in your workbook. Google and LINE secrets stay encrypted in the private key safe." />
@@ -46,6 +60,7 @@ export default async function SettingsPage({ searchParams }: { searchParams?: Pr
     <LineIntegrationForm credentials={credentials} validation={validation} action={saveAndTestLineCredentialsAction} />
     <LineWelcomeTemplateForm template={welcomeTemplate} previewAction={previewLineWelcomeTemplateAction} saveAction={saveLineWelcomeTemplateAction} resetAction={resetLineWelcomeTemplateAction} />
     <LineDueTemplateForm profiles={dueProfiles} messagingEnabled={config.lineMessagingEnabled} chatPaymentsEnabled={config.lineChatPaymentsEnabled} previewAction={previewLineDueMessageProfileAction} saveAction={saveLineDueMessageProfileAction} resetAction={resetLineDueMessageProfileAction} />
+    <LineTermsImageForm image={termsImage} driveConnected={Boolean(connection)} error={termsImageError} action={uploadLineTermsImageAction} />
   </div>;
 }
 

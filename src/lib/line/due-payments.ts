@@ -8,7 +8,9 @@ import { hasLineAuditEvent, type LineAuditEventIdentity } from "@/lib/sheets/aud
 import { appendAudit, listPayments, updatePayment, type PaymentAuditInput, type PaymentRecord } from "@/lib/sheets/payments";
 import { readPaymentClientSnapshot } from "@/lib/sheets/payment-client-snapshot";
 import { listSchedules, type ScheduleRecord } from "@/lib/sheets/schedules";
-import { getLineDueMessageProfiles } from "@/lib/sheets/settings";
+import { listOperationalSettings, resolveLineDueMessageProfiles } from "@/lib/sheets/settings";
+import { readDriveTermsImageFile } from "@/lib/storage/drive-client";
+import { activeLineTermsImageVersion, isLineTermsPublicToken, lineTermsImagePath, parseLineTermsImageState, resolveLineTermsPlanPosition, validateLineTermsImageBytes, type LineTermsImageState } from "./terms-image";
 import { sendLinePushMessage } from "./client";
 import { LineDueTemplateError, renderLineDueMessageProfile, type ResolvedLineDueMessageProfiles } from "./message-profile";
 import { resolveLineDueMessageValues } from "./message-values";
@@ -26,6 +28,8 @@ export type LineDueDependencies = {
   appendAudit: (record: PaymentAuditInput) => Promise<void>;
   hasAuditEvent: (identity: LineAuditEventIdentity) => Promise<boolean>;
   getLineDueMessageProfiles: () => Promise<ResolvedLineDueMessageProfiles>;
+  getLineTermsImageState: () => Promise<LineTermsImageState>;
+  readDriveTermsImageFile: typeof readDriveTermsImageFile;
   getLineChannelAccessToken: () => Promise<string>;
   sendPush: (input: LinePushRequest) => Promise<LinePushResult>;
   lineMessagingEnabled: () => boolean;
@@ -49,6 +53,8 @@ export type SendDueLinePaymentRequestsResult = {
 
 async function runtimeDependencies(): Promise<LineDueDependencies> {
   const config = await runtimeConfig();
+  let operationalSettingsPromise: ReturnType<typeof listOperationalSettings> | null = null;
+  const operationalSettings = () => operationalSettingsPromise ??= listOperationalSettings();
   return {
     listPayments,
     listClients,
@@ -57,7 +63,9 @@ async function runtimeDependencies(): Promise<LineDueDependencies> {
     updatePayment,
     appendAudit,
     hasAuditEvent: hasLineAuditEvent,
-    getLineDueMessageProfiles,
+    getLineDueMessageProfiles: async () => resolveLineDueMessageProfiles(await operationalSettings()),
+    getLineTermsImageState: async () => parseLineTermsImageState(await operationalSettings()),
+    readDriveTermsImageFile,
     getLineChannelAccessToken,
     sendPush: (input) => sendLinePushMessage({ ...input, fetchFn: fetch }),
     lineMessagingEnabled: () => config.lineMessagingEnabled,
@@ -118,6 +126,46 @@ function qrImageUrl(baseUrl: string, publicToken: string): string {
   return url.toString();
 }
 
+function termsImageUrl(baseUrl: string, publicToken: string): string {
+  const url = new URL(lineTermsImagePath(publicToken), baseUrl);
+  if (url.protocol !== "https:") throw new Error("HTTPS_BASE_URL_REQUIRED");
+  return url.toString();
+}
+
+type TermsImageSelection = { token: string; reasonCode?: "NOT_CONFIGURED" | "CONFIG_INVALID" | "ASSET_UNAVAILABLE" | "POSITION_UNKNOWN" };
+
+async function selectTermsImage(
+  dependencies: LineDueDependencies,
+  payment: PaymentRecord,
+  schedules: readonly ScheduleRecord[],
+  statePromise: () => Promise<LineTermsImageState>,
+): Promise<TermsImageSelection> {
+  if (hasFrozenRetryMessage(payment)) {
+    if (!payment.line_terms_image_token || payment.line_terms_image_token === "NONE") return { token: "NONE" };
+    return isLineTermsPublicToken(payment.line_terms_image_token)
+      ? { token: payment.line_terms_image_token }
+      : { token: "NONE", reasonCode: "CONFIG_INVALID" };
+  }
+  const legacySchedule = payment.installment_number ? undefined : schedules.find((schedule) => schedule.payment_id === payment.payment_id);
+  const position = resolveLineTermsPlanPosition(payment, legacySchedule);
+  if (position === "LATER") return { token: "NONE" };
+  if (position === "UNKNOWN") return { token: "NONE", reasonCode: "POSITION_UNKNOWN" };
+  let version;
+  try {
+    version = activeLineTermsImageVersion(await statePromise());
+  } catch {
+    return { token: "NONE", reasonCode: "CONFIG_INVALID" };
+  }
+  if (!version) return { token: "NONE", reasonCode: "NOT_CONFIGURED" };
+  try {
+    const file = await dependencies.readDriveTermsImageFile(version.driveFileId);
+    if (validateLineTermsImageBytes(file.bytes) !== version.mimeType || file.bytes.byteLength !== version.byteLength) throw new Error("asset mismatch");
+    return { token: version.publicToken };
+  } catch {
+    return { token: "NONE", reasonCode: "ASSET_UNAVAILABLE" };
+  }
+}
+
 function oldAmbiguousAttempt(payment: PaymentRecord, now: string): boolean {
   const ambiguousState = payment.line_message_status === "SENDING"
     || (payment.line_message_status === "FAILED_RETRYABLE" && (!payment.line_message_error || payment.line_message_error === "NETWORK_ERROR"));
@@ -161,6 +209,26 @@ async function appendLineAudit(
   } catch {
     return false;
   }
+}
+
+async function appendTermsImageSkippedAudit(
+  dependencies: LineDueDependencies,
+  payment: PaymentRecord,
+  previousStatus: string,
+  reasonCode: NonNullable<TermsImageSelection["reasonCode"]>,
+): Promise<void> {
+  try {
+    await dependencies.appendAudit({
+      paymentId: payment.payment_id,
+      clientId: payment.client_id,
+      action: "LINE_TERMS_IMAGE_SKIPPED",
+      previousStatus,
+      newStatus: "SENDING",
+      reason: "LINE T&S image omitted; payment request continued",
+      source: "LINE_DUE_SENDER",
+      metadata: JSON.stringify({ paymentId: payment.payment_id, reasonCode }),
+    });
+  } catch {}
 }
 
 function pendingAcceptedAuditCode(actions: AcceptedAuditAction[]): string {
@@ -276,6 +344,7 @@ export async function sendDueLinePaymentRequests(
   const clientsById = new Map(clients.map((client) => [client.client_id, client]));
   let channelAccessToken: string | null = null;
   let profilesPromise: Promise<ResolvedLineDueMessageProfiles> | null = null;
+  let termsImageStatePromise: Promise<LineTermsImageState> | null = null;
 
   for (const originalPayment of payments) {
     if (selectedIds && !selectedIds.has(originalPayment.payment_id)) continue;
@@ -351,6 +420,19 @@ export async function sendDueLinePaymentRequests(
       const firstAttemptAt = payment.line_retry_key && payment.line_message_attempted_at ? payment.line_message_attempted_at : now;
       let sawAmbiguousFailure = payment.line_message_status === "SENDING" || payment.line_message_error === "NETWORK_ERROR";
       const imageUrl = qrImageUrl(options.baseUrl, payment.public_token);
+      const termsImage = await selectTermsImage(
+        dependencies,
+        payment,
+        schedules,
+        () => termsImageStatePromise ??= dependencies.getLineTermsImageState(),
+      );
+      if (termsImage.reasonCode) {
+        await appendTermsImageSkippedAudit(dependencies, payment, previousStatus, termsImage.reasonCode);
+      }
+      const termsImageMessage = termsImage.token === "NONE" ? null : (() => {
+        const url = termsImageUrl(options.baseUrl, termsImage.token);
+        return { type: "image" as const, originalContentUrl: url, previewImageUrl: url };
+      })();
       channelAccessToken ??= await dependencies.getLineChannelAccessToken();
       let pushResult: LinePushResult = { accepted: false, retryable: true, requestId: "", errorCode: "NETWORK_ERROR" };
 
@@ -361,6 +443,7 @@ export async function sendDueLinePaymentRequests(
           line_message_status: "SENDING",
           line_message_attempted_at: firstAttemptAt,
           line_message_error: sawAmbiguousFailure ? "NETWORK_ERROR" : "",
+          line_terms_image_token: termsImage.token,
           updated_at: now,
         });
         try {
@@ -371,6 +454,7 @@ export async function sendDueLinePaymentRequests(
             messages: [
               { type: "text", text: lineMessage },
               { type: "image", originalContentUrl: imageUrl, previewImageUrl: imageUrl },
+              ...(termsImageMessage ? [termsImageMessage] : []),
             ],
           });
         } catch {

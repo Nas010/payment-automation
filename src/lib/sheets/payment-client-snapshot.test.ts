@@ -42,7 +42,7 @@ describe("readPaymentClientSnapshot", () => {
     expect(mocks.batchGet).toHaveBeenCalledOnce();
     expect(mocks.batchGet).toHaveBeenCalledWith({
       spreadsheetId: "sheet_1",
-      ranges: ["Payments!A:AW", "Clients!A:AA", "Installment Schedule!A:R"],
+      ranges: ["Payments!A:AX", "Clients!A:AA", "Installment Schedule!A:R"],
     });
     expect(snapshot.payments).toMatchObject([{ payment_id: "pay_1", client_id: "client_1", client_name: "Nisa", rowNumber: 2 }]);
     expect(snapshot.clients).toMatchObject([{ client_id: "client_1", active: "TRUE", client_name: "Nisa", rowNumber: 2 }]);

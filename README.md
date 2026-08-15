@@ -55,6 +55,8 @@ Protected **Settings** has independent message profiles for one-time payments an
 
 Saved profiles take effect for future sends. A payment's rendered message is frozen before its LINE request so retries retain the original client-facing content. Existing deployments continue using the legacy due-message template for a payment type until its corresponding profile is saved.
 
+In **Settings**, upload one JPEG or PNG T&S image (maximum 1 MiB). The app stores immutable versions in the already connected Google Drive folder; no new environment variables or Drive setup are needed. Every new plan's first payment request, including an extension, sends payment text, PromptPay QR, and the active T&S image. Later installments send text and QR only. Replacements affect future first attempts; retries keep their frozen version. Missing or unavailable T&S media never blocks payment delivery. Tokenized T&S images are client-facing; private payment slips remain admin-only.
+
 ## Owner setup
 
 1. Open `/admin/login` and continue with Google.

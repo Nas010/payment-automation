@@ -63,7 +63,7 @@ describe("ensurePaymentSchema", () => {
     expect(ensurePaymentSchema).toBeTypeOf("function");
   });
 
-  it("expands a legacy 30-column Payments grid before reading or writing through AR", async () => {
+  it("expands a legacy 30-column Payments grid before reading or writing through AX", async () => {
     const { ensurePaymentSchema } = await import("./migration");
     spreadsheetGet.mockResolvedValueOnce({ data: { sheets: [{ properties: { sheetId: 12, title: "Payments", gridProperties: { columnCount: 30 } } }] } });
     get.mockResolvedValueOnce({ data: { values: [[...PAYMENT_HEADERS.slice(0, 30)]] } });
@@ -72,12 +72,13 @@ describe("ensurePaymentSchema", () => {
 
     await ensurePaymentSchema();
 
-    expect(batchUpdate).toHaveBeenCalledWith({ spreadsheetId: "spreadsheet_1", requestBody: { requests: [{ appendDimension: { sheetId: 12, dimension: "COLUMNS", length: 19 } }] } });
-    expect(get).toHaveBeenCalledWith({ spreadsheetId: "spreadsheet_1", range: "Payments!A1:AW1" });
+    expect(batchUpdate).toHaveBeenCalledWith({ spreadsheetId: "spreadsheet_1", requestBody: { requests: [{ appendDimension: { sheetId: 12, dimension: "COLUMNS", length: 20 } }] } });
+    expect(get).toHaveBeenCalledWith({ spreadsheetId: "spreadsheet_1", range: "Payments!A1:AX1" });
     expect(update).toHaveBeenCalledWith(expect.objectContaining({ range: "Payments!AE1", requestBody: { values: [["line_message_status"]] } }));
     expect(update).toHaveBeenCalledWith(expect.objectContaining({ range: "Payments!AR1", requestBody: { values: [["line_reply_at"]] } }));
     expect(update).toHaveBeenCalledWith(expect.objectContaining({ range: "Payments!AS1", requestBody: { values: [["package_name"]] } }));
     expect(update).toHaveBeenCalledWith(expect.objectContaining({ range: "Payments!AW1", requestBody: { values: [["total_price_thb"]] } }));
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({ range: "Payments!AX1", requestBody: { values: [["line_terms_image_token"]] } }));
     expect(batchUpdate.mock.invocationCallOrder[0]).toBeLessThan(get.mock.invocationCallOrder[0] ?? Infinity);
   });
 
@@ -89,9 +90,10 @@ describe("ensurePaymentSchema", () => {
 
     await ensurePaymentSchema();
 
-    expect(update).toHaveBeenCalledTimes(17);
+    expect(update).toHaveBeenCalledTimes(18);
     expect(update).toHaveBeenCalledWith(expect.objectContaining({ range: "Payments!AF1", requestBody: { values: [["line_retry_key"]] } }));
     expect(update).not.toHaveBeenCalledWith(expect.objectContaining({ range: "Payments!AE1" }));
     expect(update).not.toHaveBeenCalledWith(expect.objectContaining({ range: "Payments!AG1" }));
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({ range: "Payments!AX1", requestBody: { values: [["line_terms_image_token"]] } }));
   });
 });

@@ -54,7 +54,7 @@ function samePaymentState(left: PaymentRecord, right: PaymentRecord): boolean {
 
 async function readPaymentRow(payment: PaymentRecord): Promise<PaymentRecord | null> {
   const { sheets, spreadsheetId } = await getGoogleSheets();
-  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: `Payments!A${payment.rowNumber}:AW${payment.rowNumber}` });
+  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: `Payments!A${payment.rowNumber}:AX${payment.rowNumber}` });
   const row = response.data.values?.[0];
   if (!row) return null;
   return { ...rowToRecord(PAYMENT_HEADERS, row), rowNumber: payment.rowNumber } as PaymentRecord;
@@ -105,7 +105,7 @@ async function stabilizePaymentStateToken(payment: PaymentRecord): Promise<void>
 export async function listPayments(): Promise<PaymentRecord[]> {
   await ensurePaymentSchema();
   const { sheets, spreadsheetId } = await getGoogleSheets();
-  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: "Payments!A:AW" });
+  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: "Payments!A:AX" });
   return (response.data.values ?? []).slice(1).map((row, index) => ({ ...rowToRecord(PAYMENT_HEADERS, row), rowNumber: index + 2 }) as PaymentRecord).filter((row) => row.payment_id);
 }
 
@@ -120,7 +120,7 @@ export async function getPaymentById(paymentId: string): Promise<PaymentRecord |
 export async function appendPayment(payment: NewPaymentRecord): Promise<void> {
   await ensurePaymentSchema();
   const { sheets, spreadsheetId } = await getGoogleSheets();
-  await sheets.spreadsheets.values.append({ spreadsheetId, range: "Payments!A:AW", valueInputOption: "USER_ENTERED", requestBody: { values: [recordToRow(PAYMENT_HEADERS, payment)] } });
+  await sheets.spreadsheets.values.append({ spreadsheetId, range: "Payments!A:AX", valueInputOption: "USER_ENTERED", requestBody: { values: [recordToRow(PAYMENT_HEADERS, payment)] } });
 }
 
 export async function updatePayment(payment: PaymentRecord): Promise<void> {
