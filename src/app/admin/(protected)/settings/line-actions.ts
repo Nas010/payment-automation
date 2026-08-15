@@ -12,6 +12,7 @@ import {
   DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG,
   LINE_DUE_PROFILE_SETTING_KEYS,
   LineDueTemplateError,
+  REMINDER_SLOTS,
   parseLineDueMessageProfile,
   parseLineInstallmentReminderConfig,
   renderLineDueMessageProfile,
@@ -138,15 +139,27 @@ export async function resetLineDueMessageProfileAction(formData: FormData): Prom
 export type ReminderConfigActionResult = { ok: true; slot: ReminderSlot; config: import("@/lib/line/message-profile").LineInstallmentReminderConfig; preview: string };
 
 function submittedReminderConfig(formData: FormData) {
-  const slot = String(formData.get("slot") ?? "DUE_DATE") as ReminderSlot;
+  const slot = submittedReminderSlot(formData);
   const config = parseLineInstallmentReminderConfig(String(formData.get("config") ?? ""));
-  if (!(slot in config.profiles)) throw new LineDueTemplateError("TEMPLATE_INVALID", "Reminder slot is required");
   return { slot, config };
+}
+
+function submittedReminderSlot(formData: FormData): ReminderSlot {
+  const slot = String(formData.get("slot") ?? "");
+  if (!REMINDER_SLOTS.includes(slot as ReminderSlot)) {
+    throw new LineDueTemplateError("TEMPLATE_INVALID", "Reminder slot is required");
+  }
+  return slot as ReminderSlot;
 }
 
 export async function previewLineInstallmentReminderAction(formData: FormData): Promise<ReminderConfigActionResult> {
   await requireAdmin();
-  const { slot, config } = submittedReminderConfig(formData);
+  const slot = submittedReminderSlot(formData);
+  const profile = parseLineDueMessageProfile(String(formData.get("profile") ?? ""), "INSTALLMENTS");
+  const config = {
+    ...DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG,
+    profiles: { ...DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG.profiles, [slot]: profile },
+  };
   return { ok: true, slot, config, preview: renderLineDueMessageProfile(config.profiles[slot], "INSTALLMENTS", previewValues("INSTALLMENTS")) };
 }
 
