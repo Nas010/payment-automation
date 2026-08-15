@@ -1,5 +1,5 @@
 import { createHmac } from "node:crypto";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClientRecord } from "@/lib/sheets/clients";
 import { DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG } from "@/lib/line/reply-config";
 
@@ -65,6 +65,8 @@ function event(overrides: Record<string, unknown> = {}): Record<string, unknown>
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.spyOn(console, "info").mockImplementation(() => undefined);
+  vi.spyOn(console, "warn").mockImplementation(() => undefined);
   mocks.runtimeConfig.mockResolvedValue({ lineLinkingEnabled: true });
   mocks.getLineChannelSecret.mockResolvedValue(secret);
   mocks.getLineChannelAccessToken.mockResolvedValue(accessToken);
@@ -85,6 +87,7 @@ beforeEach(() => {
   });
   mocks.fetchFn.mockResolvedValue(new Response(null, { status: 200 }));
 });
+afterEach(() => vi.restoreAllMocks());
 
 describe("POST /api/line/webhook", () => {
   it("runs in Node runtime", () => {
@@ -165,11 +168,15 @@ describe("POST /api/line/webhook", () => {
   });
 
   it("refreshes a linked profile from an ordinary direct-user message", async () => {
+    const info = vi.spyOn(console, "info");
     mocks.fetchFn.mockResolvedValueOnce(new Response(JSON.stringify({ displayName: "Nisa Updated", pictureUrl: "https://profile.line-scdn.net/message-avatar" }), { status: 200 }));
     mocks.listClients.mockResolvedValue([client({ line_user_id: userId, line_link_status: "LINKED" })]);
 
     await expect(POST(signedRequest({ events: [event({ message: { type: "text", text: "hello" } })] }))).resolves.toMatchObject({ status: 200 });
     expect(mocks.updateLineLinkClient).toHaveBeenCalledWith(expect.objectContaining({ client: expect.objectContaining({ line_display_name: "Nisa Updated", line_picture_url: "https://profile.line-scdn.net/message-avatar" }) }));
+    expect(info).toHaveBeenCalledWith("[line-webhook] profile_refresh outcome=updated");
+    expect(JSON.stringify(info.mock.calls)).not.toContain(userId);
+    expect(JSON.stringify(info.mock.calls)).not.toContain("message-avatar");
   });
 
   it("links each direct LINK message independently, persists successful profile lookup, and replies", async () => {
@@ -200,11 +207,15 @@ describe("POST /api/line/webhook", () => {
   });
 
   it("keeps an existing avatar when a later profile refresh fails", async () => {
+    const warn = vi.spyOn(console, "warn");
     mocks.fetchFn.mockResolvedValueOnce(new Response(JSON.stringify({ message: "private profile error" }), { status: 500 }));
     mocks.listClients.mockResolvedValue([client({ line_user_id: userId, line_display_name: "Existing", line_picture_url: "https://profile.line-scdn.net/existing", line_link_status: "LINKED" })]);
 
     await expect(POST(signedRequest({ events: [event({ message: { type: "text", text: "hello" } })] }))).resolves.toMatchObject({ status: 200 });
     expect(mocks.updateLineLinkClient).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith("[line-webhook] profile_refresh outcome=profile_lookup_failed");
+    expect(JSON.stringify(warn.mock.calls)).not.toContain(userId);
+    expect(JSON.stringify(warn.mock.calls)).not.toContain("private profile error");
   });
 
   it("uses documented defaults when automatic reply settings cannot be read", async () => {

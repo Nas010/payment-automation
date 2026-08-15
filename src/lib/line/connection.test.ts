@@ -157,11 +157,23 @@ describe("LINE connection claims", () => {
     expect(deps.claimLineConnection).not.toHaveBeenCalled();
   });
 
-  it("treats same-client same-user retry as idempotent", async () => {
+  it("refreshes trusted profile fields during same-client same-user retry", async () => {
     const target = await activeClient({ line_user_id: userA, line_link_status: "LINKED", line_link_token_encrypted: "", line_link_token_expires_at: "" });
     const deps = dependencies([target]);
+    const pictureUrl = "https://profile.line-scdn.net/avatar/updated";
+    const refreshTime = "2026-08-11T12:00:00.000Z";
 
-    await expect(createLineConnectionService(deps).claim({ token: tokenA, lineUserId: userA, displayName: "Nisa", now })).resolves.toEqual({ status: "ALREADY_LINKED", clientId: "client_1" });
+    await expect(createLineConnectionService(deps).claim({ token: tokenA, lineUserId: userA, displayName: "Nisa Updated", pictureUrl, now: refreshTime })).resolves.toEqual({ status: "ALREADY_LINKED", clientId: "client_1" });
+    expect(deps.updateLineLinkClient).toHaveBeenCalledWith(expect.objectContaining({
+      expectedClient: target,
+      client: expect.objectContaining({
+        line_user_id: userA,
+        line_display_name: "Nisa Updated",
+        line_picture_url: pictureUrl,
+        line_link_status: "LINKED",
+        updated_at: refreshTime,
+      }),
+    }));
     expect(deps.claimLineConnection).not.toHaveBeenCalled();
   });
 

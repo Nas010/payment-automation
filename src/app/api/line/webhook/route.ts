@@ -96,12 +96,7 @@ async function processEvent(event: DirectLinkEvent, automaticReplyConfig: LineAu
   }
 
   if (result === "LINKED" || result === "ALREADY_LINKED") {
-    try {
-      const profile = await getLineProfile({ channelAccessToken, userId: event.lineUserId, fetchFn: fetch });
-      await service.persistLineProfile({ lineUserId: event.lineUserId, displayName: profile.displayName, pictureUrl: profile.pictureUrl, now: new Date() });
-    } catch {
-      // Profile enrichment is best effort and must never roll back a completed link.
-    }
+    await refreshLineProfile(service, event.lineUserId, channelAccessToken);
   }
 
   try {
@@ -111,15 +106,34 @@ async function processEvent(event: DirectLinkEvent, automaticReplyConfig: LineAu
   }
 }
 
-async function processProfileEvent(event: DirectProfileEvent): Promise<void> {
+async function refreshLineProfile(service: ReturnType<typeof createLineLinkService>, lineUserId: string, channelAccessToken: string): Promise<void> {
+  let profile: { displayName: string; pictureUrl: string };
   try {
-    const channelAccessToken = await getLineChannelAccessToken();
-    const profile = await getLineProfile({ channelAccessToken, userId: event.lineUserId, fetchFn: fetch });
-    const service = createLineLinkService({ listClients, updateClient, updateLineLinkClient, claimLineLink, appendAudit });
-    await service.persistLineProfile({ lineUserId: event.lineUserId, displayName: profile.displayName, pictureUrl: profile.pictureUrl, now: new Date() });
+    profile = await getLineProfile({ channelAccessToken, userId: lineUserId, fetchFn: fetch });
   } catch {
-    // Profile refresh is best effort and must never fail a signed webhook batch.
+    console.warn("[line-webhook] profile_refresh outcome=profile_lookup_failed");
+    return;
   }
+
+  try {
+    const persisted = await service.persistLineProfile({ lineUserId, displayName: profile.displayName, pictureUrl: profile.pictureUrl, now: new Date() });
+    if (persisted) console.info("[line-webhook] profile_refresh outcome=updated");
+    else console.warn("[line-webhook] profile_refresh outcome=skipped");
+  } catch {
+    console.warn("[line-webhook] profile_refresh outcome=persistence_failed");
+  }
+}
+
+async function processProfileEvent(event: DirectProfileEvent): Promise<void> {
+  let channelAccessToken: string;
+  try {
+    channelAccessToken = await getLineChannelAccessToken();
+  } catch {
+    console.warn("[line-webhook] profile_refresh outcome=profile_lookup_failed");
+    return;
+  }
+  const service = createLineLinkService({ listClients, updateClient, updateLineLinkClient, claimLineLink, appendAudit });
+  await refreshLineProfile(service, event.lineUserId, channelAccessToken);
 }
 
 export async function POST(request: Request): Promise<Response> {
