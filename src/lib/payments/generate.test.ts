@@ -42,7 +42,7 @@ describe("generateDuePaymentLinks", () => {
     expect(result.existing).toEqual([]);
     expect(result.failed).toEqual([]);
     expect(result.created[0]).toMatchObject({ payment_id: "pay_1", client_id: "client_1", status: "PENDING", payment_url: "https://pay.example/p/token_1" });
-    expect(appendPayment).toHaveBeenCalledWith(expect.objectContaining({ total_price_thb: "3000" }));
+    expect(appendPayment).toHaveBeenCalledWith(expect.objectContaining({ total_price_thb: "3000", line_terms_image_token: "" }));
     expect(updateSchedule).toHaveBeenCalledWith(expect.objectContaining({ rowNumber: 7, status: "GENERATED", payment_id: "pay_1", generated_at: "2026-08-10T01:00:00.000Z" }));
   });
 });

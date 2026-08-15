@@ -23,7 +23,7 @@ const DEFAULT_SETTING_ROWS = [
 const HEADER_WRITES: sheets_v4.Schema$ValueRange[] = [
   { range: "Clients!A1:AA1", values: [[...CLIENT_HEADERS]] },
   { range: "Installment Schedule!A1:R1", values: [[...SCHEDULE_HEADERS]] },
-  { range: "Payments!A1:AW1", values: [[...PAYMENT_HEADERS]] },
+  { range: "Payments!A1:AX1", values: [[...PAYMENT_HEADERS]] },
   { range: "Settings!A1:B1", values: [["key", "value"]] },
   { range: "Settings!D3:I3", values: [[...PACKAGE_HEADERS]] },
   { range: "Audit Log!A1:I1", values: [[...AUDIT_HEADERS]] },
