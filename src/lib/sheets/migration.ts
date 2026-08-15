@@ -1,6 +1,9 @@
 import { getGoogleSheets } from "./client";
 import { CLIENT_HEADERS, PAYMENT_HEADERS, sheetColumnName } from "./records";
 
+const LEGACY_CLIENT_HEADERS = ["line_link_code", "line_link_code_expires_at", "line_link_message"] as const;
+const LEGACY_CLIENT_END_COLUMN = "AA";
+
 /** Adds blank header cells without replacing any existing workbook values. */
 async function ensureSheetSchema(title: string, headers: readonly string[], firstHeaderToFill = 0): Promise<void> {
   const { sheets, spreadsheetId } = await getGoogleSheets();
@@ -33,10 +36,51 @@ async function ensureSheetSchema(title: string, headers: readonly string[], firs
 let clientSchemaCheck: Promise<void> | null = null;
 let paymentSchemaCheck: Promise<void> | null = null;
 
-/** Adds blank client header cells once per warm process without replacing existing values. */
+async function ensureLiffOnlyClientSchema(): Promise<void> {
+  const { sheets, spreadsheetId } = await getGoogleSheets();
+  const metadata = await sheets.spreadsheets.get({ spreadsheetId, fields: "sheets(properties(sheetId,title,gridProperties(columnCount))),namedRanges(namedRangeId,name)" });
+  const properties = metadata.data.sheets?.find((item) => item.properties?.title === "Clients")?.properties;
+  const sheetId = properties?.sheetId;
+  if (sheetId === undefined || sheetId === null) throw new Error("Clients sheet is required");
+  const columnCount = properties?.gridProperties?.columnCount ?? 0;
+  if (columnCount < 27) {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: { requests: [{ appendDimension: { sheetId, dimension: "COLUMNS", length: 27 - columnCount } }] },
+    });
+  }
+
+  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: `Clients!A1:${LEGACY_CLIENT_END_COLUMN}1` });
+  const currentHeaders = response.data.values?.[0] ?? [];
+  const legacyIndices = currentHeaders
+    .map((header, index) => LEGACY_CLIENT_HEADERS.includes(String(header).trim() as typeof LEGACY_CLIENT_HEADERS[number]) ? index : -1)
+    .filter((index) => index >= 0)
+    .sort((left, right) => right - left);
+  const staleCodeRanges = (metadata.data.namedRanges ?? []).filter((range) => range.name?.startsWith("line_link_code_") && range.namedRangeId);
+  const cleanupRequests = [
+    ...legacyIndices.map((index) => ({ deleteDimension: { range: { sheetId, dimension: "COLUMNS" as const, startIndex: index, endIndex: index + 1 } } })),
+    ...staleCodeRanges.map((range) => ({ deleteNamedRange: { namedRangeId: range.namedRangeId! } })),
+  ];
+  if (cleanupRequests.length) {
+    await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests: cleanupRequests } });
+  }
+
+  const migratedHeaders = currentHeaders.filter((_header, index) => !legacyIndices.includes(index));
+  await Promise.all(CLIENT_HEADERS.map(async (header, index) => {
+    if (String(migratedHeaders[index] ?? "").trim()) return;
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `Clients!${sheetColumnName(index + 1)}1`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: [[header]] },
+    });
+  }));
+}
+
+/** Removes legacy link-code columns and ensures LIFF-only headers once per warm process. */
 export function ensureClientSchema(): Promise<void> {
   if (clientSchemaCheck) return clientSchemaCheck;
-  const cached = ensureSheetSchema("Clients", CLIENT_HEADERS).catch((error) => {
+  const cached = ensureLiffOnlyClientSchema().catch((error) => {
     if (clientSchemaCheck === cached) clientSchemaCheck = null;
     throw error;
   });

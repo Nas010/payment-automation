@@ -1,4 +1,4 @@
-import type { ClientRecord, LineLinkClaimResult } from "@/lib/sheets/clients";
+import type { ClientRecord, LineConnectionClaimResult } from "@/lib/sheets/clients";
 import type { LineMessageTestProfile } from "./message-test-profile";
 import {
   createLineConnectionToken,
@@ -12,7 +12,7 @@ type AuditRecord = { paymentId: string; clientId: string; action: string; previo
 export type LineConnectionDependencies = {
   listClients: () => Promise<ClientRecord[]>;
   updateLineLinkClient: (input: { client: ClientRecord; expectedClient: ClientRecord; releaseLineUserId?: string }) => Promise<boolean>;
-  claimLineConnection: (input: { client: ClientRecord; expectedClient: ClientRecord; tokenHash: string; lineUserId: string }) => Promise<LineLinkClaimResult>;
+  claimLineConnection: (input: { client: ClientRecord; expectedClient: ClientRecord; tokenHash: string; lineUserId: string }) => Promise<LineConnectionClaimResult>;
   appendAudit: (record: AuditRecord) => Promise<void>;
   tokenGenerator?: () => string;
 };
@@ -98,10 +98,7 @@ async function audit(dependencies: LineConnectionDependencies, input: { client: 
 function connectionFields(dependencies: LineConnectionDependencies, client: ClientRecord, now: Date | string): ClientRecord {
   return {
     ...client,
-    line_link_code: "",
-    line_link_code_expires_at: "",
     line_linked_at: "",
-    line_link_message: "",
     line_link_error: "",
     ...createLineConnectionTokenFields({ clientId: client.client_id, now, tokenGenerator: dependencies.tokenGenerator ?? createLineConnectionToken }),
     updated_at: nowIso(now),
@@ -207,11 +204,8 @@ export async function disconnectLineUser(dependencies: LineConnectionDependencie
     line_user_id: "",
     line_display_name: "",
     line_picture_url: "",
-    line_link_code: "",
-    line_link_code_expires_at: "",
     line_link_status: "",
     line_linked_at: "",
-    line_link_message: "",
     line_link_error: "",
     line_link_token_hash: "",
     line_link_token_encrypted: "",

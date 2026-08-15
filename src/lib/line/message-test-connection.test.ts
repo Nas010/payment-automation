@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ClientRecord, LineLinkClaimResult } from "@/lib/sheets/clients";
+import type { ClientRecord, LineConnectionClaimResult } from "@/lib/sheets/clients";
 import { hashLineConnectionToken, recoverLineConnectionToken } from "./connection-token";
 import type { LineMessageTestProfile } from "./message-test-profile";
 import { createLineMessageTestConnectionService, type LineMessageTestConnectionDependencies } from "./message-test-connection";
@@ -22,7 +22,7 @@ function profile(overrides: Partial<LineMessageTestProfile> = {}): LineMessageTe
 function client(overrides: Partial<ClientRecord> = {}): ClientRecord {
   return {
     rowNumber: 2, client_id: "client_1", active: "TRUE", client_name: "Real Client", line_user_id: "", line_display_name: "", line_picture_url: "", package_name: "PT", payment_type: "ONE_TIME", total_price_thb: "1000", installment_count: "1", interval_months: "0", first_due_date: "2026-08-15", default_amount_thb: "1000", billing_frequency: "MANUAL", next_due_date: "2026-08-15", notes: "", created_at: now, updated_at: now,
-    line_link_code: "", line_link_code_expires_at: "", line_link_status: "", line_linked_at: "", line_link_message: "", line_link_error: "", line_link_token_hash: "", line_link_token_encrypted: "", line_link_token_expires_at: "",
+line_link_status: "", line_linked_at: "",line_link_error: "", line_link_token_hash: "", line_link_token_encrypted: "", line_link_token_expires_at: "",
     ...overrides,
   };
 }
@@ -33,7 +33,7 @@ function dependencies(current: LineMessageTestProfile): LineMessageTestConnectio
     getProfile: vi.fn(async () => stored),
     listClients: vi.fn(async () => []),
     updateProfileIfUnchanged: vi.fn(async ({ profile: next }: { profile: LineMessageTestProfile }) => { stored = next; return true; }),
-    claimConnection: vi.fn(async ({ profile: next }: { profile: LineMessageTestProfile }): Promise<LineLinkClaimResult> => { stored = next; return "CLAIMED"; }),
+    claimConnection: vi.fn(async ({ profile: next }: { profile: LineMessageTestProfile }): Promise<LineConnectionClaimResult> => { stored = next; return "CLAIMED"; }),
     disconnectConnection: vi.fn(async ({ profile: next }: { profile: LineMessageTestProfile }) => { stored = next; return true; }),
     appendAudit: vi.fn(async () => undefined),
     tokenGenerator: vi.fn(() => token),

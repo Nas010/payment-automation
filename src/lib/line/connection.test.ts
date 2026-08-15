@@ -20,7 +20,7 @@ const userB = "Ubbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 function client(overrides: Partial<ClientRecord> = {}): ClientRecord {
   return {
     rowNumber: 2, client_id: "client_1", active: "TRUE", client_name: "Nisa", line_user_id: "", line_display_name: "", line_picture_url: "", package_name: "PT", payment_type: "ONE_TIME", total_price_thb: "1000", installment_count: "1", interval_months: "0", first_due_date: "2026-08-10", default_amount_thb: "1000", billing_frequency: "MANUAL", next_due_date: "2026-08-10", notes: "", created_at: now, updated_at: now,
-    line_link_code: "", line_link_code_expires_at: "", line_link_status: "", line_linked_at: "", line_link_message: "", line_link_error: "",
+    line_link_status: "", line_linked_at: "", line_link_error: "",
     line_link_token_hash: "", line_link_token_encrypted: "", line_link_token_expires_at: "",
     ...overrides,
   };
@@ -70,8 +70,6 @@ describe("LINE connection issuance", () => {
     });
     expect(deps.updateLineLinkClient).toHaveBeenCalledWith(expect.objectContaining({ client: expect.objectContaining({
       client_id: "pending",
-      line_link_code: "",
-      line_link_message: "",
       line_link_status: "LINK_ACTIVE",
       line_link_token_hash: hashLineConnectionToken(tokenA),
       line_link_token_expires_at: "2026-08-17T12:00:00.000Z",

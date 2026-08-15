@@ -122,7 +122,7 @@ export async function createClientAction(formData: FormData): Promise<void> {
   if (paymentType === "INSTALLMENTS" && interval < 1) throw new Error("Installment plans need an interval of at least one month");
   const clientId = `client_${crypto.randomUUID().replaceAll("-", "")}`;
   const now = new Date().toISOString();
-  const lineLinkFields = { line_link_code: "", line_link_code_expires_at: "", line_linked_at: "", line_link_message: "", line_link_error: "", ...createLineConnectionTokenFields({ clientId, now }) };
+  const lineLinkFields = { line_linked_at: "", line_link_error: "", ...createLineConnectionTokenFields({ clientId, now }) };
   const plan = buildInstallmentPlan({ totalSatang, installmentCount: count, intervalMonths: interval, firstDueDate: data.first_due_date });
   if (clients.some((client) => client.client_id === clientId)) throw new Error("Could not allocate a unique client ID");
   await writeClient({ client_id: clientId, active: "TRUE", client_name: data.client_name, line_user_id: "", line_display_name: "", line_picture_url: "", package_name: data.package_name, payment_type: paymentType, total_price_thb: String(totalSatang / 100), installment_count: String(count), interval_months: String(interval), first_due_date: data.first_due_date, default_amount_thb: String(plan[0].amountSatang / 100), billing_frequency: "MANUAL", next_due_date: data.first_due_date, notes: data.notes, created_at: now, updated_at: now, ...lineLinkFields });

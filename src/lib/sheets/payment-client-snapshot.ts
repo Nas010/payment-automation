@@ -17,7 +17,7 @@ export async function readPaymentClientSnapshot(): Promise<PaymentClientSnapshot
   const { sheets, spreadsheetId } = await getGoogleSheets();
   const response = await sheets.spreadsheets.values.batchGet({
     spreadsheetId,
-    ranges: [`Payments!A:${sheetColumnName(PAYMENT_HEADERS.length)}`, "Clients!A:AA", "Installment Schedule!A:R"],
+    ranges: [`Payments!A:${sheetColumnName(PAYMENT_HEADERS.length)}`, `Clients!A:${sheetColumnName(CLIENT_HEADERS.length)}`, "Installment Schedule!A:R"],
   });
   const [paymentRange, clientRange, scheduleRange] = response.data.valueRanges ?? [];
   const payments = (paymentRange?.values ?? [])

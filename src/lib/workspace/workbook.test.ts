@@ -73,7 +73,7 @@ describe("operational workbook provisioning", () => {
     } });
     const headerWrite = valuesBatchUpdate.mock.calls[0][0];
     expect(headerWrite.requestBody.data).toEqual([
-      { range: "Clients!A1:AA1", values: [[...CLIENT_HEADERS]] },
+      { range: "Clients!A1:X1", values: [[...CLIENT_HEADERS]] },
       { range: "Installment Schedule!A1:R1", values: [[...SCHEDULE_HEADERS]] },
       { range: "Payments!A1:AY1", values: [[...PAYMENT_HEADERS]] },
       { range: "Settings!A1:B1", values: [["key", "value"]] },
