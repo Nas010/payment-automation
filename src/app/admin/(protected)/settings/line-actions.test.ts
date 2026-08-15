@@ -105,6 +105,7 @@ describe("LINE installment reminder actions", () => {
 
   it("saves the complete reminder configuration atomically", async () => {
     const config = structuredClone(DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG);
+    config.enabled.T_MINUS_3_DAYS = false;
     config.profiles.T_MINUS_7_DAYS.message = "Seven-day reminder";
     const formData = new FormData();
     formData.set("slot", "DUE_DATE");
