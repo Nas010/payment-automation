@@ -95,6 +95,13 @@ function newScheduleId(): string {
   return `schedule_${crypto.randomUUID().replaceAll("-", "")}`;
 }
 
+async function generateAndSendInitialPayment(scheduleIds: string[]): Promise<void> {
+  if (!scheduleIds.length) return;
+  const baseUrl = (await runtimeConfig()).publicBaseUrl;
+  const generated = await generateDuePaymentLinks({ baseUrl, scheduleIds });
+  if (generated.created.length) await sendDueLinePaymentRequests({ baseUrl, paymentIds: generated.created.map((payment) => payment.payment_id) });
+}
+
 export async function generateDueLinksAction(): Promise<void> {
   await requireAdmin();
   const baseUrl = (await runtimeConfig()).publicBaseUrl;
@@ -120,7 +127,9 @@ export async function createClientAction(formData: FormData): Promise<void> {
   const plan = buildInstallmentPlan({ totalSatang, installmentCount: count, intervalMonths: interval, firstDueDate: data.first_due_date });
   if (clients.some((client) => client.client_id === clientId)) throw new Error("Could not allocate a unique client ID");
   await writeClient({ client_id: clientId, active: "TRUE", client_name: data.client_name, line_user_id: "", line_display_name: "", line_picture_url: "", package_name: data.package_name, payment_type: paymentType, total_price_thb: String(totalSatang / 100), installment_count: String(count), interval_months: String(interval), first_due_date: data.first_due_date, default_amount_thb: String(plan[0].amountSatang / 100), billing_frequency: "MANUAL", next_due_date: data.first_due_date, notes: data.notes, created_at: now, updated_at: now, ...lineLinkFields });
-  for (const item of plan) await writeSchedule({ schedule_id: `schedule_${crypto.randomUUID().replaceAll("-", "")}`, client_id: clientId, client_name: data.client_name, line_user_id: "", line_display_name: "", package_name: data.package_name, payment_type: paymentType, installment_number: String(item.installmentNumber), installment_count: String(count), amount_thb: String(item.amountSatang / 100), due_date: item.dueDate, status: "SCHEDULED", generated_at: "", payment_id: "", payment_url: "", notes: data.notes, created_at: now, updated_at: now });
+  const schedules = plan.map((item) => ({ schedule_id: `schedule_${crypto.randomUUID().replaceAll("-", "")}`, client_id: clientId, client_name: data.client_name, line_user_id: "", line_display_name: "", package_name: data.package_name, payment_type: paymentType, installment_number: String(item.installmentNumber), installment_count: String(count), amount_thb: String(item.amountSatang / 100), due_date: item.dueDate, status: "SCHEDULED", generated_at: "", payment_id: "", payment_url: "", notes: data.notes, created_at: now, updated_at: now }));
+  for (const schedule of schedules) await writeSchedule(schedule);
+  await generateAndSendInitialPayment([schedules[0].schedule_id]);
   await appendAudit({ paymentId: "", clientId, action: "CLIENT_CREATED", previousStatus: "", newStatus: "SCHEDULED", reason: "Client and payment schedule created from admin", source: "ADMIN", metadata: JSON.stringify({ packageName: data.package_name, installmentCount: count, intervalMonths: interval }) });
   revalidatePath("/admin");
   redirect(`/admin/clients/${clientId}`);
@@ -144,6 +153,7 @@ export async function assignPackageAction(clientId: string, formData: FormData):
   const schedules = buildAssignedScheduleRows({ client, label: selectedPackage.package_name, paymentType, totalSatang, paymentCount, intervalMonths, firstDueDate: data.first_due_date, notes: data.notes, now, createScheduleId: newScheduleId });
 
   for (const schedule of schedules) await writeSchedule(schedule);
+  await generateAndSendInitialPayment([schedules[0].schedule_id]);
   await updateClient({
     ...client,
     package_name: selectedPackage.package_name,
@@ -178,6 +188,7 @@ export async function createManualPaymentAction(clientId: string, formData: Form
   const schedules = buildAssignedScheduleRows({ client, label: data.description, paymentType, totalSatang, paymentCount, intervalMonths, firstDueDate: data.first_due_date, notes: data.notes, now, createScheduleId: newScheduleId });
 
   for (const schedule of schedules) await writeSchedule(schedule);
+  await generateAndSendInitialPayment([schedules[0].schedule_id]);
   await appendAudit({ paymentId: "", clientId, action: "MANUAL_PAYMENT_SCHEDULED", previousStatus: "", newStatus: "SCHEDULED", reason: "Manual payment scheduled for existing client", source: "ADMIN", metadata: JSON.stringify({ description: data.description, paymentCount, intervalMonths, totalSatang }) });
   revalidateClientBillingPages(clientId);
   redirect(`/admin/clients/${clientId}`);
