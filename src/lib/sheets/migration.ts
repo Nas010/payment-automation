@@ -1,5 +1,5 @@
 import { getGoogleSheets } from "./client";
-import { CLIENT_HEADERS, PAYMENT_HEADERS, sheetColumnName } from "./records";
+import { CLIENT_HEADERS, PAYMENT_HEADERS, SCHEDULE_HEADERS, sheetColumnName } from "./records";
 
 /** Adds blank header cells without replacing any existing workbook values. */
 async function ensureSheetSchema(title: string, headers: readonly string[], firstHeaderToFill = 0): Promise<void> {
@@ -32,6 +32,7 @@ async function ensureSheetSchema(title: string, headers: readonly string[], firs
 
 let clientSchemaCheck: Promise<void> | null = null;
 let paymentSchemaCheck: Promise<void> | null = null;
+let scheduleSchemaCheck: Promise<void> | null = null;
 
 /** Adds blank client header cells once per warm process without replacing existing values. */
 export function ensureClientSchema(): Promise<void> {
@@ -52,5 +53,16 @@ export function ensurePaymentSchema(): Promise<void> {
     throw error;
   });
   paymentSchemaCheck = cached;
+  return cached;
+}
+
+/** Extends legacy schedule sheets once per warm process with assignment metadata columns. */
+export function ensureScheduleSchema(): Promise<void> {
+  if (scheduleSchemaCheck) return scheduleSchemaCheck;
+  const cached = ensureSheetSchema("Installment Schedule", SCHEDULE_HEADERS).catch((error) => {
+    if (scheduleSchemaCheck === cached) scheduleSchemaCheck = null;
+    throw error;
+  });
+  scheduleSchemaCheck = cached;
   return cached;
 }

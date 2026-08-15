@@ -1,6 +1,6 @@
 import { getGoogleSheets } from "./client";
 import type { ClientRecord } from "./clients";
-import { ensureClientSchema, ensurePaymentSchema } from "./migration";
+import { ensureClientSchema, ensurePaymentSchema, ensureScheduleSchema } from "./migration";
 import type { PaymentRecord } from "./payments";
 import type { ScheduleRecord } from "./schedules";
 import { CLIENT_HEADERS, PAYMENT_HEADERS, rowToRecord, SCHEDULE_HEADERS, sheetColumnName } from "./records";
@@ -13,11 +13,11 @@ export type PaymentClientSnapshot = {
 
 /** Reads mutable payment, client, and schedule ledgers in one Sheets quota request. */
 export async function readPaymentClientSnapshot(): Promise<PaymentClientSnapshot> {
-  await Promise.all([ensurePaymentSchema(), ensureClientSchema()]);
+  await Promise.all([ensurePaymentSchema(), ensureClientSchema(), ensureScheduleSchema()]);
   const { sheets, spreadsheetId } = await getGoogleSheets();
   const response = await sheets.spreadsheets.values.batchGet({
     spreadsheetId,
-    ranges: [`Payments!A:${sheetColumnName(PAYMENT_HEADERS.length)}`, "Clients!A:AA", "Installment Schedule!A:R"],
+    ranges: [`Payments!A:${sheetColumnName(PAYMENT_HEADERS.length)}`, "Clients!A:AA", `Installment Schedule!A:${sheetColumnName(SCHEDULE_HEADERS.length)}`],
   });
   const [paymentRange, clientRange, scheduleRange] = response.data.valueRanges ?? [];
   const payments = (paymentRange?.values ?? [])

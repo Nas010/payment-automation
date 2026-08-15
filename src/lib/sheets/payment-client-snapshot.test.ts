@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { SCHEDULE_HEADERS, sheetColumnName } from "./records";
 
 const mocks = vi.hoisted(() => ({
   batchGet: vi.fn(),
   ensureClientSchema: vi.fn(),
   ensurePaymentSchema: vi.fn(),
+  ensureScheduleSchema: vi.fn(),
 }));
 
 vi.mock("./client", () => ({
@@ -15,6 +17,7 @@ vi.mock("./client", () => ({
 vi.mock("./migration", () => ({
   ensureClientSchema: mocks.ensureClientSchema,
   ensurePaymentSchema: mocks.ensurePaymentSchema,
+  ensureScheduleSchema: mocks.ensureScheduleSchema,
 }));
 
 import { readPaymentClientSnapshot } from "./payment-client-snapshot";
@@ -23,6 +26,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.ensureClientSchema.mockResolvedValue(undefined);
   mocks.ensurePaymentSchema.mockResolvedValue(undefined);
+  mocks.ensureScheduleSchema.mockResolvedValue(undefined);
 });
 
 describe("readPaymentClientSnapshot", () => {
@@ -42,8 +46,9 @@ describe("readPaymentClientSnapshot", () => {
     expect(mocks.batchGet).toHaveBeenCalledOnce();
     expect(mocks.batchGet).toHaveBeenCalledWith({
       spreadsheetId: "sheet_1",
-      ranges: ["Payments!A:AY", "Clients!A:AA", "Installment Schedule!A:R"],
+      ranges: ["Payments!A:AY", "Clients!A:AA", `Installment Schedule!A:${sheetColumnName(SCHEDULE_HEADERS.length)}`],
     });
+    expect(mocks.ensureScheduleSchema).toHaveBeenCalledOnce();
     expect(snapshot.payments).toMatchObject([{ payment_id: "pay_1", client_id: "client_1", client_name: "Nisa", rowNumber: 2 }]);
     expect(snapshot.clients).toMatchObject([{ client_id: "client_1", active: "TRUE", client_name: "Nisa", rowNumber: 2 }]);
     expect(snapshot.schedules).toMatchObject([{ schedule_id: "schedule_1", payment_id: "pay_1", rowNumber: 2 }]);
