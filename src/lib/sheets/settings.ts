@@ -28,6 +28,11 @@ import {
   type LineTermsImageState,
   type LineTermsImageVersion,
 } from "@/lib/line/terms-image";
+import {
+  LINE_MESSAGE_TEST_PROFILE_SETTING_KEY,
+  parseLineMessageTestProfile,
+  type LineMessageTestProfile,
+} from "@/lib/line/message-test-profile";
 
 export type OperationalSetting = { rowNumber: number; key: string; value: string };
 export type PackageRecord = { rowNumber: number; package_name: string; total_price_thb: string; payment_type: string; installment_count: string; interval_months: string; active: string };
@@ -49,6 +54,7 @@ export async function upsertOperationalSettings(entries: Array<{ key: string; va
     const paymentType = (Object.entries(LINE_DUE_PROFILE_SETTING_KEYS) as Array<[LinePaymentType, string]>).find(([, key]) => key === entry.key)?.[0];
     if (paymentType) parseLineDueMessageProfile(entry.value, paymentType);
     if (entry.key === LINE_INSTALLMENT_REMINDER_CONFIG_SETTING_KEY) parseLineInstallmentReminderConfig(entry.value);
+    if (entry.key === LINE_MESSAGE_TEST_PROFILE_SETTING_KEY) parseLineMessageTestProfile(entry.value);
   }
   const settings = await listOperationalSettings();
   let nextRowNumber = Math.max(2, ...settings.map((item) => item.rowNumber + 1));
@@ -126,6 +132,23 @@ export function resolveLineInstallmentReminderConfig(settings: OperationalSettin
 
 export async function getLineInstallmentReminderConfig(): Promise<ResolvedLineInstallmentReminderConfig> {
   return resolveLineInstallmentReminderConfig(await listOperationalSettings());
+}
+
+export type ResolvedLineMessageTestProfile =
+  | { kind: "VALID"; profile: LineMessageTestProfile }
+  | { kind: "INVALID" };
+
+export function resolveLineMessageTestProfile(
+  settings: readonly OperationalSetting[],
+  fallback: LineMessageTestProfile,
+): ResolvedLineMessageTestProfile {
+  const stored = settings.find((item) => item.key === LINE_MESSAGE_TEST_PROFILE_SETTING_KEY)?.value;
+  if (stored === undefined) return { kind: "VALID", profile: parseLineMessageTestProfile(fallback) };
+  try {
+    return { kind: "VALID", profile: parseLineMessageTestProfile(stored) };
+  } catch {
+    return { kind: "INVALID" };
+  }
 }
 
 export async function saveLineInstallmentReminderConfig(config: LineInstallmentReminderConfig): Promise<void> {

@@ -9,7 +9,6 @@ import SettingsPage from "./page";
 describe("SettingsPage", () => {
   it("redirects legacy Settings URL to Business settings", () => {
     SettingsPage();
-
     expect(mocks.redirect).toHaveBeenCalledWith("/admin/settings/business");
   });
 });

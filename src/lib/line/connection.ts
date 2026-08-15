@@ -1,4 +1,5 @@
 import type { ClientRecord, LineLinkClaimResult } from "@/lib/sheets/clients";
+import type { LineMessageTestProfile } from "./message-test-profile";
 import {
   createLineConnectionToken,
   createLineConnectionTokenFields,
@@ -21,6 +22,7 @@ export type LineConnectionResult =
   | { status: "INVALID_OR_EXPIRED" | "CLIENT_INACTIVE" | "CONFLICT" };
 export type GenerateMissingLineConnectionsResult = { created: string[]; alreadyActive: string[]; alreadyLinked: string[]; skippedInactive: string[]; failed: Array<{ clientId: string; error: string }> };
 export type RenewLineConnectionResult = { clientId: string; status: "LINK_ACTIVE" } | null;
+export type LineConnectionScope = "CLIENT" | "TEST" | "INVALID";
 
 function nowIso(now: Date | string): string {
   return new Date(now).toISOString();
@@ -37,6 +39,39 @@ function hasActiveConnection(client: ClientRecord, now: Date | string): boolean 
     && Boolean(client.line_link_token_encrypted)
     && !Number.isNaN(expiry.getTime())
     && expiry.getTime() > new Date(now).getTime();
+}
+
+function hasRoutableClientToken(client: ClientRecord, now: Date | string): boolean {
+  return hasActiveConnection(client, now)
+    || (client.line_link_status === "LINKED" && Boolean(client.line_user_id));
+}
+
+function hasRoutableTestToken(profile: LineMessageTestProfile, now: Date | string): boolean {
+  if (profile.lineLinkStatus === "LINKED" && profile.lineUserId) return true;
+  const expiry = new Date(profile.lineLinkTokenExpiresAt);
+  return profile.lineLinkStatus === "LINK_ACTIVE"
+    && Boolean(profile.lineLinkTokenEncrypted)
+    && !Number.isNaN(expiry.getTime())
+    && expiry.getTime() > new Date(now).getTime();
+}
+
+export function resolveLineConnectionScope(input: {
+  token: string;
+  now: Date | string;
+  clients: readonly ClientRecord[];
+  testProfile: LineMessageTestProfile | null;
+}): LineConnectionScope {
+  if (!LINE_CONNECTION_TOKEN_PATTERN.test(input.token)) return "INVALID";
+  const tokenHash = hashLineConnectionToken(input.token);
+  const clientMatches = input.clients.filter((client) => (
+    client.line_link_token_hash === tokenHash && hasRoutableClientToken(client, input.now)
+  )).length;
+  const testMatches = input.testProfile?.lineLinkTokenHash === tokenHash
+    && hasRoutableTestToken(input.testProfile, input.now)
+    ? 1
+    : 0;
+  if (clientMatches + testMatches !== 1) return "INVALID";
+  return clientMatches === 1 ? "CLIENT" : "TEST";
 }
 
 function sheetSafeDisplayName(displayName: string): string {
