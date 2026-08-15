@@ -1,18 +1,13 @@
 import { createHmac } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClientRecord } from "@/lib/sheets/clients";
-import { DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG } from "@/lib/line/reply-config";
 
 const mocks = vi.hoisted(() => ({
   getLineChannelSecret: vi.fn(),
   getLineChannelAccessToken: vi.fn(),
   listClients: vi.fn(),
-  updateClient: vi.fn(),
   updateLineLinkClient: vi.fn(),
-  claimLineLink: vi.fn(),
-  appendAudit: vi.fn(),
   processLineSlipEvent: vi.fn(),
-  getLineAutomaticReplyConfig: vi.fn(),
   fetchFn: vi.fn(),
   runtimeConfig: vi.fn(),
 }));
@@ -24,13 +19,8 @@ vi.mock("@/lib/secrets/service", () => ({
 
 vi.mock("@/lib/sheets/clients", () => ({
   listClients: mocks.listClients,
-  updateClient: mocks.updateClient,
   updateLineLinkClient: mocks.updateLineLinkClient,
-  claimLineLink: mocks.claimLineLink,
 }));
-
-vi.mock("@/lib/sheets/payments", () => ({ appendAudit: mocks.appendAudit }));
-vi.mock("@/lib/sheets/settings", () => ({ getLineAutomaticReplyConfig: mocks.getLineAutomaticReplyConfig }));
 
 vi.mock("@/lib/line/slip-payments", () => ({ processLineSlipEvent: mocks.processLineSlipEvent }));
 vi.mock("@/lib/runtime-config", () => ({ runtimeConfig: mocks.runtimeConfig }));
@@ -71,20 +61,8 @@ beforeEach(() => {
   mocks.getLineChannelSecret.mockResolvedValue(secret);
   mocks.getLineChannelAccessToken.mockResolvedValue(accessToken);
   mocks.listClients.mockResolvedValue([client()]);
-  mocks.updateClient.mockResolvedValue(undefined);
   mocks.updateLineLinkClient.mockResolvedValue(true);
-  mocks.claimLineLink.mockResolvedValue("CLAIMED");
-  mocks.appendAudit.mockResolvedValue(undefined);
   mocks.processLineSlipEvent.mockResolvedValue({ kind: "ignored" });
-  mocks.getLineAutomaticReplyConfig.mockResolvedValue({
-    ...DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG,
-    connection: {
-      linked: "linked-custom",
-      alreadyLinked: "already-custom",
-      invalidOrExpired: "invalid-custom",
-      conflict: "conflict-custom",
-    },
-  });
   mocks.fetchFn.mockResolvedValue(new Response(null, { status: 200 }));
 });
 afterEach(() => vi.restoreAllMocks());
@@ -122,7 +100,6 @@ describe("POST /api/line/webhook", () => {
     await expect(POST(signedRequest({ events: [] }))).resolves.toMatchObject({ status: 200 });
     expect(mocks.getLineChannelSecret).toHaveBeenCalledTimes(1);
     expect(mocks.getLineChannelAccessToken).not.toHaveBeenCalled();
-    expect(mocks.getLineAutomaticReplyConfig).not.toHaveBeenCalled();
     expect(mocks.fetchFn).not.toHaveBeenCalled();
   });
 
@@ -136,7 +113,6 @@ describe("POST /api/line/webhook", () => {
     await expect(POST(signedRequest({ events }))).resolves.toMatchObject({ status: 200 });
     expect(mocks.listClients).not.toHaveBeenCalled();
     expect(mocks.getLineChannelAccessToken).not.toHaveBeenCalled();
-    expect(mocks.getLineAutomaticReplyConfig).not.toHaveBeenCalled();
     expect(mocks.fetchFn).not.toHaveBeenCalled();
   });
 
@@ -179,31 +155,13 @@ describe("POST /api/line/webhook", () => {
     expect(JSON.stringify(info.mock.calls)).not.toContain("message-avatar");
   });
 
-  it("links each direct LINK message independently, persists successful profile lookup, and replies", async () => {
-    mocks.fetchFn
-      .mockResolvedValueOnce(new Response(JSON.stringify({ displayName: "Nisa LINE", userId, pictureUrl: "https://profile.line-scdn.net/avatar/path" }), { status: 200 }))
-      .mockResolvedValueOnce(new Response(null, { status: 200 }))
-      .mockResolvedValueOnce(new Response(null, { status: 200 }));
-    mocks.listClients.mockResolvedValueOnce([client()]).mockResolvedValueOnce([client({ line_user_id: userId, line_link_code: "", line_link_code_expires_at: "", line_link_status: "LINKED" })]).mockResolvedValueOnce([client({ line_user_id: userId, line_link_code: "", line_link_code_expires_at: "", line_link_status: "LINKED" })]);
-
-    const res = await POST(signedRequest({ events: [event(), event({ webhookEventId: "event_2", replyToken: "reply-token-2", source: { type: "user", userId: "Ubbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" }, message: { type: "text", text: "LINK 1234567890" } })] }));
-
-    expect(res.status).toBe(200);
-    expect(mocks.claimLineLink).toHaveBeenCalledWith(expect.objectContaining({ code: "ABCDEF0123", lineUserId: userId, client: expect.objectContaining({ line_user_id: userId, line_link_status: "LINKED" }) }));
-    expect(mocks.updateLineLinkClient).toHaveBeenCalledWith(expect.objectContaining({ client: expect.objectContaining({ line_display_name: "Nisa LINE", line_picture_url: "https://profile.line-scdn.net/avatar/path" }) }));
-    expect(mocks.fetchFn).toHaveBeenCalledWith("https://api.line.me/v2/bot/message/reply", expect.objectContaining({ body: JSON.stringify({ replyToken: "reply-token", messages: [{ type: "text", text: "linked-custom" }] }) }));
-    expect(mocks.fetchFn).toHaveBeenCalledWith("https://api.line.me/v2/bot/message/reply", expect.objectContaining({ body: JSON.stringify({ replyToken: "reply-token-2", messages: [{ type: "text", text: "invalid-custom" }] }) }));
-    expect(mocks.getLineAutomaticReplyConfig).toHaveBeenCalledOnce();
-  });
-
-  it("keeps a completed link when profile lookup fails", async () => {
-    mocks.fetchFn
-      .mockResolvedValueOnce(new Response(JSON.stringify({ message: "private profile error" }), { status: 500 }))
-      .mockResolvedValueOnce(new Response(null, { status: 200 }));
+  it("treats legacy LINK text as a profile-refresh event without linking or replying", async () => {
+    mocks.fetchFn.mockResolvedValueOnce(new Response(JSON.stringify({ displayName: "Unknown" }), { status: 200 }));
+    mocks.listClients.mockResolvedValue([]);
 
     await expect(POST(signedRequest({ events: [event()] }))).resolves.toMatchObject({ status: 200 });
-    expect(mocks.claimLineLink).toHaveBeenCalledWith(expect.objectContaining({ lineUserId: userId, client: expect.objectContaining({ line_link_status: "LINKED" }) }));
     expect(mocks.updateLineLinkClient).not.toHaveBeenCalled();
+    expect(mocks.fetchFn).not.toHaveBeenCalledWith("https://api.line.me/v2/bot/message/reply", expect.anything());
   });
 
   it("keeps an existing avatar when a later profile refresh fails", async () => {
@@ -218,42 +176,4 @@ describe("POST /api/line/webhook", () => {
     expect(JSON.stringify(warn.mock.calls)).not.toContain("private profile error");
   });
 
-  it("uses documented defaults when automatic reply settings cannot be read", async () => {
-    mocks.getLineAutomaticReplyConfig.mockRejectedValueOnce(new Error("Sheets unavailable"));
-
-    await expect(POST(signedRequest({ events: [event()] }))).resolves.toMatchObject({ status: 200 });
-
-    expect(mocks.fetchFn).toHaveBeenCalledWith("https://api.line.me/v2/bot/message/reply", expect.objectContaining({
-      body: JSON.stringify({ replyToken: "reply-token", messages: [{ type: "text", text: DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG.connection.linked }] }),
-    }));
-  });
-
-  it("uses mandated replies without disclosing inactive-client state", async () => {
-    mocks.listClients
-      .mockResolvedValueOnce([client({ line_user_id: userId, line_link_code: "", line_link_code_expires_at: "", line_link_status: "LINKED" })])
-      .mockResolvedValueOnce([client({ active: "FALSE" })])
-      .mockResolvedValueOnce([client({ line_user_id: "Ubbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" })]);
-
-    await expect(POST(signedRequest({ events: [
-      event({ message: { type: "text", text: "LINK 1234567890" } }),
-      event({ webhookEventId: "event_2", replyToken: "reply-token-2" }),
-      event({ webhookEventId: "event_3", replyToken: "reply-token-3" }),
-    ] }))).resolves.toMatchObject({ status: 200 });
-
-    expect(mocks.fetchFn).toHaveBeenCalledWith("https://api.line.me/v2/bot/message/reply", expect.objectContaining({ body: JSON.stringify({ replyToken: "reply-token", messages: [{ type: "text", text: "already-custom" }] }) }));
-    expect(mocks.fetchFn).toHaveBeenCalledWith("https://api.line.me/v2/bot/message/reply", expect.objectContaining({ body: JSON.stringify({ replyToken: "reply-token-2", messages: [{ type: "text", text: "invalid-custom" }] }) }));
-    expect(mocks.fetchFn).toHaveBeenCalledWith("https://api.line.me/v2/bot/message/reply", expect.objectContaining({ body: JSON.stringify({ replyToken: "reply-token-3", messages: [{ type: "text", text: "conflict-custom" }] }) }));
-    expect(mocks.getLineAutomaticReplyConfig).toHaveBeenCalledOnce();
-  });
-
-  it("audits reply failure without rolling back a valid link", async () => {
-    mocks.fetchFn
-      .mockResolvedValueOnce(new Response(JSON.stringify({ displayName: "Nisa" }), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ message: "private reply error" }), { status: 500 }));
-
-    await expect(POST(signedRequest({ events: [event()] }))).resolves.toMatchObject({ status: 200 });
-    expect(mocks.claimLineLink).toHaveBeenCalledWith(expect.objectContaining({ lineUserId: userId, client: expect.objectContaining({ line_link_status: "LINKED" }) }));
-    expect(mocks.appendAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "LINE_LINK_REPLY_FAILED", source: "LINE_WEBHOOK", metadata: JSON.stringify({ webhookEventId: "event_1", lineUserSuffix: "aaaa" }) }));
-    expect(mocks.appendAudit.mock.calls.at(-1)?.[0].metadata).not.toContain(userId);
-  });
 });

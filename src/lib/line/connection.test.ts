@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClientRecord } from "@/lib/sheets/clients";
+import * as connectionModule from "./connection";
 import { hashLineConnectionToken, recoverLineConnectionToken } from "./connection-token";
 import {
   createLineConnectionService,
@@ -44,6 +45,20 @@ beforeEach(() => vi.stubEnv("SETTINGS_ENCRYPTION_KEY", encryptionKey));
 afterEach(() => vi.unstubAllEnvs());
 
 describe("LINE connection issuance", () => {
+  it("disconnects a LIFF-linked client and releases its LINE-user reservation", async () => {
+    const disconnectLineUser = (connectionModule as unknown as { disconnectLineUser?: (dependencies: LineConnectionDependencies, input: { clientId: string; now: string }) => Promise<boolean> }).disconnectLineUser;
+    expect(disconnectLineUser).toBeTypeOf("function");
+    if (!disconnectLineUser) return;
+    const deps = dependencies([client({ line_user_id: userA, line_display_name: "Nisa LINE", line_picture_url: "https://profile.line-scdn.net/avatar/path", line_link_status: "LINKED", line_linked_at: now })]);
+
+    await expect(disconnectLineUser(deps, { clientId: "client_1", now })).resolves.toBe(true);
+    expect(deps.updateLineLinkClient).toHaveBeenCalledWith(expect.objectContaining({
+      client: expect.objectContaining({ line_user_id: "", line_display_name: "", line_picture_url: "", line_link_status: "", line_link_token_hash: "", line_link_token_encrypted: "", line_link_token_expires_at: "" }),
+      releaseLineUserId: userA,
+    }));
+    expect(deps.appendAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "LINE_LINK_DISCONNECTED", clientId: "client_1", newStatus: "" }));
+  });
+
   it("issues secure connections only for eligible clients and never creates short codes", async () => {
     const pending = client({ client_id: "pending" });
     const linked = client({ rowNumber: 3, client_id: "linked", line_user_id: userA, line_link_status: "LINKED" });
