@@ -41,7 +41,7 @@ function request(body: unknown): Request {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.runtimeConfig.mockResolvedValue({ lineLinkingEnabled: true, lineLoginChannelId: "1234567890" });
-  mocks.verifyLineIdToken.mockResolvedValue({ lineUserId, displayName: "Nisa LINE" });
+  mocks.verifyLineIdToken.mockResolvedValue({ lineUserId, displayName: "Nisa LINE", pictureUrl: "https://profile.line-scdn.net/avatar/path" });
   mocks.allow.mockReturnValue(true);
   mocks.claim.mockResolvedValue("LINKED");
 });
@@ -55,7 +55,7 @@ describe("POST /api/line/connect", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ status: "success" });
     expect(mocks.verifyLineIdToken).toHaveBeenCalledWith(expect.objectContaining({ idToken, channelId: "1234567890", fetchFn: fetch }));
-    expect(mocks.claim).toHaveBeenCalledWith({ token: connectionToken, lineUserId, displayName: "Nisa LINE", now: expect.any(Date) });
+    expect(mocks.claim).toHaveBeenCalledWith({ token: connectionToken, lineUserId, displayName: "Nisa LINE", pictureUrl: "https://profile.line-scdn.net/avatar/path", now: expect.any(Date) });
     expect(rawResponse).not.toContain(idToken);
     expect(rawResponse).not.toContain(connectionToken);
   });

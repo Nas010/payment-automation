@@ -77,9 +77,9 @@ async function markConflict(dependencies: LineConnectionDependencies, target: Cl
   await audit(dependencies, { client: target, action: "LINE_LINK_CONFLICT", previousStatus: target.line_link_status, newStatus: "REVIEW", reason: "LINE user conflict", source: "LINE_CONNECT", lineUserId });
 }
 
-export function createLineConnectionService(dependencies: LineConnectionDependencies): { claim(input: { token: string; lineUserId: string; displayName?: string; now: Date | string }): Promise<LineConnectionResult> } {
+export function createLineConnectionService(dependencies: LineConnectionDependencies): { claim(input: { token: string; lineUserId: string; displayName?: string; pictureUrl?: string; now: Date | string }): Promise<LineConnectionResult> } {
   return {
-    async claim({ token, lineUserId, displayName = "", now }): Promise<LineConnectionResult> {
+    async claim({ token, lineUserId, displayName = "", pictureUrl = "", now }): Promise<LineConnectionResult> {
       if (!LINE_CONNECTION_TOKEN_PATTERN.test(token)) return "INVALID_OR_EXPIRED";
       const tokenHash = hashLineConnectionToken(token);
       const clients = await dependencies.listClients();
@@ -101,6 +101,7 @@ export function createLineConnectionService(dependencies: LineConnectionDependen
         ...target,
         line_user_id: lineUserId,
         line_display_name: sheetSafeDisplayName(displayName),
+        line_picture_url: pictureUrl,
         line_link_status: "LINKED",
         line_linked_at: nowIso(now),
         line_link_error: "",

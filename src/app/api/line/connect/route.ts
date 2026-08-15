@@ -50,7 +50,7 @@ export async function POST(request: Request): Promise<Response> {
 
   try {
     const service = createLineConnectionService({ listClients, updateLineLinkClient, claimLineConnection, appendAudit });
-    const result = await service.claim({ token: parsed.connectionToken, lineUserId: identity.lineUserId, displayName: identity.displayName, now: new Date() });
+    const result = await service.claim({ token: parsed.connectionToken, lineUserId: identity.lineUserId, displayName: identity.displayName, pictureUrl: identity.pictureUrl, now: new Date() });
     if (result === "LINKED") return json("success", 200);
     if (result === "ALREADY_LINKED") return json("already_used", 200);
     if (result === "CONFLICT") return json("conflict", 409);

@@ -104,14 +104,16 @@ describe("LINE connection claims", () => {
   it("atomically links verified identity and consumes recoverable token", async () => {
     const target = await activeClient();
     const deps = dependencies([target]);
+    const pictureUrl = "https://profile.line-scdn.net/avatar/path";
 
-    await expect(createLineConnectionService(deps).claim({ token: tokenA, lineUserId: userA, displayName: "Nisa LINE", now })).resolves.toBe("LINKED");
+    await expect(createLineConnectionService(deps).claim({ token: tokenA, lineUserId: userA, displayName: "Nisa LINE", pictureUrl, now })).resolves.toBe("LINKED");
     expect(deps.claimLineConnection).toHaveBeenCalledWith(expect.objectContaining({
       tokenHash: hashLineConnectionToken(tokenA),
       lineUserId: userA,
       client: expect.objectContaining({
         line_user_id: userA,
         line_display_name: "Nisa LINE",
+        line_picture_url: pictureUrl,
         line_link_status: "LINKED",
         line_linked_at: now,
         line_link_token_hash: hashLineConnectionToken(tokenA),

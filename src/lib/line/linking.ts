@@ -97,7 +97,7 @@ function codeFields(client: ClientRecord, code: string, now: Date | string): Cli
   };
 }
 
-export function createLineLinkService(dependencies: LineLinkServiceDependencies): { linkLineUser(input: LineLinkInput): Promise<LinkResult>; persistLineDisplayName(input: { lineUserId: string; displayName: string; now: Date | string }): Promise<boolean> } {
+export function createLineLinkService(dependencies: LineLinkServiceDependencies): { linkLineUser(input: LineLinkInput): Promise<LinkResult>; persistLineProfile(input: { lineUserId: string; displayName: string; pictureUrl: string; now: Date | string }): Promise<boolean> } {
   return {
     async linkLineUser({ code, lineUserId, now, webhookEventId }: LineLinkInput): Promise<LinkResult> {
       const clients = await dependencies.listClients();
@@ -137,10 +137,10 @@ export function createLineLinkService(dependencies: LineLinkServiceDependencies)
       await audit(dependencies, { client: target, action: "LINE_LINK_LINKED", previousStatus: target.line_link_status, newStatus: "LINKED", reason: "LINE account linked", webhookEventId, lineUserId });
       return "LINKED";
     },
-    async persistLineDisplayName({ lineUserId, displayName, now }: { lineUserId: string; displayName: string; now: Date | string }): Promise<boolean> {
+    async persistLineProfile({ lineUserId, displayName, pictureUrl, now }: { lineUserId: string; displayName: string; pictureUrl: string; now: Date | string }): Promise<boolean> {
       const client = (await dependencies.listClients()).find((item) => item.line_user_id === lineUserId && item.line_link_status === "LINKED");
       if (!client) return false;
-      return dependencies.updateLineLinkClient({ client: { ...client, line_display_name: sheetSafeLineDisplayName(displayName), updated_at: nowIso(now) }, expectedClient: client });
+      return dependencies.updateLineLinkClient({ client: { ...client, line_display_name: sheetSafeLineDisplayName(displayName), line_picture_url: pictureUrl, updated_at: nowIso(now) }, expectedClient: client });
     },
   };
 }
@@ -192,7 +192,7 @@ export async function renewLineLinkCode(dependencies: LineLinkDependencies, { cl
 export async function disconnectLineUser(dependencies: LineLinkDependencies, { clientId, now }: ClientTrainerInput): Promise<boolean> {
   const client = (await dependencies.listClients()).find((item) => item.client_id === clientId);
   if (!client) return false;
-  const updated = { ...client, line_user_id: "", line_display_name: "", line_link_code: "", line_link_code_expires_at: "", line_link_status: "", line_linked_at: "", line_link_message: "", line_link_error: "", line_link_token_hash: "", line_link_token_encrypted: "", line_link_token_expires_at: "", updated_at: nowIso(now) };
+  const updated = { ...client, line_user_id: "", line_display_name: "", line_picture_url: "", line_link_code: "", line_link_code_expires_at: "", line_link_status: "", line_linked_at: "", line_link_message: "", line_link_error: "", line_link_token_hash: "", line_link_token_encrypted: "", line_link_token_expires_at: "", updated_at: nowIso(now) };
   if (!await dependencies.updateLineLinkClient({ client: updated, expectedClient: client, releaseLineUserId: client.line_user_id })) return false;
   await audit(dependencies, { client, action: "LINE_LINK_DISCONNECTED", previousStatus: client.line_link_status, newStatus: "", reason: "LINE account disconnected", lineUserId: client.line_user_id });
   return true;
