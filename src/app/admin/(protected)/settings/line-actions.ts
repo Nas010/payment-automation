@@ -123,7 +123,7 @@ async function auditAutomaticReplyConfigChange(action: "LINE_AUTOMATIC_REPLY_CON
     newStatus: LINE_AUTOMATIC_REPLY_CONFIG_SETTING_KEY,
     reason: "LINE automatic replies updated",
     source: "ADMIN",
-    metadata: JSON.stringify({ settingKey: LINE_AUTOMATIC_REPLY_CONFIG_SETTING_KEY, version: 1 }),
+    metadata: JSON.stringify({ settingKey: LINE_AUTOMATIC_REPLY_CONFIG_SETTING_KEY, version: DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG.version }),
   });
 }
 

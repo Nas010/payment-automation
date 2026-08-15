@@ -16,7 +16,6 @@ type Props = {
 };
 
 type SlipField = keyof LineAutomaticReplyConfig["slip"];
-type ConnectionField = keyof LineAutomaticReplyConfig["connection"];
 
 function ReplyField({ id, label, value, onChange }: { id: string; label: string; value: string; onChange: (value: string) => void }) {
   return <Field>
@@ -31,7 +30,6 @@ export function LineAutomaticReplyForm({ resolved, saveAction, resetAction }: Pr
   const [pending, startTransition] = useTransition();
 
   const updateSlip = (field: SlipField, value: string) => setDraft((current) => ({ ...current, slip: { ...current.slip, [field]: value } }));
-  const updateConnection = (field: ConnectionField, value: string) => setDraft((current) => ({ ...current, connection: { ...current.connection, [field]: value } }));
 
   const save = () => {
     const formData = new FormData();
@@ -64,7 +62,7 @@ export function LineAutomaticReplyForm({ resolved, saveAction, resetAction }: Pr
   return <section className="space-y-4">
     <div>
       <h2 className="text-lg font-semibold">Automatic replies</h2>
-      <p className="text-sm text-muted-foreground">Messages LINE sends after payment-slip processing or account connection.</p>
+      <p className="text-sm text-muted-foreground">Messages LINE sends after payment-slip processing.</p>
     </div>
     {resolved.kind === "INVALID" ? <p className="text-sm text-destructive">Saved automatic replies are invalid. Defaults are active until you save or restore them.</p> : null}
     <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); save(); }}>
@@ -78,20 +76,6 @@ export function LineAutomaticReplyForm({ resolved, saveAction, resetAction }: Pr
             <ReplyField id="line-slip-auto-recorded" label="Payment recorded automatically" value={draft.slip.autoRecorded} onChange={(value) => updateSlip("autoRecorded", value)} />
             <ReplyField id="line-slip-review" label="Payment needs review" value={draft.slip.review} onChange={(value) => updateSlip("review", value)} />
             <ReplyField id="line-slip-flagged" label="Payment flagged" value={draft.slip.flagged} onChange={(value) => updateSlip("flagged", value)} />
-          </FieldGroup>
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader>
-          <CardTitle>LINE connection replies</CardTitle>
-          <CardDescription>Sent after a client tries to connect their LINE account.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <FieldGroup>
-            <ReplyField id="line-connection-linked" label="Connected successfully" value={draft.connection.linked} onChange={(value) => updateConnection("linked", value)} />
-            <ReplyField id="line-connection-already-linked" label="Already connected" value={draft.connection.alreadyLinked} onChange={(value) => updateConnection("alreadyLinked", value)} />
-            <ReplyField id="line-connection-invalid" label="Invalid, expired, or inactive" value={draft.connection.invalidOrExpired} onChange={(value) => updateConnection("invalidOrExpired", value)} />
-            <ReplyField id="line-connection-conflict" label="Connection conflict" value={draft.connection.conflict} onChange={(value) => updateConnection("conflict", value)} />
           </FieldGroup>
         </CardContent>
       </Card>

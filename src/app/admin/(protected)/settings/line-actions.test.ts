@@ -60,7 +60,7 @@ describe("LINE automatic reply actions", () => {
     expect(mocks.saveLineAutomaticReplyConfig).toHaveBeenCalledWith(config);
     expect(mocks.appendAudit).toHaveBeenCalledWith(expect.objectContaining({
       action: "LINE_AUTOMATIC_REPLY_CONFIG_SAVED",
-      metadata: JSON.stringify({ settingKey: LINE_AUTOMATIC_REPLY_CONFIG_SETTING_KEY, version: 1 }),
+      metadata: JSON.stringify({ settingKey: LINE_AUTOMATIC_REPLY_CONFIG_SETTING_KEY, version: 2 }),
     }));
     expect(JSON.stringify(mocks.appendAudit.mock.calls)).not.toContain("Private custom flagged copy");
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/admin/settings");
@@ -68,7 +68,7 @@ describe("LINE automatic reply actions", () => {
 
   it("rejects invalid submitted config before persistence or audit", async () => {
     const formData = new FormData();
-    formData.set("config", JSON.stringify({ version: 1 }));
+    formData.set("config", JSON.stringify({ version: 2 }));
 
     await expect(saveLineAutomaticReplyConfigAction(formData)).rejects.toThrow();
     expect(mocks.saveLineAutomaticReplyConfig).not.toHaveBeenCalled();
