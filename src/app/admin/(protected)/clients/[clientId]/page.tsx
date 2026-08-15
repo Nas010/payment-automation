@@ -2,6 +2,7 @@ import Link from "next/link";
 import { CalendarClockIcon, ReceiptTextIcon, ScrollTextIcon } from "lucide-react";
 import { notFound } from "next/navigation";
 import { ClientBillingActions } from "@/components/admin/client-billing-actions";
+import { ClientAvatar } from "@/components/admin/client-avatar";
 import { LineLinkActions } from "@/components/admin/line-link-actions";
 import { lineLinkStatus } from "@/components/admin/line-link-state";
 import { EmptyTableRow, MetricCard, PageHeader } from "@/components/admin/page-ui";
@@ -36,7 +37,7 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ c
   const welcomeMessage = liffId ? renderClientLineWelcomeMessage({ client, template: welcomeTemplate, businessName: config.businessDisplayName, liffId }) : "";
 
   return <div className="flex flex-col gap-6">
-    <PageHeader title={client.client_name} description={`${client.package_name} · ${client.line_display_name || client.line_user_id || "No LINE profile"}`} />
+    <PageHeader title={<span className="flex items-center gap-3"><ClientAvatar clientName={client.client_name} lineDisplayName={client.line_display_name} pictureUrl={client.line_picture_url} size="lg" /><span>{client.client_name}</span></span>} description={`${client.package_name} · ${client.line_display_name || client.line_user_id || "No LINE profile"}`} />
     <section className="grid gap-3 sm:grid-cols-4">
       <MetricCard label="Total value" value={formatThb(summary.totalSatang)} />
       <MetricCard label="Paid" value={formatThb(summary.paidSatang)} />

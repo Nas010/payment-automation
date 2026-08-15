@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("next/link", () => ({ default: ({ children, href }: { children: React.ReactNode; href: string }) => React.createElement("a", { href }, children) }));
+vi.mock("next/image", () => ({ default: ({ unoptimized: _unoptimized, ...props }: React.ImgHTMLAttributes<HTMLImageElement> & { unoptimized?: boolean }) => React.createElement("img", props) }));
 vi.mock("@/lib/sheets/clients", () => ({ listClients: mocks.listClients }));
 vi.mock("@/lib/sheets/schedules", () => ({ listSchedules: mocks.listSchedules }));
 vi.mock("@/lib/sheets/settings", () => ({ getLineWelcomeTemplate: mocks.getLineWelcomeTemplate }));
@@ -55,5 +56,14 @@ describe("ClientsPage LINE connection", () => {
     expect(html).toContain("Copy welcome message");
     expect(html).not.toContain("LINK ABCDEF0123");
     expect(html).not.toContain("one-time code");
+  });
+
+  it("shows the linked client's LINE picture in the directory", async () => {
+    mocks.listClients.mockResolvedValue([{ ...client(), line_user_id: "Uaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", line_display_name: "Nisa LINE", line_picture_url: "https://profile.line-scdn.net/avatar/path", line_link_status: "LINKED" }]);
+
+    const html = renderToStaticMarkup(await ClientsPage({ searchParams: Promise.resolve({}) }));
+
+    expect(html).toContain("LINE profile picture for Nisa");
+    expect(html).toContain("https://profile.line-scdn.net/avatar/path");
   });
 });

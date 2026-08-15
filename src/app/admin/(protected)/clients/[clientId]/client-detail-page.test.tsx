@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("next/navigation", () => ({ notFound: mocks.notFound }));
 vi.mock("next/link", () => ({ default: ({ children, href }: { children: React.ReactNode; href: string }) => React.createElement("a", { href }, children) }));
+vi.mock("next/image", () => ({ default: ({ unoptimized: _unoptimized, ...props }: React.ImgHTMLAttributes<HTMLImageElement> & { unoptimized?: boolean }) => React.createElement("img", props) }));
 vi.mock("@/lib/sheets/clients", () => ({ listClients: mocks.listClients }));
 vi.mock("@/lib/sheets/schedules", () => ({ listSchedules: mocks.listSchedules }));
 vi.mock("@/lib/sheets/payments", () => ({ listPayments: mocks.listPayments }));
@@ -70,5 +71,14 @@ describe("ClientDetailPage LINE connection", () => {
     expect(html).toContain(`Welcome Nisa to Coach Bee: https://liff.line.me/1234567890-AbCdEf?token=${token}`);
     expect(html).not.toContain("LINK ABCDEF0123");
     expect(html).not.toContain("one-time code");
+  });
+
+  it("shows the linked client's LINE picture in the page header", async () => {
+    mocks.listClients.mockResolvedValue([{ ...client(), line_user_id: "Uaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", line_display_name: "Nisa LINE", line_picture_url: "https://profile.line-scdn.net/avatar/path", line_link_status: "LINKED" }]);
+
+    const html = renderToStaticMarkup(await ClientDetailPage({ params: Promise.resolve({ clientId: "client_1" }) }));
+
+    expect(html).toContain("LINE profile picture for Nisa");
+    expect(html).toContain("https://profile.line-scdn.net/avatar/path");
   });
 });
