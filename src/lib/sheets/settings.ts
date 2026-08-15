@@ -28,6 +28,13 @@ import {
   type LineTermsImageState,
   type LineTermsImageVersion,
 } from "@/lib/line/terms-image";
+import {
+  DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG,
+  LINE_AUTOMATIC_REPLY_CONFIG_SETTING_KEY,
+  parseLineAutomaticReplyConfig,
+  resolveLineAutomaticReplyConfig,
+  type LineAutomaticReplyConfig,
+} from "@/lib/line/reply-config";
 
 export type OperationalSetting = { rowNumber: number; key: string; value: string };
 export type PackageRecord = { rowNumber: number; package_name: string; total_price_thb: string; payment_type: string; installment_count: string; interval_months: string; active: string };
@@ -46,6 +53,7 @@ export async function upsertOperationalSettings(entries: Array<{ key: string; va
   for (const entry of entries) {
     if (entry.key === "line_due_message_template") validateLineDueTemplate(entry.value);
     if (entry.key === "line_welcome_message_template") validateLineWelcomeTemplate(entry.value);
+    if (entry.key === LINE_AUTOMATIC_REPLY_CONFIG_SETTING_KEY) parseLineAutomaticReplyConfig(entry.value);
     const paymentType = (Object.entries(LINE_DUE_PROFILE_SETTING_KEYS) as Array<[LinePaymentType, string]>).find(([, key]) => key === entry.key)?.[0];
     if (paymentType) parseLineDueMessageProfile(entry.value, paymentType);
     if (entry.key === LINE_INSTALLMENT_REMINDER_CONFIG_SETTING_KEY) parseLineInstallmentReminderConfig(entry.value);
@@ -58,6 +66,19 @@ export async function upsertOperationalSettings(entries: Array<{ key: string; va
   });
   const { sheets, spreadsheetId } = await getGoogleSheets();
   await sheets.spreadsheets.values.batchUpdate({ spreadsheetId, requestBody: { valueInputOption: "RAW", data } });
+}
+
+export async function getLineAutomaticReplyConfig(): Promise<LineAutomaticReplyConfig> {
+  try {
+    return resolveLineAutomaticReplyConfig(await listOperationalSettings()).config;
+  } catch {
+    return DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG;
+  }
+}
+
+export async function saveLineAutomaticReplyConfig(config: LineAutomaticReplyConfig): Promise<void> {
+  const normalized = parseLineAutomaticReplyConfig(config);
+  await upsertOperationalSetting(LINE_AUTOMATIC_REPLY_CONFIG_SETTING_KEY, JSON.stringify(normalized));
 }
 
 /** Returns workbook's custom LINE due message, or documented default when unset. */

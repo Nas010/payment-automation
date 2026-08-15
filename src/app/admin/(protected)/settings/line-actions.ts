@@ -8,6 +8,11 @@ import {
   validateLineWelcomeTemplate,
 } from "@/lib/line/message-template";
 import {
+  DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG,
+  LINE_AUTOMATIC_REPLY_CONFIG_SETTING_KEY,
+  parseLineAutomaticReplyConfig,
+} from "@/lib/line/reply-config";
+import {
   DEFAULT_LINE_DUE_PROFILES,
   DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG,
   LINE_DUE_PROFILE_SETTING_KEYS,
@@ -23,7 +28,7 @@ import {
   type ReminderSlot,
 } from "@/lib/line/message-profile";
 import { getLineChannelAccessToken, setSecret } from "@/lib/secrets/service";
-import { saveLineDueMessageProfile, saveLineInstallmentReminderConfig, upsertOperationalSetting } from "@/lib/sheets/settings";
+import { saveLineAutomaticReplyConfig, saveLineDueMessageProfile, saveLineInstallmentReminderConfig, upsertOperationalSetting } from "@/lib/sheets/settings";
 import { appendAudit } from "@/lib/sheets/payments";
 import type { LineCredentialActionResult } from "@/components/admin/line-integration-form";
 import type { LineTemplateActionResult } from "@/components/admin/line-message-template-form";
@@ -106,6 +111,19 @@ async function auditWelcomeTemplateChange(action: "LINE_WELCOME_TEMPLATE_SAVED" 
     reason: "LINE welcome template updated",
     source: "ADMIN",
     metadata: JSON.stringify({ settingKey: welcomeTemplateSettingKey }),
+  });
+}
+
+async function auditAutomaticReplyConfigChange(action: "LINE_AUTOMATIC_REPLY_CONFIG_SAVED" | "LINE_AUTOMATIC_REPLY_CONFIG_RESET"): Promise<void> {
+  await appendAudit({
+    paymentId: "",
+    clientId: "",
+    action,
+    previousStatus: LINE_AUTOMATIC_REPLY_CONFIG_SETTING_KEY,
+    newStatus: LINE_AUTOMATIC_REPLY_CONFIG_SETTING_KEY,
+    reason: "LINE automatic replies updated",
+    source: "ADMIN",
+    metadata: JSON.stringify({ settingKey: LINE_AUTOMATIC_REPLY_CONFIG_SETTING_KEY, version: 1 }),
   });
 }
 
@@ -201,6 +219,23 @@ export async function resetLineWelcomeTemplateAction(): Promise<LineTemplateActi
   await auditWelcomeTemplateChange("LINE_WELCOME_TEMPLATE_RESET");
   revalidatePath("/admin/settings");
   return { ok: true, template: DEFAULT_LINE_WELCOME_TEMPLATE, preview: renderLineWelcomeTemplate(DEFAULT_LINE_WELCOME_TEMPLATE, welcomeTemplatePreviewValues) };
+}
+
+export async function saveLineAutomaticReplyConfigAction(formData: FormData) {
+  await requireAdmin();
+  const config = parseLineAutomaticReplyConfig(String(formData.get("config") ?? ""));
+  await saveLineAutomaticReplyConfig(config);
+  await auditAutomaticReplyConfigChange("LINE_AUTOMATIC_REPLY_CONFIG_SAVED");
+  revalidatePath("/admin/settings");
+  return { ok: true as const, config };
+}
+
+export async function resetLineAutomaticReplyConfigAction() {
+  await requireAdmin();
+  await saveLineAutomaticReplyConfig(DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG);
+  await auditAutomaticReplyConfigChange("LINE_AUTOMATIC_REPLY_CONFIG_RESET");
+  revalidatePath("/admin/settings");
+  return { ok: true as const, config: DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG };
 }
 
 export async function saveAndTestLineCredentialsAction(formData: FormData): Promise<LineCredentialActionResult> {
