@@ -6,7 +6,7 @@ Expose the outcome of automatic LINE profile refreshes in Vercel logs without wr
 
 ## Design
 
-The webhook's profile-refresh path will log one fixed event label for each result: `updated`, `skipped`, `profile_lookup_failed`, or `persistence_failed`. The route will continue acknowledging a signed LINE event with HTTP 200, so diagnostics cannot cause webhook retries or affect payment/slip processing.
+The webhook's profile-refresh path will log one fixed event label for each result: `updated`, `skipped`, `profile_lookup_failed`, or `persistence_failed`. A successful update also records whether the normalized picture URL is `present` or `missing`; it never records the URL itself. The route will continue acknowledging a signed LINE event with HTTP 200, so diagnostics cannot cause webhook retries or affect payment/slip processing.
 
 `updated` means the linked client row was saved. `skipped` means no matching linked client remained when the update ran. `profile_lookup_failed` covers unavailable channel credentials and LINE profile API failures. `persistence_failed` covers an exception while updating the client record. Logs contain labels only, never error messages or event/profile data.
 

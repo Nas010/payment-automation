@@ -117,7 +117,7 @@ async function refreshLineProfile(service: ReturnType<typeof createLineLinkServi
 
   try {
     const persisted = await service.persistLineProfile({ lineUserId, displayName: profile.displayName, pictureUrl: profile.pictureUrl, now: new Date() });
-    if (persisted) console.info("[line-webhook] profile_refresh outcome=updated");
+    if (persisted) console.info(`[line-webhook] profile_refresh outcome=updated image=${profile.pictureUrl ? "present" : "missing"}`);
     else console.warn("[line-webhook] profile_refresh outcome=skipped");
   } catch {
     console.warn("[line-webhook] profile_refresh outcome=persistence_failed");

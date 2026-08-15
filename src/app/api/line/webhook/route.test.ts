@@ -174,7 +174,7 @@ describe("POST /api/line/webhook", () => {
 
     await expect(POST(signedRequest({ events: [event({ message: { type: "text", text: "hello" } })] }))).resolves.toMatchObject({ status: 200 });
     expect(mocks.updateLineLinkClient).toHaveBeenCalledWith(expect.objectContaining({ client: expect.objectContaining({ line_display_name: "Nisa Updated", line_picture_url: "https://profile.line-scdn.net/message-avatar" }) }));
-    expect(info).toHaveBeenCalledWith("[line-webhook] profile_refresh outcome=updated");
+    expect(info).toHaveBeenCalledWith("[line-webhook] profile_refresh outcome=updated image=present");
     expect(JSON.stringify(info.mock.calls)).not.toContain(userId);
     expect(JSON.stringify(info.mock.calls)).not.toContain("message-avatar");
   });
