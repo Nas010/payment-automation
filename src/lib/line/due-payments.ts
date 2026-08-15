@@ -10,8 +10,9 @@ import { readPaymentClientSnapshot } from "@/lib/sheets/payment-client-snapshot"
 import { listSchedules, type ScheduleRecord } from "@/lib/sheets/schedules";
 import { listOperationalSettings, resolveLineDueMessageProfiles } from "@/lib/sheets/settings";
 import { readDriveTermsImageFile } from "@/lib/storage/drive-client";
-import { activeLineTermsImageVersion, isLineTermsPublicToken, lineTermsImagePath, parseLineTermsImageState, resolveLineTermsPlanPosition, validateLineTermsImageBytes, type LineTermsImageState } from "./terms-image";
+import { parseLineTermsImageState, type LineTermsImageState } from "./terms-image";
 import { sendLinePushMessage } from "./client";
+import { lineImageMessage, lineTermsImageUrl, selectLineTermsImage, type TermsImageSelection } from "./payment-message-images";
 import { LineDueTemplateError, renderLineDueMessageProfile, type ResolvedLineDueMessageProfiles } from "./message-profile";
 import { resolveLineDueMessageValues } from "./message-values";
 import { isLinkedLinePaymentRecipient } from "./recipient";
@@ -124,46 +125,6 @@ function qrImageUrl(baseUrl: string, publicToken: string): string {
   const url = new URL(`/api/payments/${encodeURIComponent(publicToken)}/promptpay-qr.png`, baseUrl);
   if (url.protocol !== "https:") throw new Error("HTTPS_BASE_URL_REQUIRED");
   return url.toString();
-}
-
-function termsImageUrl(baseUrl: string, publicToken: string): string {
-  const url = new URL(lineTermsImagePath(publicToken), baseUrl);
-  if (url.protocol !== "https:") throw new Error("HTTPS_BASE_URL_REQUIRED");
-  return url.toString();
-}
-
-type TermsImageSelection = { token: string; reasonCode?: "NOT_CONFIGURED" | "CONFIG_INVALID" | "ASSET_UNAVAILABLE" | "POSITION_UNKNOWN" };
-
-async function selectTermsImage(
-  dependencies: LineDueDependencies,
-  payment: PaymentRecord,
-  schedules: readonly ScheduleRecord[],
-  statePromise: () => Promise<LineTermsImageState>,
-): Promise<TermsImageSelection> {
-  if (hasFrozenRetryMessage(payment)) {
-    if (!payment.line_terms_image_token || payment.line_terms_image_token === "NONE") return { token: "NONE" };
-    return isLineTermsPublicToken(payment.line_terms_image_token)
-      ? { token: payment.line_terms_image_token }
-      : { token: "NONE", reasonCode: "CONFIG_INVALID" };
-  }
-  const legacySchedule = payment.installment_number ? undefined : schedules.find((schedule) => schedule.payment_id === payment.payment_id);
-  const position = resolveLineTermsPlanPosition(payment, legacySchedule);
-  if (position === "LATER") return { token: "NONE" };
-  if (position === "UNKNOWN") return { token: "NONE", reasonCode: "POSITION_UNKNOWN" };
-  let version;
-  try {
-    version = activeLineTermsImageVersion(await statePromise());
-  } catch {
-    return { token: "NONE", reasonCode: "CONFIG_INVALID" };
-  }
-  if (!version) return { token: "NONE", reasonCode: "NOT_CONFIGURED" };
-  try {
-    const file = await dependencies.readDriveTermsImageFile(version.driveFileId);
-    if (validateLineTermsImageBytes(file.bytes) !== version.mimeType || file.bytes.byteLength !== version.byteLength) throw new Error("asset mismatch");
-    return { token: version.publicToken };
-  } catch {
-    return { token: "NONE", reasonCode: "ASSET_UNAVAILABLE" };
-  }
 }
 
 function oldAmbiguousAttempt(payment: PaymentRecord, now: string): boolean {
@@ -420,18 +381,19 @@ export async function sendDueLinePaymentRequests(
       const firstAttemptAt = payment.line_retry_key && payment.line_message_attempted_at ? payment.line_message_attempted_at : now;
       let sawAmbiguousFailure = payment.line_message_status === "SENDING" || payment.line_message_error === "NETWORK_ERROR";
       const imageUrl = qrImageUrl(options.baseUrl, payment.public_token);
-      const termsImage = await selectTermsImage(
-        dependencies,
+      const termsImage = await selectLineTermsImage({
         payment,
         schedules,
-        () => termsImageStatePromise ??= dependencies.getLineTermsImageState(),
-      );
+        frozenToken: hasFrozenRetryMessage(payment) ? payment.line_terms_image_token : undefined,
+      }, {
+        getLineTermsImageState: () => termsImageStatePromise ??= dependencies.getLineTermsImageState(),
+        readDriveTermsImageFile: dependencies.readDriveTermsImageFile,
+      });
       if (termsImage.reasonCode) {
         await appendTermsImageSkippedAudit(dependencies, payment, previousStatus, termsImage.reasonCode);
       }
       const termsImageMessage = termsImage.token === "NONE" ? null : (() => {
-        const url = termsImageUrl(options.baseUrl, termsImage.token);
-        return { type: "image" as const, originalContentUrl: url, previewImageUrl: url };
+        return lineImageMessage(lineTermsImageUrl(options.baseUrl, termsImage.token));
       })();
       channelAccessToken ??= await dependencies.getLineChannelAccessToken();
       let pushResult: LinePushResult = { accepted: false, retryable: true, requestId: "", errorCode: "NETWORK_ERROR" };
