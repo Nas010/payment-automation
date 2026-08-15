@@ -163,5 +163,6 @@ export function buildPaymentForSchedule(schedule: PaymentSchedule, input: { paym
     installment_count: schedule.installment_count,
     total_price_thb: String(input.planTotalSatang / 100),
     line_terms_image_token: "",
+    line_reminder_delivery_log: "",
   };
 }
