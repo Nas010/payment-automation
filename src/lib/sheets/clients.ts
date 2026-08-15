@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { isLineReservationConflict, lineReservationName } from "@/lib/line/connection-reservation";
 import { getGoogleSheets } from "./client";
 import { ensureClientSchema } from "./migration";
 import { CLIENT_HEADERS, firstEmptyIdRow, recordToRow, rowToRecord, sheetColumnName } from "./records";
@@ -13,10 +14,6 @@ export type LineLinkUpdateInput = { client: ClientRecord; expectedClient: Client
 
 const CLIENT_END_COLUMN = sheetColumnName(CLIENT_HEADERS.length);
 
-function lineReservationName(kind: "code" | "token" | "user", value: string): string {
-  return `line_link_${kind}_${createHash("sha256").update(value).digest("hex")}`;
-}
-
 function lineStateReservationName(client: ClientRecord): string {
   const state = [client.client_id, client.active, client.line_user_id, client.line_display_name, client.line_picture_url, client.line_link_code, client.line_link_code_expires_at, client.line_link_status, client.line_linked_at, client.line_link_message, client.line_link_error, client.line_link_token_hash, client.line_link_token_encrypted, client.line_link_token_expires_at, client.updated_at];
   return `line_link_state_${createHash("sha256").update(JSON.stringify(state)).digest("hex")}`;
@@ -24,14 +21,6 @@ function lineStateReservationName(client: ClientRecord): string {
 
 function claimCell(value: string) {
   return { userEnteredValue: { stringValue: value } };
-}
-
-function isReservationConflict(error: unknown): boolean {
-  const status = typeof error === "object" && error !== null && "response" in error
-    ? (error as { response?: { status?: unknown } }).response?.status
-    : undefined;
-  const message = error instanceof Error ? error.message : "";
-  return status === 400 && /named range.*already exists/i.test(message);
 }
 
 async function clientSheetMetadata(): Promise<{ sheetId: number; namedRanges: Array<{ name?: string | null; namedRangeId?: string | null }> }> {
@@ -107,7 +96,7 @@ export async function updateLineLinkClient({ client, expectedClient, releaseLine
     });
     return true;
   } catch (error) {
-    if (isReservationConflict(error)) return false;
+    if (isLineReservationConflict(error)) return false;
     throw error;
   }
 }
@@ -139,7 +128,7 @@ export async function claimLineLink({ client, expectedClient, code, lineUserId }
     });
     return "CLAIMED";
   } catch (error) {
-    if (!isReservationConflict(error)) throw error;
+    if (!isLineReservationConflict(error)) throw error;
     const clients = await listClients();
     if (clients.some((item) => item.client_id === client.client_id && item.line_user_id === lineUserId && item.line_link_status === "LINKED")) return "ALREADY_LINKED";
     if (clients.some((item) => item.line_user_id === lineUserId)) return "CONFLICT";
@@ -169,7 +158,7 @@ export async function claimLineConnection({ client, expectedClient, tokenHash, l
     });
     return "CLAIMED";
   } catch (error) {
-    if (!isReservationConflict(error)) throw error;
+    if (!isLineReservationConflict(error)) throw error;
     const clients = await listClients();
     if (clients.some((item) => item.client_id === client.client_id && item.line_user_id === lineUserId && item.line_link_token_hash === tokenHash)) return "ALREADY_LINKED";
     if (clients.some((item) => item.line_user_id === lineUserId || (item.line_link_token_hash === tokenHash && item.line_user_id))) return "CONFLICT";

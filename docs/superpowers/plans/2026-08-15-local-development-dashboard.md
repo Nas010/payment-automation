@@ -247,4 +247,3 @@ Open `/admin/dashboard`; confirm synthetic owner, banner, populated data, client
 git add README.md .env.example src/lib/local-dashboard src/lib src/app src/components scripts package.json .gitignore
 git commit -m "feat: add isolated local dashboard"
 ```
-

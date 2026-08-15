@@ -5,6 +5,7 @@ import {
   createLineConnectionService,
   generateMissingLineConnections,
   renewLineConnection,
+  resolveLineConnectionScope,
   type LineConnectionDependencies,
 } from "./connection";
 
@@ -91,6 +92,26 @@ describe("LINE connection issuance", () => {
     expect(updated.line_link_token_hash).not.toBe(hashLineConnectionToken(tokenA));
     expect(recoverLineConnectionToken({ clientId: "client_1", encryptedToken: updated.line_link_token_encrypted })).toBe(tokenB);
     expect(deps.appendAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "LINE_CONNECTION_RENEWED", metadata: expect.not.stringContaining(tokenB) }));
+  });
+});
+
+describe("LINE connection token scope", () => {
+  it("resolves one active or consumed token without allowing ambiguous scope", () => {
+    const active = client({ line_link_status: "LINK_ACTIVE", line_link_token_hash: hashLineConnectionToken(tokenA), line_link_token_encrypted: "encrypted", line_link_token_expires_at: "2026-08-17T12:00:00.000Z" });
+    const testProfile = {
+      version: 1 as const, clientName: "Test", packageName: "PT", totalPriceThb: "1000", paymentType: "ONE_TIME" as const, installmentCount: 1, intervalMonths: 0, firstDueDate: "2026-08-15",
+      lineUserId: "", lineDisplayName: "", linePictureUrl: "", lineLinkStatus: "LINK_ACTIVE" as const, lineLinkedAt: "", lineLinkError: "", lineLinkTokenHash: hashLineConnectionToken(tokenA), lineLinkTokenEncrypted: "encrypted", lineLinkTokenExpiresAt: "2026-08-17T12:00:00.000Z", updatedAt: now,
+    };
+
+    expect(resolveLineConnectionScope({ token: tokenA, now, clients: [active], testProfile: null })).toBe("CLIENT");
+    expect(resolveLineConnectionScope({ token: tokenA, now, clients: [], testProfile })).toBe("TEST");
+    expect(resolveLineConnectionScope({ token: tokenA, now, clients: [active], testProfile })).toBe("INVALID");
+    expect(resolveLineConnectionScope({ token: "forged", now, clients: [active], testProfile: null })).toBe("INVALID");
+  });
+
+  it("keeps consumed linked tokens routable for idempotent identity checks", () => {
+    const consumed = client({ line_user_id: userA, line_link_status: "LINKED", line_link_token_hash: hashLineConnectionToken(tokenA), line_link_token_encrypted: "", line_link_token_expires_at: "" });
+    expect(resolveLineConnectionScope({ token: tokenA, now, clients: [consumed], testProfile: null })).toBe("CLIENT");
   });
 });
 
