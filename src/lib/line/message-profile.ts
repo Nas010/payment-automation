@@ -10,10 +10,19 @@ export type LineDueMessageProfile = {
   customPlaceholders: CustomLinePlaceholder[];
 };
 export type LineDueMessageProfiles = Record<LinePaymentType, LineDueMessageProfile>;
+export const REMINDER_SLOTS = ["T_MINUS_7_DAYS", "T_MINUS_3_DAYS", "T_MINUS_1_DAY", "DUE_DATE", "T_PLUS_1_DAY"] as const;
+export type ReminderSlot = (typeof REMINDER_SLOTS)[number];
+export type LineInstallmentReminderConfig = {
+  version: 1;
+  profiles: Record<ReminderSlot, LineDueMessageProfile>;
+};
 export type ResolvedLineDueMessageProfile =
   | { kind: "VALID"; profile: LineDueMessageProfile }
   | { kind: "INVALID" };
 export type ResolvedLineDueMessageProfiles = Record<LinePaymentType, ResolvedLineDueMessageProfile>;
+export type ResolvedLineInstallmentReminderConfig =
+  | { kind: "VALID"; config: LineInstallmentReminderConfig }
+  | { kind: "INVALID" };
 export type LineDueMessageProfileActionResult = {
   ok: true;
   paymentType: LinePaymentType;
@@ -49,6 +58,7 @@ export const LINE_DUE_PROFILE_SETTING_KEYS = {
   ONE_TIME: "line_due_message_profile_one_time",
   INSTALLMENTS: "line_due_message_profile_installments",
 } as const satisfies Record<LinePaymentType, string>;
+export const LINE_INSTALLMENT_REMINDER_CONFIG_SETTING_KEY = "line_installment_reminder_config";
 
 export class LineDueTemplateError extends Error {
   constructor(
@@ -78,11 +88,34 @@ export const DEFAULT_LINE_DUE_PROFILES: LineDueMessageProfiles = {
   },
 };
 
+function defaultReminderProfile(timing: string): LineDueMessageProfile {
+  return {
+    version: 1,
+    message: `Hi {{client_name}} 👋\n\n${timing}\n\nAmount: {{amount}}\nDeadline: {{due_date}}\n{{payment_url}}`,
+    customPlaceholders: [],
+  };
+}
+
+export const DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG: LineInstallmentReminderConfig = {
+  version: 1,
+  profiles: {
+    T_MINUS_7_DAYS: defaultReminderProfile("Your installment payment is due in 7 days."),
+    T_MINUS_3_DAYS: defaultReminderProfile("Your installment payment is due in 3 days."),
+    T_MINUS_1_DAY: defaultReminderProfile("Your installment payment is due tomorrow."),
+    DUE_DATE: DEFAULT_LINE_DUE_PROFILES.INSTALLMENTS,
+    T_PLUS_1_DAY: defaultReminderProfile("Your installment payment was due yesterday."),
+  },
+};
+
 const profileSchema = z.object({
   version: z.literal(1),
   message: z.string(),
   customPlaceholders: z.array(z.object({ name: z.string(), template: z.string() })),
 });
+const reminderConfigSchema = z.object({
+  version: z.literal(1),
+  profiles: z.record(z.string(), z.unknown()),
+}).strict();
 
 const TOKEN = /{{\s*([a-z][a-z0-9_]*)\s*}}/g;
 const REQUIRED = ["amount", "due_date", "payment_url"] as const;
@@ -194,6 +227,33 @@ export function parseLineDueMessageProfile(value: unknown, paymentType: LinePaym
   const profile = result.data;
   validateLineDueMessageProfile(profile, paymentType);
   return profile;
+}
+
+export function parseLineInstallmentReminderConfig(value: unknown): LineInstallmentReminderConfig {
+  let decoded: unknown;
+  try {
+    decoded = typeof value === "string" ? JSON.parse(value) as unknown : value;
+  } catch {
+    throw new LineDueTemplateError("TEMPLATE_INVALID", "Stored LINE reminder configuration is invalid JSON");
+  }
+  const result = reminderConfigSchema.safeParse(decoded);
+  if (!result.success) {
+    throw new LineDueTemplateError("TEMPLATE_INVALID", "LINE reminder configuration shape is invalid");
+  }
+  const profiles = result.data.profiles;
+  for (const slot of REMINDER_SLOTS) {
+    if (!(slot in profiles)) {
+      throw new LineDueTemplateError("TEMPLATE_INVALID", `LINE reminder configuration requires profile: ${slot}`);
+    }
+  }
+  const unexpected = Object.keys(profiles).find((slot) => !REMINDER_SLOTS.includes(slot as ReminderSlot));
+  if (unexpected) {
+    throw new LineDueTemplateError("TEMPLATE_INVALID", `Unsupported LINE reminder slot: ${unexpected}`);
+  }
+  return {
+    version: 1,
+    profiles: Object.fromEntries(REMINDER_SLOTS.map((slot) => [slot, parseLineDueMessageProfile(profiles[slot], "INSTALLMENTS")])) as Record<ReminderSlot, LineDueMessageProfile>,
+  };
 }
 
 export function renderLineDueMessageProfile(
