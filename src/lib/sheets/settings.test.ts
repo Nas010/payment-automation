@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_LINE_DUE_PROFILES, LINE_DUE_PROFILE_SETTING_KEYS } from "@/lib/line/message-profile";
 import { DEFAULT_LINE_WELCOME_TEMPLATE } from "@/lib/line/message-template";
 import { LINE_TERMS_ACTIVE_VERSION_KEY, LINE_TERMS_VERSIONS_KEY, type LineTermsImageVersion } from "@/lib/line/terms-image";
+import { createDefaultLineMessageTestProfile, LINE_MESSAGE_TEST_PROFILE_SETTING_KEY } from "@/lib/line/message-test-profile";
 
 const mocks = vi.hoisted(() => ({ get: vi.fn(), batchUpdate: vi.fn() }));
 
@@ -9,7 +10,7 @@ vi.mock("./client", () => ({
   getGoogleSheets: () => ({ spreadsheetId: "spreadsheet_1", sheets: { spreadsheets: { values: { get: mocks.get, batchUpdate: mocks.batchUpdate } } } }),
 }));
 
-import { getLineDueMessageProfiles, getLineTermsImageState, getLineWelcomeTemplate, resolveLineDueMessageProfiles, resolveLineInstallmentReminderConfig, saveLineDueMessageProfile, saveLineTermsImageVersion, upsertOperationalSetting, upsertOperationalSettings } from "./settings";
+import { getLineDueMessageProfiles, getLineTermsImageState, getLineWelcomeTemplate, resolveLineDueMessageProfiles, resolveLineInstallmentReminderConfig, resolveLineMessageTestProfile, saveLineDueMessageProfile, saveLineTermsImageVersion, upsertOperationalSetting, upsertOperationalSettings } from "./settings";
 
 const termsVersion: LineTermsImageVersion = {
   versionId: "terms_abcdefghijklmnopqrstuvwxyzABCDEF",
@@ -70,6 +71,14 @@ describe("operational settings writes", () => {
 
     expect(resolved.kind).toBe("VALID");
     if (resolved.kind === "VALID") expect(resolved.config.profiles.DUE_DATE).toEqual(DEFAULT_LINE_DUE_PROFILES.INSTALLMENTS);
+  });
+
+  it("resolves missing and corrupt LINE message test profiles independently", () => {
+    const fallback = createDefaultLineMessageTestProfile("2026-08-15");
+    expect(resolveLineMessageTestProfile([], fallback)).toEqual({ kind: "VALID", profile: fallback });
+    expect(resolveLineMessageTestProfile([
+      { rowNumber: 2, key: LINE_MESSAGE_TEST_PROFILE_SETTING_KEY, value: "not JSON" },
+    ], fallback)).toEqual({ kind: "INVALID" });
   });
 
   it("isolates a corrupt stored type while preserving the other stored profile", () => {
