@@ -24,6 +24,16 @@ describe("GET /api/payments/[publicToken]/promptpay-qr.png", () => {
     await expect(response.text()).resolves.not.toContain("private-token");
   });
 
+  it("returns not found for a voided payment before loading configuration or generating a QR", async () => {
+    mocks.getPaymentByToken.mockResolvedValue({ amount_thb: "3000", status: "VOID" });
+
+    const response = await GET(new Request("https://pay.example/api/payments/token_1/promptpay-qr.png"), { params: Promise.resolve({ publicToken: "token_1" }) });
+
+    expect(response.status).toBe(404);
+    expect(mocks.runtimeConfig).not.toHaveBeenCalled();
+    expect(mocks.toBuffer).not.toHaveBeenCalled();
+  });
+
   it("returns a cacheable high-contrast 720px PNG for the exact website PromptPay payload", async () => {
     mocks.getPaymentByToken.mockResolvedValue({ amount_thb: "฿3,000.00" });
     mocks.runtimeConfig.mockResolvedValue({ promptPayIdentifier: "0812345678", promptPayType: "phone" });

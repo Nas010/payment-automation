@@ -14,6 +14,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ pub
     return new Response("Internal Server Error", { status: 500 });
   }
   if (!payment) return new Response("Not Found", { status: 404 });
+  if (payment.status === "VOID") return new Response("Not Found", { status: 404 });
 
   let config;
   try {

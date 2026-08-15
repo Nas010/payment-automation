@@ -32,6 +32,18 @@ beforeEach(() => {
 });
 
 describe("POST /api/payment/[token]/submit", () => {
+  it("rejects a voided payment before reading the submitted slip", async () => {
+    mocks.getPaymentByToken.mockResolvedValue(payment({ status: "VOID" }));
+    const formData = vi.fn();
+
+    const response = await POST({ headers: new Headers(), formData } as unknown as NextRequest, { params: Promise.resolve({ token: "token_1" }) });
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({ error: "This payment request is no longer active" });
+    expect(formData).not.toHaveBeenCalled();
+    expect(mocks.processSlipImage).not.toHaveBeenCalled();
+  });
+
   it("delegates image processing while preserving successful upload response", async () => {
     const response = await POST(request(), { params: Promise.resolve({ token: "token_1" }) });
 

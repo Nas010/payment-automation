@@ -11,6 +11,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (!paymentSubmissionLimiter.allow(`${token}:${forwarded}`)) return Response.json({ error: "Too many slip submissions. Try again later." }, { status: 429 });
   const payment = await getPaymentByToken(token);
   if (!payment) return Response.json({ error: "Payment link not found" }, { status: 404 });
+  if (payment.status === "VOID") return Response.json({ error: "This payment request is no longer active" }, { status: 409 });
   if (["AUTO_RECORDED", "MANUAL_CONFIRMED"].includes(payment.status)) return Response.json({ error: "Payment already recorded" }, { status: 409 });
   const form = await request.formData();
   const slip = form.get("slip");
