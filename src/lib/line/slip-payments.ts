@@ -1,7 +1,7 @@
 import { replyLineMessage, getLineMessageContent } from "@/lib/line/client";
 import { getLineChannelAccessToken } from "@/lib/secrets/service";
 import { getLineAutomaticReplyConfig } from "@/lib/sheets/settings";
-import { lineSlipReplyText, type LineAutomaticReplyConfig } from "@/lib/line/reply-config";
+import { lineSlipReplyText, type LineAutomaticReplyConfig, type LineSlipReplyDecision } from "@/lib/line/reply-config";
 import { resolveLinePaymentCandidate } from "@/lib/line/payment-match";
 import { persistPaymentTransition, reconcileTerminalPaymentEffects } from "@/lib/payments/transition";
 import { runtimeConfig } from "@/lib/runtime-config";
@@ -87,6 +87,18 @@ function terminalEffectsClaimedOrPending(marker: string): boolean {
   return /^(TRANSITION_EFFECTS_PENDING|TRANSITION_EFFECTS_CLAIMED):/.test(marker);
 }
 
+function replyDecision(decision: SlipProcessResult["decision"]): LineSlipReplyDecision {
+  switch (decision) {
+    case "AUTO_RECORDED":
+    case "MANUAL_CONFIRMED":
+    case "REVIEW":
+    case "FLAGGED":
+      return decision;
+    default:
+      throw new Error("LINE reply cannot be sent for this payment status");
+  }
+}
+
 function latestPayment(first: PaymentRecord, second: PaymentRecord): PaymentRecord {
   const firstTime = Date.parse(first.updated_at);
   const secondTime = Date.parse(second.updated_at);
@@ -120,7 +132,7 @@ async function replyAfterResult(dependencies: LineSlipDependencies, payment: Pay
   }
 
   try {
-    await dependencies.replyLineMessage({ channelAccessToken, replyToken: event.replyToken, text: lineSlipReplyText(dependencies.automaticReplyConfig, decision), fetchFn: fetch });
+    await dependencies.replyLineMessage({ channelAccessToken, replyToken: event.replyToken, text: lineSlipReplyText(dependencies.automaticReplyConfig, replyDecision(decision)), fetchFn: fetch });
   } catch {
     await audit(dependencies, payment, "LINE_PAYMENT_REPLY_FAILED", "LINE reply failed", event);
     try {
