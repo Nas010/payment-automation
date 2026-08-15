@@ -37,9 +37,45 @@ describe("LINE due message profiles", () => {
     expect(DEFAULT_LINE_DUE_PROFILES.INSTALLMENTS.customPlaceholders).toContainEqual({ name: "payment_label", template: "{{installment_ordinal}} payment out of {{installment_count}} for {{package_name}}" });
   });
 
-  it("requires a valid installment profile for each fixed reminder slot", () => {
-    expect(() => parseLineInstallmentReminderConfig({ version: 1, profiles: {} })).toThrow(/T_MINUS_7_DAYS/);
-    expect(parseLineInstallmentReminderConfig(DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG)).toEqual(DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG);
+  it("normalizes legacy reminder config to version two with every slot enabled", () => {
+    const legacy = {
+      version: 1,
+      profiles: DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG.profiles,
+    };
+
+    expect(parseLineInstallmentReminderConfig(legacy)).toEqual(DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG);
+  });
+
+  it("preserves independent version two reminder switches", () => {
+    const config = structuredClone(DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG);
+    config.enabled.T_MINUS_3_DAYS = false;
+
+    expect(parseLineInstallmentReminderConfig(config)).toEqual(config);
+  });
+
+  it.each([
+    ["missing flag", { T_MINUS_7_DAYS: true }],
+    ["non-boolean flag", {
+      T_MINUS_7_DAYS: true,
+      T_MINUS_3_DAYS: true,
+      T_MINUS_1_DAY: "true",
+      DUE_DATE: true,
+      T_PLUS_1_DAY: true,
+    }],
+    ["unexpected flag", {
+      T_MINUS_7_DAYS: true,
+      T_MINUS_3_DAYS: true,
+      T_MINUS_1_DAY: true,
+      DUE_DATE: true,
+      T_PLUS_1_DAY: true,
+      MONTH_END: true,
+    }],
+  ])("rejects version two config with %s", (_label, enabled) => {
+    expect(() => parseLineInstallmentReminderConfig({
+      version: 2,
+      enabled,
+      profiles: DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG.profiles,
+    })).toThrow(LineDueTemplateError);
   });
 
   it("renders a custom placeholder from protected installment values", () => {

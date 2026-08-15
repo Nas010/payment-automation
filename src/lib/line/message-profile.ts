@@ -13,7 +13,8 @@ export type LineDueMessageProfiles = Record<LinePaymentType, LineDueMessageProfi
 export const REMINDER_SLOTS = ["T_MINUS_7_DAYS", "T_MINUS_3_DAYS", "T_MINUS_1_DAY", "DUE_DATE", "T_PLUS_1_DAY"] as const;
 export type ReminderSlot = (typeof REMINDER_SLOTS)[number];
 export type LineInstallmentReminderConfig = {
-  version: 1;
+  version: 2;
+  enabled: Record<ReminderSlot, boolean>;
   profiles: Record<ReminderSlot, LineDueMessageProfile>;
 };
 export type ResolvedLineDueMessageProfile =
@@ -96,8 +97,13 @@ function defaultReminderProfile(timing: string): LineDueMessageProfile {
   };
 }
 
+const ALL_REMINDERS_ENABLED = Object.fromEntries(
+  REMINDER_SLOTS.map((slot) => [slot, true]),
+) as Record<ReminderSlot, boolean>;
+
 export const DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG: LineInstallmentReminderConfig = {
-  version: 1,
+  version: 2,
+  enabled: ALL_REMINDERS_ENABLED,
   profiles: {
     T_MINUS_7_DAYS: defaultReminderProfile("Your installment payment is due in 7 days."),
     T_MINUS_3_DAYS: defaultReminderProfile("Your installment payment is due in 3 days."),
@@ -112,10 +118,17 @@ const profileSchema = z.object({
   message: z.string(),
   customPlaceholders: z.array(z.object({ name: z.string(), template: z.string() })),
 });
-const reminderConfigSchema = z.object({
-  version: z.literal(1),
-  profiles: z.record(z.string(), z.unknown()),
-}).strict();
+const reminderConfigSchema = z.union([
+  z.object({
+    version: z.literal(1),
+    profiles: z.record(z.string(), z.unknown()),
+  }).strict(),
+  z.object({
+    version: z.literal(2),
+    enabled: z.record(z.string(), z.unknown()),
+    profiles: z.record(z.string(), z.unknown()),
+  }).strict(),
+]);
 
 const TOKEN = /{{\s*([a-z][a-z0-9_]*)\s*}}/g;
 const CUSTOM_NAME = /^[a-z][a-z0-9_]{0,39}$/;
@@ -214,6 +227,35 @@ export function parseLineDueMessageProfile(value: unknown, paymentType: LinePaym
   return profile;
 }
 
+function parseReminderEnabled(value: Record<string, unknown>): Record<ReminderSlot, boolean> {
+  for (const slot of REMINDER_SLOTS) {
+    if (typeof value[slot] !== "boolean") {
+      throw new LineDueTemplateError("TEMPLATE_INVALID", `LINE reminder configuration requires boolean enabled flag: ${slot}`);
+    }
+  }
+  const unexpected = Object.keys(value).find((slot) => !REMINDER_SLOTS.includes(slot as ReminderSlot));
+  if (unexpected) {
+    throw new LineDueTemplateError("TEMPLATE_INVALID", `Unsupported LINE reminder enabled slot: ${unexpected}`);
+  }
+  return Object.fromEntries(REMINDER_SLOTS.map((slot) => [slot, value[slot]])) as Record<ReminderSlot, boolean>;
+}
+
+function parseReminderProfiles(value: Record<string, unknown>): Record<ReminderSlot, LineDueMessageProfile> {
+  for (const slot of REMINDER_SLOTS) {
+    if (!(slot in value)) {
+      throw new LineDueTemplateError("TEMPLATE_INVALID", `LINE reminder configuration requires profile: ${slot}`);
+    }
+  }
+  const unexpected = Object.keys(value).find((slot) => !REMINDER_SLOTS.includes(slot as ReminderSlot));
+  if (unexpected) {
+    throw new LineDueTemplateError("TEMPLATE_INVALID", `Unsupported LINE reminder slot: ${unexpected}`);
+  }
+  return Object.fromEntries(REMINDER_SLOTS.map((slot) => [
+    slot,
+    parseLineDueMessageProfile(value[slot], "INSTALLMENTS"),
+  ])) as Record<ReminderSlot, LineDueMessageProfile>;
+}
+
 export function parseLineInstallmentReminderConfig(value: unknown): LineInstallmentReminderConfig {
   let decoded: unknown;
   try {
@@ -225,19 +267,14 @@ export function parseLineInstallmentReminderConfig(value: unknown): LineInstallm
   if (!result.success) {
     throw new LineDueTemplateError("TEMPLATE_INVALID", "LINE reminder configuration shape is invalid");
   }
-  const profiles = result.data.profiles;
-  for (const slot of REMINDER_SLOTS) {
-    if (!(slot in profiles)) {
-      throw new LineDueTemplateError("TEMPLATE_INVALID", `LINE reminder configuration requires profile: ${slot}`);
-    }
-  }
-  const unexpected = Object.keys(profiles).find((slot) => !REMINDER_SLOTS.includes(slot as ReminderSlot));
-  if (unexpected) {
-    throw new LineDueTemplateError("TEMPLATE_INVALID", `Unsupported LINE reminder slot: ${unexpected}`);
-  }
+  const config = result.data;
+  const enabled = config.version === 1
+    ? { ...ALL_REMINDERS_ENABLED }
+    : parseReminderEnabled(config.enabled);
   return {
-    version: 1,
-    profiles: Object.fromEntries(REMINDER_SLOTS.map((slot) => [slot, parseLineDueMessageProfile(profiles[slot], "INSTALLMENTS")])) as Record<ReminderSlot, LineDueMessageProfile>,
+    version: 2,
+    enabled,
+    profiles: parseReminderProfiles(config.profiles),
   };
 }
 

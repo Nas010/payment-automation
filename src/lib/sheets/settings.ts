@@ -145,8 +145,12 @@ export function resolveLineInstallmentReminderConfig(settings: OperationalSettin
   return {
     kind: "VALID",
     config: {
-      version: 1,
-      profiles: { ...DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG.profiles, DUE_DATE: installmentProfile.profile },
+      ...DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG,
+      enabled: { ...DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG.enabled },
+      profiles: {
+        ...DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG.profiles,
+        DUE_DATE: installmentProfile.profile,
+      },
     },
   };
 }

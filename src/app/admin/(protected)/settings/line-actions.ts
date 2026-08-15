@@ -154,7 +154,15 @@ export async function resetLineDueMessageProfileAction(formData: FormData): Prom
   return profileResult(paymentType, profile);
 }
 
-export type ReminderConfigActionResult = { ok: true; slot: ReminderSlot; config: import("@/lib/line/message-profile").LineInstallmentReminderConfig; preview: string };
+export type ReminderConfigActionResult = {
+  ok: true;
+  slot: ReminderSlot;
+  config: import("@/lib/line/message-profile").LineInstallmentReminderConfig;
+  preview: string;
+  auditWarning?: string;
+};
+
+const reminderAuditWarning = "Reminder updated, but audit log could not be recorded.";
 
 function submittedReminderConfig(formData: FormData) {
   const slot = submittedReminderSlot(formData);
@@ -184,10 +192,16 @@ export async function previewLineInstallmentReminderAction(formData: FormData): 
 export async function saveLineInstallmentReminderConfigAction(formData: FormData): Promise<ReminderConfigActionResult> {
   await requireAdmin();
   const { slot, config } = submittedReminderConfig(formData);
+  const preview = renderLineDueMessageProfile(config.profiles[slot], "INSTALLMENTS", previewValues("INSTALLMENTS"));
   await saveLineInstallmentReminderConfig(config);
-  await appendAudit({ paymentId: "", clientId: "", action: "LINE_INSTALLMENT_REMINDER_CONFIG_SAVED", previousStatus: "line_installment_reminder_config", newStatus: "line_installment_reminder_config", reason: "Installment reminder templates updated", source: "ADMIN", metadata: JSON.stringify({ settingKey: "line_installment_reminder_config" }) });
+  let auditWarning: string | undefined;
+  try {
+    await appendAudit({ paymentId: "", clientId: "", action: "LINE_INSTALLMENT_REMINDER_CONFIG_SAVED", previousStatus: "line_installment_reminder_config", newStatus: "line_installment_reminder_config", reason: "Installment reminder templates updated", source: "ADMIN", metadata: JSON.stringify({ settingKey: "line_installment_reminder_config" }) });
+  } catch {
+    auditWarning = reminderAuditWarning;
+  }
   revalidatePath("/admin/settings");
-  return { ok: true, slot, config, preview: renderLineDueMessageProfile(config.profiles[slot], "INSTALLMENTS", previewValues("INSTALLMENTS")) };
+  return { ok: true, slot, config, preview, ...(auditWarning ? { auditWarning } : {}) };
 }
 
 export async function resetLineInstallmentReminderConfigAction(): Promise<ReminderConfigActionResult> {

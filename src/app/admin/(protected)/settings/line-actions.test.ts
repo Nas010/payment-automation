@@ -149,6 +149,7 @@ describe("LINE installment reminder actions", () => {
 
   it("saves the complete reminder configuration atomically", async () => {
     const config = structuredClone(DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG);
+    config.enabled.T_MINUS_3_DAYS = false;
     config.profiles.T_MINUS_7_DAYS.message = "Seven-day reminder";
     const formData = new FormData();
     formData.set("slot", "DUE_DATE");
@@ -163,6 +164,37 @@ describe("LINE installment reminder actions", () => {
       metadata: JSON.stringify({ settingKey: "line_installment_reminder_config" }),
     }));
     expect(JSON.stringify(mocks.appendAudit.mock.calls)).not.toContain("Seven-day reminder");
+  });
+
+  it("returns committed reminder config when audit logging fails", async () => {
+    const config = structuredClone(DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG);
+    config.enabled.T_MINUS_3_DAYS = false;
+    const formData = new FormData();
+    formData.set("slot", "T_MINUS_3_DAYS");
+    formData.set("config", JSON.stringify(config));
+    mocks.appendAudit.mockRejectedValueOnce(new Error("Audit workbook unavailable"));
+
+    await expect(saveLineInstallmentReminderConfigAction(formData)).resolves.toMatchObject({
+      config,
+      auditWarning: "Reminder updated, but audit log could not be recorded.",
+    });
+    expect(mocks.saveLineInstallmentReminderConfig).toHaveBeenCalledWith(config);
+  });
+
+  it("rejects an oversized rendered response before persisting the reminder config", async () => {
+    const config = structuredClone(DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG);
+    config.profiles.T_MINUS_3_DAYS = {
+      version: 1,
+      message: `${"x".repeat(4001)}{{label}}`,
+      customPlaceholders: [{ name: "label", template: "y".repeat(1000) }],
+    };
+    const formData = new FormData();
+    formData.set("slot", "T_MINUS_3_DAYS");
+    formData.set("config", JSON.stringify(config));
+
+    await expect(saveLineInstallmentReminderConfigAction(formData)).rejects.toThrow(/5000/);
+    expect(mocks.saveLineInstallmentReminderConfig).not.toHaveBeenCalled();
+    expect(mocks.appendAudit).not.toHaveBeenCalled();
   });
 
   it("rejects an invalid complete configuration before persistence", async () => {

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { DEFAULT_LINE_DUE_PROFILES, LINE_DUE_PROFILE_SETTING_KEYS } from "@/lib/line/message-profile";
+import { DEFAULT_LINE_DUE_PROFILES, DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG, LINE_DUE_PROFILE_SETTING_KEYS } from "@/lib/line/message-profile";
 import { DEFAULT_LINE_WELCOME_TEMPLATE } from "@/lib/line/message-template";
 import { DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG, LINE_AUTOMATIC_REPLY_CONFIG_SETTING_KEY } from "@/lib/line/reply-config";
 import { LINE_TERMS_ACTIVE_VERSION_KEY, LINE_TERMS_VERSIONS_KEY, type LineTermsImageVersion } from "@/lib/line/terms-image";
@@ -105,6 +105,32 @@ describe("operational settings writes", () => {
 
     expect(resolved.kind).toBe("VALID");
     if (resolved.kind === "VALID") expect(resolved.config.profiles.DUE_DATE).toEqual(DEFAULT_LINE_DUE_PROFILES.INSTALLMENTS);
+    expect(resolved).toMatchObject({
+      kind: "VALID",
+      config: {
+        version: 2,
+        enabled: {
+          T_MINUS_7_DAYS: true,
+          T_MINUS_3_DAYS: true,
+          T_MINUS_1_DAY: true,
+          DUE_DATE: true,
+          T_PLUS_1_DAY: true,
+        },
+      },
+    });
+  });
+
+  it("normalizes stored version one reminder settings without writing", () => {
+    const legacy = {
+      version: 1,
+      profiles: DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG.profiles,
+    };
+    const resolved = resolveLineInstallmentReminderConfig([
+      { rowNumber: 2, key: "line_installment_reminder_config", value: JSON.stringify(legacy) },
+    ]);
+
+    expect(resolved).toEqual({ kind: "VALID", config: DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG });
+    expect(mocks.batchUpdate).not.toHaveBeenCalled();
   });
 
   it("resolves missing and corrupt LINE message test profiles independently", () => {
