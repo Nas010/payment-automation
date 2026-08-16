@@ -119,7 +119,7 @@ describe("processLineSlipEvent", () => {
   it("marks progress, analyzes once, processes the selected payment, replies, and persists reply state", async () => {
     const stored = payment();
     const automaticReplyConfig = structuredClone(DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG);
-    automaticReplyConfig.slip.autoRecorded = "Custom recorded reply";
+    automaticReplyConfig.slip.received = "Custom received reply";
     const deps = dependencies({ automaticReplyConfig }, [stored]);
 
     await expect(processLineSlipEvent(event, deps)).resolves.toMatchObject({ kind: "processed", decision: "AUTO_RECORDED", payment: expect.objectContaining({ payment_id: "pay_1" }) });
@@ -127,7 +127,7 @@ describe("processLineSlipEvent", () => {
     expect(deps.updatePaymentIfUnchanged).toHaveBeenCalledWith(expect.objectContaining({ payment: expect.objectContaining({ line_slip_processing_status: "ANALYZING" }) }));
     expect(deps.analyzeSlip).toHaveBeenCalledOnce();
     expect(deps.processSlipImage).toHaveBeenCalledWith(expect.objectContaining({ expectedPayment: stored, analysis: analysis(), source: { type: "LINE", lineUserId, lineMessageId: "message_1", clientId: "client_1" } }));
-    expect(deps.replyLineMessage).toHaveBeenCalledWith(expect.objectContaining({ replyToken: "reply-token", text: "Custom recorded reply" }));
+    expect(deps.replyLineMessage).toHaveBeenCalledWith(expect.objectContaining({ replyToken: "reply-token", text: "Custom received reply" }));
     expect(deps.updatePaymentIfUnchanged).toHaveBeenLastCalledWith(expect.objectContaining({ payment: expect.objectContaining({ payment_id: "pay_1", line_reply_status: "SENT", line_reply_at: now }) }));
   });
 
@@ -146,7 +146,7 @@ describe("processLineSlipEvent", () => {
     const recorded = payment({ status: "AUTO_RECORDED", line_slip_expected: "FALSE", line_source_message_id: "message_1", line_slip_processing_status: "AUTO_RECORDED" });
     const calls: string[] = [];
     const automaticReplyConfig = structuredClone(DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG);
-    automaticReplyConfig.slip.autoRecorded = "Current retry reply";
+    automaticReplyConfig.slip.received = "Current received reply";
     const deps = dependencies({
       listPayments: vi.fn(async () => [recorded]),
       reconcileTerminalPaymentEffects: vi.fn(async () => { calls.push("reconcile"); }),
@@ -157,7 +157,7 @@ describe("processLineSlipEvent", () => {
 
     await expect(processLineSlipEvent(event, deps)).resolves.toMatchObject({ kind: "duplicate", payment: recorded });
     expect(calls).toEqual(["reconcile", "token", "reply"]);
-    expect(deps.replyLineMessage).toHaveBeenCalledWith(expect.objectContaining({ text: "Current retry reply" }));
+    expect(deps.replyLineMessage).toHaveBeenCalledWith(expect.objectContaining({ text: "Current received reply" }));
     expect(deps.listSchedules).toHaveBeenCalledOnce();
     expect(deps.getLineMessageContent).not.toHaveBeenCalled();
   });
@@ -267,11 +267,11 @@ describe("processLineSlipEvent", () => {
     expect(deps.replyLineMessage).not.toHaveBeenCalled();
   });
 
-  it("sends review reply instead of guessing when multiple candidates cannot be resolved", async () => {
+  it("sends the same client-facing reply when multiple candidates cannot be resolved", async () => {
     const first = payment({ payment_id: "pay_1" });
     const second = payment({ rowNumber: 3, payment_id: "pay_2" });
     const automaticReplyConfig = structuredClone(DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG);
-    automaticReplyConfig.slip.review = "Custom review reply";
+    automaticReplyConfig.slip.received = "Custom received reply";
     const deps = dependencies({
       resolveLinePaymentCandidate: vi.fn(() => null),
       automaticReplyConfig,
@@ -279,7 +279,7 @@ describe("processLineSlipEvent", () => {
 
     await expect(processLineSlipEvent(event, deps)).resolves.toMatchObject({ kind: "review", decision: "REVIEW" });
     expect(deps.processSlipImage).not.toHaveBeenCalled();
-    expect(deps.replyLineMessage).toHaveBeenCalledWith(expect.objectContaining({ text: "Custom review reply" }));
+    expect(deps.replyLineMessage).toHaveBeenCalledWith(expect.objectContaining({ text: "Custom received reply" }));
   });
 
   it("persists ambiguous review through the shared transition with its linked schedule", async () => {
@@ -310,14 +310,14 @@ describe("processLineSlipEvent", () => {
     expect(deps.appendAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "LINE_SLIP_REVIEW_FAILED" }));
   });
 
-  it("sends mismatch reply for flagged payment", async () => {
+  it("sends the same client-facing reply for a flagged payment", async () => {
     const automaticReplyConfig = structuredClone(DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG);
-    automaticReplyConfig.slip.flagged = "Custom flagged reply";
+    automaticReplyConfig.slip.received = "Custom received reply";
     const deps = dependencies({ processSlipImage: vi.fn(async ({ expectedPayment }) => ({ decision: "FLAGGED" as const, duplicate: false, analysis: analysis(), evaluation: null, payment: { ...expectedPayment, status: "FLAGGED" } })), automaticReplyConfig });
 
     await processLineSlipEvent(event, deps);
 
-    expect(deps.replyLineMessage).toHaveBeenCalledWith(expect.objectContaining({ text: "Custom flagged reply" }));
+    expect(deps.replyLineMessage).toHaveBeenCalledWith(expect.objectContaining({ text: "Custom received reply" }));
   });
 
   it("keeps a recorded payment when reply fails and saves failed reply state on fresh row", async () => {

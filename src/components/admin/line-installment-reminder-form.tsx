@@ -22,11 +22,13 @@ import {
 } from "@/lib/line/message-profile";
 
 type Result = { ok: true; slot: ReminderSlot; config: LineInstallmentReminderConfig; preview: string; auditWarning?: string };
+type SendTestResult = { ok: true; outcome: "ACCEPTED" | "FAILED" | "REVIEW"; requestCode?: string } | { ok: false; message: string };
 type Props = {
   resolved: ResolvedLineInstallmentReminderConfig;
   previewAction: (formData: FormData) => Promise<Result>;
   saveAction: (formData: FormData) => Promise<Result>;
   resetAction: () => Promise<Result>;
+  sendTestAction: (formData: FormData) => Promise<SendTestResult>;
 };
 
 const labels: Record<ReminderSlot, string> = {
@@ -44,7 +46,7 @@ function actionError(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
 }
 
-export function LineInstallmentReminderForm({ resolved, previewAction, saveAction, resetAction }: Props) {
+export function LineInstallmentReminderForm({ resolved, previewAction, saveAction, resetAction, sendTestAction }: Props) {
   const [config, setConfig] = useState<LineInstallmentReminderConfig | null>(() =>
     resolved.kind === "VALID" ? structuredClone(resolved.config) : null,
   );
@@ -189,6 +191,35 @@ export function LineInstallmentReminderForm({ resolved, previewAction, saveActio
     })();
   }
 
+  function sendSavedTest(): void {
+    if (!activeSlot || !startRequest()) return;
+    const slot = activeSlot;
+    setEditorError("");
+    const formData = new FormData();
+    formData.set("payment_type", "INSTALLMENTS");
+    formData.set("reminder_slot", slot);
+    void (async () => {
+      try {
+        const result = await sendTestAction(formData);
+        if (!result.ok) {
+          setEditorError(result.message);
+          return;
+        }
+        if (result.outcome === "ACCEPTED") {
+          setEditorError(`Test message sent${result.requestCode ? ` (${result.requestCode})` : ""}.`);
+        } else if (result.outcome === "REVIEW") {
+          setEditorError("Test message needs review.");
+        } else {
+          setEditorError("Test message delivery failed.");
+        }
+      } catch (error) {
+        setEditorError(actionError(error, "Could not send test message."));
+      } finally {
+        finishRequest();
+      }
+    })();
+  }
+
   function reset(): void {
     if (!startRequest()) return;
     void (async () => {
@@ -217,7 +248,7 @@ export function LineInstallmentReminderForm({ resolved, previewAction, saveActio
   return <Card>
     <CardHeader>
       <CardTitle>Installment reminders</CardTitle>
-      <CardDescription>Global templates for every later installment. Disabled reminders are not sent. Placeholders are optional; every send includes payment QR.</CardDescription>
+      <CardDescription>Global templates for every later installment. Disabled reminders are not sent.</CardDescription>
     </CardHeader>
     <CardContent className="flex flex-col gap-4">
       <div className="flex flex-col">
@@ -326,6 +357,7 @@ export function LineInstallmentReminderForm({ resolved, previewAction, saveActio
           <Button type="button" variant="outline" disabled={actionsPending} onClick={closeEditor}>Cancel</Button>
           <Button type="button" variant="outline" disabled={actionsPending} onClick={preview}>Preview</Button>
           <Button type="button" disabled={actionsPending} onClick={saveMessage}>Save message</Button>
+          <Button type="button" variant="outline" disabled={actionsPending} onClick={sendSavedTest}>Send saved test message</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

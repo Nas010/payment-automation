@@ -30,22 +30,33 @@ beforeEach(() => {
   mocks.readPaymentClientSnapshot.mockResolvedValue({ payments: [payment()], clients: [client()] });
 });
 
-describe("PaymentsPage LINE workflow columns", () => {
-  it("renders delivery, linked recipient, last attempt, and slip processing state", async () => {
+describe("PaymentsPage ledger", () => {
+  it("renders concise client-facing delivery and slip states", async () => {
     const html = renderToStaticMarkup(await PaymentsPage({ searchParams: Promise.resolve({}) }));
 
-    expect(html).toContain("FAILED_RETRYABLE");
-    expect(html).toContain("Recipient linked");
-    expect(html).toContain("Last attempt");
-    expect(html).toContain("AWAITING");
+    expect(html).toContain(">Not sent<");
+    expect(html).not.toContain("FAILED_RETRYABLE");
+    expect(html).not.toContain("Recipient linked");
+    expect(html).not.toContain("Last attempt");
+    expect(html).toContain("Awaiting payment slip");
+    expect(html).not.toContain("AWAITING");
+    expect(html).not.toContain("Generated payment links and submitted evidence.");
   });
 
-  it.each([{ active: "FALSE" }, { line_user_id: "Uinvalid" }])("shows recipient missing when a linked-looking client cannot receive LINE delivery: %o", async (overrides) => {
-    mocks.readPaymentClientSnapshot.mockResolvedValue({ payments: [payment()], clients: [client(overrides)] });
+  it("shows package payment context instead of the generated due-month key", async () => {
+    mocks.readPaymentClientSnapshot.mockResolvedValue({ payments: [payment({ package_name: "Personal Training", payment_type: "INSTALLMENTS", installment_number: "3", installment_count: "12" })], clients: [client()] });
 
     const html = renderToStaticMarkup(await PaymentsPage({ searchParams: Promise.resolve({}) }));
 
-    expect(html).toContain("Recipient missing");
-    expect(html).not.toContain("Recipient linked");
+    expect(html).toContain("Personal Training · Installment 3 of 12");
+    expect(html).not.toContain(">2026-08<");
+  });
+
+  it("renders one direct open-payment button without copy controls", async () => {
+    const html = renderToStaticMarkup(await PaymentsPage({ searchParams: Promise.resolve({}) }));
+
+    expect(html).toContain("Open payment");
+    expect(html).toContain('href="https://payments.example/p/token"');
+    expect(html).not.toContain("Copy link");
   });
 });

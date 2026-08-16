@@ -75,6 +75,18 @@ describe("buildInstallmentPlan", () => {
     expect(planTotalSatangForSchedule(rows[1], rows)).toBe(100_000);
   });
 
+  it("uses assignment identity so same-name assignments do not share a plan total", () => {
+    const rows = [
+      { schedule_id: "a1", client_id: "client_1", package_name: "PT", payment_type: "INSTALLMENTS", installment_number: "1", installment_count: "2", amount_thb: "500", created_at: "same-time", assignment_id: "assignment_1" },
+      { schedule_id: "a2", client_id: "client_1", package_name: "PT", payment_type: "INSTALLMENTS", installment_number: "2", installment_count: "2", amount_thb: "500", created_at: "same-time", assignment_id: "assignment_1" },
+      { schedule_id: "b1", client_id: "client_1", package_name: "PT", payment_type: "INSTALLMENTS", installment_number: "1", installment_count: "2", amount_thb: "800", created_at: "same-time", assignment_id: "assignment_2" },
+      { schedule_id: "b2", client_id: "client_1", package_name: "PT", payment_type: "INSTALLMENTS", installment_number: "2", installment_count: "2", amount_thb: "800", created_at: "same-time", assignment_id: "assignment_2" },
+    ];
+
+    expect(planTotalSatangForSchedule(rows[0], rows)).toBe(100_000);
+    expect(planTotalSatangForSchedule(rows[2], rows)).toBe(160_000);
+  });
+
   it("snapshots client-facing plan data onto the generated payment", () => {
     const payment = buildPaymentForSchedule({
       schedule_id: "schedule_2",

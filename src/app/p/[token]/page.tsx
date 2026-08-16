@@ -13,6 +13,7 @@ export default async function PaymentPage({ params }: { params: Promise<{ token:
   let payment;
   try { payment = await getPaymentByToken(token); } catch { return <main className="payment"><h1 className="brand">Coaching Payments</h1><p className="status">Payment links are being securely configured. Please contact your coach.</p></main>; }
   if (!payment) notFound();
+  if (payment.status === "VOID") return <main className="payment"><h1 className="brand">Coaching Payments</h1><p className="status">This payment request is no longer active</p></main>;
   let config;
   try { config = await runtimeConfig(); } catch { return <main className="payment"><h1 className="brand">Coaching Payments</h1><p className="status">Payment links are being securely configured. Please contact your coach.</p></main>; }
   // Sheets returns a formatted currency cell (for example "฿1.00") after a

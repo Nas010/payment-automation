@@ -6,7 +6,7 @@ vi.mock("./client", () => ({
   getGoogleSheets: () => ({ spreadsheetId: "spreadsheet_1", sheets: { spreadsheets: { get: spreadsheetGet, batchUpdate, values: { get, update } } } }),
 }));
 
-import { CLIENT_HEADERS, PAYMENT_HEADERS } from "./records";
+import { CLIENT_HEADERS, PAYMENT_HEADERS, SCHEDULE_HEADERS } from "./records";
 
 beforeEach(() => {
   vi.resetModules();
@@ -114,5 +114,33 @@ describe("ensurePaymentSchema", () => {
     expect(update).not.toHaveBeenCalledWith(expect.objectContaining({ range: "Payments!AE1" }));
     expect(update).not.toHaveBeenCalledWith(expect.objectContaining({ range: "Payments!AG1" }));
     expect(update).toHaveBeenCalledWith(expect.objectContaining({ range: "Payments!AX1", requestBody: { values: [["line_terms_image_token"]] } }));
+  });
+});
+
+describe("ensureScheduleSchema", () => {
+  it("extends the legacy schedule grid and fills assignment headers", async () => {
+    const { ensureScheduleSchema } = await import("./migration");
+    spreadsheetGet.mockResolvedValueOnce({ data: { sheets: [{ properties: { sheetId: 14, title: "Installment Schedule", gridProperties: { columnCount: 18 } } }] } });
+    get.mockResolvedValueOnce({ data: { values: [[...SCHEDULE_HEADERS.slice(0, 18)]] } });
+    batchUpdate.mockResolvedValueOnce({});
+    update.mockResolvedValue({});
+
+    await ensureScheduleSchema();
+
+    expect(SCHEDULE_HEADERS.slice(-3)).toEqual(["assignment_id", "assignment_kind", "lifecycle_operation_id"]);
+    expect(batchUpdate).toHaveBeenCalledWith({ spreadsheetId: "spreadsheet_1", requestBody: { requests: [{ appendDimension: { sheetId: 14, dimension: "COLUMNS", length: 3 } }] } });
+    expect(get).toHaveBeenCalledWith({ spreadsheetId: "spreadsheet_1", range: "Installment Schedule!A1:U1" });
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({
+      range: "Installment Schedule!S1",
+      requestBody: { values: [["assignment_id"]] },
+    }));
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({
+      range: "Installment Schedule!T1",
+      requestBody: { values: [["assignment_kind"]] },
+    }));
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({
+      range: "Installment Schedule!U1",
+      requestBody: { values: [["lifecycle_operation_id"]] },
+    }));
   });
 });

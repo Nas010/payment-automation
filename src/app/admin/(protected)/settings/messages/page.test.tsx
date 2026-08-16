@@ -2,7 +2,7 @@
 
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { DEFAULT_LINE_DUE_PROFILES, DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG, LINE_DUE_PROFILE_SETTING_KEYS, type ResolvedLineDueMessageProfiles } from "@/lib/line/message-profile";
 import { DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG } from "@/lib/line/reply-config";
 
@@ -17,12 +17,12 @@ vi.mock("@/lib/sheets/settings", () => ({
   resolveLineInstallmentReminderConfig: () => ({ kind: "VALID", config: DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG }),
   resolveLineAutomaticReplyConfig: () => ({ kind: "VALID", config: DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG }),
 }));
-vi.mock("@/lib/runtime-config", () => ({ runtimeConfig: vi.fn().mockResolvedValue({ lineMessagingEnabled: true, lineChatPaymentsEnabled: true }) }));
 vi.mock("@/components/admin/line-due-template-form", () => ({ LineDueTemplateForm: (props: unknown) => { mocks.dueForm(props); return null; } }));
 vi.mock("@/components/admin/line-installment-reminder-form", () => ({ LineInstallmentReminderForm: (props: unknown) => { mocks.reminderForm(props); return null; } }));
 vi.mock("@/components/admin/line-welcome-template-form", () => ({ LineWelcomeTemplateForm: (props: unknown) => { mocks.welcomeForm(props); return null; } }));
 vi.mock("@/components/admin/line-automatic-reply-form", () => ({ LineAutomaticReplyForm: (props: unknown) => { mocks.automaticReplyForm(props); return null; } }));
 vi.mock("../line-actions", () => ({ previewLineDueMessageProfileAction: vi.fn(), previewLineInstallmentReminderAction: vi.fn(), previewLineWelcomeTemplateAction: vi.fn(), resetLineAutomaticReplyConfigAction: vi.fn(), resetLineDueMessageProfileAction: vi.fn(), resetLineInstallmentReminderConfigAction: vi.fn(), resetLineWelcomeTemplateAction: vi.fn(), saveLineAutomaticReplyConfigAction: vi.fn(), saveLineDueMessageProfileAction: vi.fn(), saveLineInstallmentReminderConfigAction: vi.fn(), saveLineWelcomeTemplateAction: vi.fn() }));
+vi.mock("../line-test-actions", () => ({ sendSavedLineMessageTestAction: vi.fn() }));
 
 import MessagesSettingsPage from "./page";
 
@@ -42,12 +42,17 @@ describe("MessagesSettingsPage", () => {
     render(await MessagesSettingsPage());
 
     expect(mocks.listOperationalSettings).toHaveBeenCalledOnce();
+    expect(screen.getByRole("tab", { name: /Welcome message/ })).toBeTruthy();
+    expect(mocks.welcomeForm).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("tab", { name: /Automatic replies/ }));
     expect(mocks.automaticReplyForm).toHaveBeenCalledWith(expect.objectContaining({
       resolved: { kind: "VALID", config: DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG },
       saveAction: expect.any(Function),
       resetAction: expect.any(Function),
     }));
-    expect(mocks.dueForm).toHaveBeenCalledWith(expect.objectContaining({ profiles: { ONE_TIME: { kind: "VALID", profile: DEFAULT_LINE_DUE_PROFILES.ONE_TIME }, INSTALLMENTS: { kind: "INVALID" } } }));
+    fireEvent.click(screen.getByRole("tab", { name: /Payment messages/ }));
+    expect(mocks.dueForm).toHaveBeenCalledWith(expect.objectContaining({ profiles: { ONE_TIME: { kind: "VALID", profile: DEFAULT_LINE_DUE_PROFILES.ONE_TIME }, INSTALLMENTS: { kind: "INVALID" } }, sendTestAction: expect.any(Function) }));
+    fireEvent.click(screen.getByRole("tab", { name: /Installment reminders/ }));
     expect(mocks.reminderForm).toHaveBeenCalledWith(expect.objectContaining({ resolved: { kind: "VALID", config: DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG } }));
   });
 });

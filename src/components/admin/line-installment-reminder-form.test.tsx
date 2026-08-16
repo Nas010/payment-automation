@@ -25,6 +25,7 @@ type RenderOptions = {
   previewAction?: ReturnType<typeof vi.fn>;
   saveAction?: ReturnType<typeof vi.fn>;
   resetAction?: ReturnType<typeof vi.fn>;
+  sendTestAction?: ReturnType<typeof vi.fn>;
 };
 
 const reminderNames = [
@@ -61,14 +62,16 @@ function renderReminderForm(options: RenderOptions = {}) {
   const resetAction = options.resetAction ?? vi.fn().mockResolvedValue(
     result(structuredClone(DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG), "DUE_DATE", "Default due-date preview"),
   );
+  const sendTestAction = options.sendTestAction ?? vi.fn().mockResolvedValue({ ok: true, outcome: "ACCEPTED", requestCode: "request_1" });
 
   render(createElement(LineInstallmentReminderForm, {
     resolved: { kind: "VALID", config: initial },
     previewAction,
     saveAction,
     resetAction,
+    sendTestAction,
   }));
-  return { previewAction, saveAction, resetAction };
+  return { previewAction, saveAction, resetAction, sendTestAction };
 }
 
 function openEditor(name: string) {
@@ -182,6 +185,17 @@ describe("LineInstallmentReminderForm", () => {
     expect(JSON.parse(String(data.get("profile")))).toEqual(DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG.profiles.T_MINUS_3_DAYS);
     expect(data.get("config")).toBeNull();
     expect(await screen.findByText("Preview for T_MINUS_3_DAYS")).toBeTruthy();
+  });
+
+  it("sends the saved reminder for the selected timing to the configured test client", async () => {
+    const { sendTestAction } = renderReminderForm();
+    openEditor("3 days before due date");
+    fireEvent.click(screen.getByRole("button", { name: "Send saved test message" }));
+
+    await waitFor(() => expect(sendTestAction).toHaveBeenCalledOnce());
+    const data = sendTestAction.mock.calls[0][0] as FormData;
+    expect(data.get("payment_type")).toBe("INSTALLMENTS");
+    expect(data.get("reminder_slot")).toBe("T_MINUS_3_DAYS");
   });
 
   it("saves only active message draft in full configuration", async () => {

@@ -60,6 +60,47 @@ describe("RuntimeConfigForm", () => {
 
     expect(screen.getByLabelText("LIFF ID")).toHaveValue("1234567890-AbCdEf");
     expect(screen.getByLabelText("LINE Login channel ID")).toHaveValue("1234567890");
-    expect(screen.getByText("These are public identifiers, not LINE credentials.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "About LIFF ID" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "About LINE Login channel ID" })).toBeInTheDocument();
+    expect(screen.queryByText("These are public identifiers, not LINE credentials.")).not.toBeInTheDocument();
+    expect(screen.queryByText("From the LIFF app configured for /line/connect.")).not.toBeInTheDocument();
+    expect(screen.queryByText("The numeric channel ID that owns the LIFF app.")).not.toBeInTheDocument();
+    expect(screen.queryByText("A valid identifier produces a ฿1 QR preview.")).not.toBeInTheDocument();
+  });
+
+  it("turns comma-separated recipient aliases into removable pills", () => {
+    render(<RuntimeConfigForm
+      action={vi.fn()}
+      defaultBaseUrl="https://pay.example"
+      initial={{
+        businessDisplayName: "Coach Bee",
+        promptPayType: "phone",
+        promptPayIdentifier: "0812345678",
+        recipientNameEn: "Bee Example",
+        recipientNameTh: "บี",
+        recipientAliases: ["Coach Bee"],
+        publicBaseUrl: "https://pay.example",
+        slipRetentionDays: 30,
+        ocrEnabled: true,
+        lineLiffId: "",
+        lineLoginChannelId: "",
+        lineLinkingEnabled: false,
+        lineMessagingEnabled: false,
+        lineChatPaymentsEnabled: false,
+      }}
+    />);
+
+    const aliases = screen.getByRole("textbox", { name: "Recipient aliases" });
+    fireEvent.change(aliases, { target: { value: "Bee Example, Bee Coaching" } });
+    expect(screen.getByText("Coach Bee")).toBeInTheDocument();
+    expect(screen.getByText("Bee Example")).toBeInTheDocument();
+
+    fireEvent.keyDown(aliases, { key: "Enter" });
+    expect(screen.getByText("Bee Coaching")).toBeInTheDocument();
+    expect(document.querySelector('input[name="recipient_aliases"]')).toHaveValue("Coach Bee, Bee Example, Bee Coaching");
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove Bee Example" }));
+    expect(screen.queryByText("Bee Example")).not.toBeInTheDocument();
+    expect(document.querySelector('input[name="recipient_aliases"]')).toHaveValue("Coach Bee, Bee Coaching");
   });
 });

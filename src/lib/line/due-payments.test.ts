@@ -97,6 +97,7 @@ const termsVersion = {
 function dependencies(rows: PaymentRecord[] = [payment()]): LineDueDependencies & {
   listPayments: ReturnType<typeof vi.fn>;
   updatePayment: ReturnType<typeof vi.fn>;
+  updatePaymentIfUnchanged: ReturnType<typeof vi.fn>;
   appendAudit: ReturnType<typeof vi.fn>;
   sendPush: ReturnType<typeof vi.fn>;
   listClients: ReturnType<typeof vi.fn>;
@@ -108,10 +109,16 @@ function dependencies(rows: PaymentRecord[] = [payment()]): LineDueDependencies 
   hasAuditEvent: ReturnType<typeof vi.fn>;
   now: ReturnType<typeof vi.fn>;
 } {
+  const updatePayment = vi.fn(async (next: PaymentRecord) => { void next; });
+  const updatePaymentIfUnchanged = vi.fn(async ({ payment: next }) => {
+    await updatePayment(next);
+    return true;
+  });
   return {
     listPayments: vi.fn(async () => rows),
     listClients: vi.fn(async () => [client()]),
-    updatePayment: vi.fn(async () => undefined),
+    updatePayment,
+    updatePaymentIfUnchanged,
     appendAudit: vi.fn(async () => undefined),
     getLineDueMessageProfiles: vi.fn(async () => resolvedProfiles()),
     getLineTermsImageState: vi.fn(async () => ({ activeVersionId: termsVersion.versionId, versions: [termsVersion] })),
@@ -135,6 +142,19 @@ beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 
 describe("sendDueLinePaymentRequests", () => {
+  it("does not send or revive a payment when a stale delivery snapshot loses to VOID", async () => {
+    const deps = dependencies();
+    deps.updatePaymentIfUnchanged.mockResolvedValue(false);
+
+    await expect(sendDueLinePaymentRequests({ baseUrl: "https://pay.example", today: "2026-08-10" }, deps)).resolves.toMatchObject({ accepted: [], failed: ["pay_1"] });
+
+    expect(deps.updatePaymentIfUnchanged).toHaveBeenCalledWith({
+      expectedPayment: payment(),
+      payment: expect.objectContaining({ status: "PENDING", line_message_status: "SENDING" }),
+    });
+    expect(deps.sendPush).not.toHaveBeenCalled();
+  });
+
   it("uses one payment-client snapshot when the dependency is available", async () => {
     const deps = dependencies();
     const readPaymentClientSnapshot = vi.fn(async () => ({ payments: [payment()], clients: [client()], schedules: [] }));

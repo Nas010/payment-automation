@@ -38,6 +38,10 @@ export type LineMessageTestActionResult =
   }
   | { ok: false; message: string };
 
+export type SavedLineMessageTestActionResult =
+  | { ok: true; outcome: "ACCEPTED" | "FAILED" | "REVIEW"; requestCode?: string }
+  | { ok: false; message: string };
+
 function editableDetails(formData: FormData) {
   return parseLineMessageTestDetails({
     clientName: String(formData.get("client_name") ?? ""),
@@ -173,5 +177,21 @@ export async function sendLineMessageTestAction(formData: FormData): Promise<Lin
     };
   } catch {
     return safeFailure("Could not send this LINE test. Check the connection and try again.");
+  }
+}
+
+export async function sendSavedLineMessageTestAction(formData: FormData): Promise<SavedLineMessageTestActionResult> {
+  await requireAdmin();
+  try {
+    const paymentType = String(formData.get("payment_type") ?? "");
+    const reminderSlot = String(formData.get("reminder_slot") ?? "");
+    const scenario = reminderSlot
+      ? parseLineMessageTestScenario({ paymentType: "INSTALLMENTS", stage: "LATER", installmentNumber: "2", reminderSlot })
+      : parseLineMessageTestScenario({ paymentType, stage: "INITIAL" });
+    const [profile, config] = await Promise.all([currentProfile(), runtimeConfig()]);
+    const result = await sendLineMessageTest({ scenario, baseUrl: config.publicBaseUrl, profile });
+    return { ok: true, outcome: result.outcome, requestCode: result.requestCode };
+  } catch {
+    return { ok: false, message: "Could not send this saved template to the LINE test client. Check the test connection and try again." };
   }
 }

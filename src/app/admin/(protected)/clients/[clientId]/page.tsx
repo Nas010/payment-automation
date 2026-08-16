@@ -2,6 +2,7 @@ import Link from "next/link";
 import { CalendarClockIcon, ReceiptTextIcon, ScrollTextIcon } from "lucide-react";
 import { notFound } from "next/navigation";
 import { ClientBillingActions } from "@/components/admin/client-billing-actions";
+import { ClientPackageAssignments } from "@/components/admin/client-package-assignments";
 import { ClientAvatar } from "@/components/admin/client-avatar";
 import { LineLinkActions } from "@/components/admin/line-link-actions";
 import { lineLinkStatus } from "@/components/admin/line-link-state";
@@ -11,6 +12,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { buildClientBillingSummary } from "@/lib/admin/client-billing";
+import { buildPackageAssignments } from "@/lib/plans/assignment-lifecycle";
 import { formatDate, formatDateTime } from "@/lib/date";
 import { renderClientLineWelcomeMessage } from "@/lib/line/welcome-message";
 import { formatThb, parseSatang } from "@/lib/money";
@@ -20,7 +22,7 @@ import { listClients } from "@/lib/sheets/clients";
 import { listPayments } from "@/lib/sheets/payments";
 import { listSchedules } from "@/lib/sheets/schedules";
 import { getLineWelcomeTemplate, listPackages } from "@/lib/sheets/settings";
-import { assignPackageAction, createManualPaymentAction, disconnectLineAction, renewLineConnectionAction } from "../../actions";
+import { assignPackageAction, changePackageAssignmentAction, createManualPaymentAction, deletePackageAssignmentAction, disconnectLineAction, endPackageAssignmentAction, pausePackageAssignmentAction, renewLineConnectionAction, resumePackageAssignmentAction } from "../../actions";
 
 export default async function ClientDetailPage({ params }: { params: Promise<{ clientId: string }> }) {
   const { clientId } = await params;
@@ -32,6 +34,7 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ c
   const clientPayments = payments.filter((item) => item.client_id === clientId);
   const clientAudit = audit.filter((item) => item.client_id === clientId);
   const activePackages = packages.filter((item) => item.active.toUpperCase() === "TRUE");
+  const packageAssignments = buildPackageAssignments(clientSchedules, new Set(packages.map((item) => item.package_name)));
   const summary = buildClientBillingSummary(clientSchedules);
   const liffId = config.lineLiffId;
   const welcomeMessage = liffId ? renderClientLineWelcomeMessage({ client, template: welcomeTemplate, businessName: config.businessDisplayName, liffId }) : "";
@@ -44,6 +47,16 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ c
       <MetricCard label="Outstanding" value={formatThb(summary.outstandingSatang)} />
       <MetricCard label="Next due" value={formatDate(summary.nextDueDate)} />
     </section>
+
+    <ClientPackageAssignments
+      assignments={packageAssignments}
+      packages={activePackages}
+      changePackageAssignmentAction={changePackageAssignmentAction.bind(null, clientId)}
+      pausePackageAssignmentAction={pausePackageAssignmentAction.bind(null, clientId)}
+      resumePackageAssignmentAction={resumePackageAssignmentAction.bind(null, clientId)}
+      endPackageAssignmentAction={endPackageAssignmentAction.bind(null, clientId)}
+      deletePackageAssignmentAction={deletePackageAssignmentAction.bind(null, clientId)}
+    />
 
     <ClientBillingActions
       packages={activePackages}

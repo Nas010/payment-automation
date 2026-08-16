@@ -5,7 +5,7 @@ import { runtimeConfig } from "@/lib/runtime-config";
 import { getLineChannelAccessToken } from "@/lib/secrets/service";
 import { listClients, type ClientRecord } from "@/lib/sheets/clients";
 import { hasLineAuditEvent, type LineAuditEventIdentity } from "@/lib/sheets/audit";
-import { appendAudit, listPayments, updatePayment, type PaymentAuditInput, type PaymentRecord } from "@/lib/sheets/payments";
+import { appendAudit, listPayments, updatePaymentIfUnchanged, type PaymentAuditInput, type PaymentRecord } from "@/lib/sheets/payments";
 import { readPaymentClientSnapshot } from "@/lib/sheets/payment-client-snapshot";
 import { listSchedules, type ScheduleRecord } from "@/lib/sheets/schedules";
 import { listOperationalSettings, resolveLineDueMessageProfiles } from "@/lib/sheets/settings";
@@ -25,7 +25,7 @@ export type LineDueDependencies = {
   listClients: () => Promise<ClientRecord[]>;
   listSchedules: () => Promise<ScheduleRecord[]>;
   readPaymentClientSnapshot?: typeof readPaymentClientSnapshot;
-  updatePayment: (payment: PaymentRecord) => Promise<void>;
+  updatePaymentIfUnchanged: (input: { expectedPayment: PaymentRecord; payment: PaymentRecord }) => Promise<boolean>;
   appendAudit: (record: PaymentAuditInput) => Promise<void>;
   hasAuditEvent: (identity: LineAuditEventIdentity) => Promise<boolean>;
   getLineDueMessageProfiles: () => Promise<ResolvedLineDueMessageProfiles>;
@@ -61,7 +61,7 @@ async function runtimeDependencies(): Promise<LineDueDependencies> {
     listClients,
     listSchedules,
     readPaymentClientSnapshot,
-    updatePayment,
+    updatePaymentIfUnchanged,
     appendAudit,
     hasAuditEvent: hasLineAuditEvent,
     getLineDueMessageProfiles: async () => resolveLineDueMessageProfiles(await operationalSettings()),
@@ -146,7 +146,9 @@ function auditMetadata(paymentId: string, status: string, requestCode: string): 
 
 async function persistPayment(dependencies: LineDueDependencies, payment: PaymentRecord, fields: Partial<PaymentRecord>): Promise<PaymentRecord> {
   const next = { ...payment, ...fields };
-  await dependencies.updatePayment(next);
+  if (!await dependencies.updatePaymentIfUnchanged({ expectedPayment: payment, payment: next })) {
+    throw new Error("Payment changed before LINE due-payment update");
+  }
   return next;
 }
 

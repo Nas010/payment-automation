@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { bangkokDateKey } from "@/lib/date";
 import { runtimeConfig } from "@/lib/runtime-config";
 import { getLineChannelAccessToken } from "@/lib/secrets/service";
-import { appendAudit, updatePayment } from "@/lib/sheets/payments";
+import { appendAudit, updatePaymentIfUnchanged } from "@/lib/sheets/payments";
 import { readPaymentClientSnapshot } from "@/lib/sheets/payment-client-snapshot";
 import { getLineInstallmentReminderConfig } from "@/lib/sheets/settings";
 import { renderLineDueMessageProfile } from "./message-profile";
@@ -31,6 +31,7 @@ export async function sendInstallmentReminderRequests({ baseUrl, today = bangkok
       .filter((slot) => resolved.config.enabled[slot]);
     if (enabledSlots.length === 0) continue;
     const recipient = clients.get(payment.client_id);
+    let currentPayment = payment;
     for (const slot of enabledSlots) {
       if (!isLinkedLinePaymentRecipient(recipient)) {
         log = updateReminderDelivery(log, slot, { status: "SKIPPED_MISSING_USER_ID", errorCode: "MISSING_USER_ID" });
@@ -45,10 +46,13 @@ export async function sendInstallmentReminderRequests({ baseUrl, today = bangkok
         message = existing?.renderedMessage || renderLineDueMessageProfile(resolved.config.profiles[slot], "INSTALLMENTS", resolveLineDueMessageValues({ payment, client: recipient, schedules: snapshot.schedules }).values);
       } catch { log = updateReminderDelivery(log, slot, { status: "FAILED_RETRYABLE", errorCode: "TEMPLATE_INVALID" }); continue; }
       log = updateReminderDelivery(log, slot, { status: "SENDING", renderedMessage: message, retryKey, firstAttemptedAt: existing?.firstAttemptedAt || new Date().toISOString() });
-      await updatePayment({ ...payment, line_reminder_delivery_log: serializeReminderDeliveryLog(log), updated_at: new Date().toISOString() });
+      const sendingPayment = { ...currentPayment, line_reminder_delivery_log: serializeReminderDeliveryLog(log), updated_at: new Date().toISOString() };
+      if (!await updatePaymentIfUnchanged({ expectedPayment: currentPayment, payment: sendingPayment })) break;
+      currentPayment = sendingPayment;
       const result = await sendLinePushMessage({ channelAccessToken: token, to: recipient.line_user_id, retryKey, messages: [{ type: "text", text: message }, { type: "image", originalContentUrl: qrUrl(baseUrl, payment.public_token), previewImageUrl: qrUrl(baseUrl, payment.public_token) }], fetchFn: fetch });
       log = updateReminderDelivery(log, slot, result.accepted ? { status: "ACCEPTED", acceptedAt: new Date().toISOString(), requestId: result.requestId } : { status: result.retryable ? "FAILED_RETRYABLE" : "FAILED", renderedMessage: message, retryKey, errorCode: result.errorCode });
-      await updatePayment({ ...payment, line_reminder_delivery_log: serializeReminderDeliveryLog(log), updated_at: new Date().toISOString() });
+      const finishedPayment = { ...currentPayment, line_reminder_delivery_log: serializeReminderDeliveryLog(log), updated_at: new Date().toISOString() };
+      if (await updatePaymentIfUnchanged({ expectedPayment: currentPayment, payment: finishedPayment })) currentPayment = finishedPayment;
       await appendAudit({ paymentId: payment.payment_id, clientId: payment.client_id, action: result.accepted ? "LINE_INSTALLMENT_REMINDER_ACCEPTED" : "LINE_INSTALLMENT_REMINDER_FAILED", previousStatus: "PENDING", newStatus: result.accepted ? "ACCEPTED" : "FAILED", reason: "Installment reminder delivery", source: "LINE_REMINDER_SENDER", metadata: JSON.stringify({ paymentId: payment.payment_id, slot, status: result.accepted ? "ACCEPTED" : "FAILED", requestCode: result.errorCode || result.requestId }) });
       if (result.accepted) accepted.push(payment.payment_id);
     }

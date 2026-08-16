@@ -13,6 +13,7 @@ type RenderOptions = {
   resetAction?: ReturnType<typeof vi.fn>;
   profiles?: typeof DEFAULT_LINE_DUE_PROFILES;
   resolved?: ResolvedLineDueMessageProfiles;
+  sendTestAction?: ReturnType<typeof vi.fn>;
 };
 
 function resolvedProfiles(profiles: typeof DEFAULT_LINE_DUE_PROFILES): ResolvedLineDueMessageProfiles {
@@ -43,15 +44,15 @@ function renderProfileForm(options: RenderOptions = {}) {
     const paymentType = String(formData.get("payment_type")) as "ONE_TIME" | "INSTALLMENTS";
     return { ok: true, paymentType, profile: DEFAULT_LINE_DUE_PROFILES[paymentType], preview: "Default preview" };
   });
+  const sendTestAction = options.sendTestAction ?? vi.fn().mockResolvedValue({ ok: true, outcome: "ACCEPTED", requestCode: "request_1" });
   render(createElement(LineDueTemplateForm, {
     profiles: options.resolved ?? resolvedProfiles(profiles),
-    messagingEnabled: true,
-    chatPaymentsEnabled: true,
     previewAction,
     saveAction,
     resetAction,
+    sendTestAction,
   }));
-  return { previewAction, saveAction, resetAction };
+  return { previewAction, saveAction, resetAction, sendTestAction };
 }
 
 beforeEach(() => {
@@ -68,6 +69,14 @@ afterEach(() => {
 });
 
 describe("LineDueTemplateForm", () => {
+  it("sends the saved active template to the configured test client", async () => {
+    const { sendTestAction } = renderProfileForm();
+
+    fireEvent.click(screen.getByRole("button", { name: "Send saved test message" }));
+
+    await waitFor(() => expect(sendTestAction).toHaveBeenCalledOnce());
+    expect((sendTestAction.mock.calls[0][0] as FormData).get("payment_type")).toBe("ONE_TIME");
+  });
   it("inserts a system placeholder at the current message caret and restores focus", async () => {
     renderProfileForm();
     const textarea = screen.getByLabelText("One-time payment message") as HTMLTextAreaElement;
@@ -113,27 +122,73 @@ describe("LineDueTemplateForm", () => {
     expect(within(editor).getByRole("button", { name: "Insert {{installment_ordinal_word}}" })).toBeTruthy();
   });
 
-  it("adds a custom placeholder and inserts it into the active profile message", () => {
+  it("renders custom placeholders as pills and opens one to edit", () => {
+    renderProfileForm();
+
+    expect(screen.getByRole("button", { name: "Edit placeholder payment_label" })).toBeTruthy();
+    expect(screen.queryByLabelText("Placeholder name payment_label")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit placeholder payment_label" }));
+
+    expect(screen.getByText("Edit placeholder")).toBeTruthy();
+    expect(screen.getByLabelText("Placeholder name payment_label")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Remove payment_label" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Preview placeholder" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Cancel placeholder edits" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Save placeholder" })).toBeTruthy();
+  });
+
+  it("adds a custom placeholder from the pill list and inserts it into the active profile message", () => {
     renderProfileForm();
     fireEvent.click(screen.getByRole("button", { name: "Add placeholder" }));
     fireEvent.change(screen.getByLabelText("Placeholder name custom_1"), { target: { value: "greeting" } });
     fireEvent.change(screen.getByLabelText("Placeholder content greeting"), { target: { value: "Hi {{client_name}}" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save placeholder" }));
     expect(screen.getByRole("button", { name: "Insert {{greeting}}" })).toBeTruthy();
   });
 
   it("blocks rename and removal while the custom placeholder is referenced", () => {
     renderProfileForm({ oneTimeMessage: "{{payment_label}} {{amount}} {{due_date}} {{payment_url}}" });
+    fireEvent.click(screen.getByRole("button", { name: "Edit placeholder payment_label" }));
     expect((screen.getByLabelText("Placeholder name payment_label") as HTMLInputElement).disabled).toBe(true);
-    expect((screen.getByRole("button", { name: "Remove payment_label" }) as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByText(/remove it from the message before renaming or deleting/i)).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Remove payment_label" }) as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Remove payment_label" }));
+    expect(screen.getByText("Can't remove payment label yet")).toBeTruthy();
+    expect(screen.getByText(/remove \{\{payment_label\}\} from the message first/i)).toBeTruthy();
+    expect(screen.queryByText(/remove it from the message before renaming or deleting/i)).toBeNull();
   });
 
-  it("renames and removes an unused custom placeholder", () => {
+  it("confirms before removing an unused custom placeholder", () => {
     renderProfileForm({ oneTimeMessage: "{{amount}} {{due_date}} {{payment_url}}" });
+    fireEvent.click(screen.getByRole("button", { name: "Edit placeholder payment_label" }));
     fireEvent.change(screen.getByLabelText("Placeholder name payment_label"), { target: { value: "summary" } });
-    expect(screen.getByLabelText("Placeholder name summary")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Save placeholder" }));
+    expect(screen.getByRole("button", { name: "Edit placeholder summary" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Remove summary" }));
-    expect(screen.queryByLabelText("Placeholder name summary")).toBeNull();
+
+    expect(screen.getByText("Remove summary?")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Remove placeholder" }));
+
+    expect(screen.queryByRole("button", { name: "Edit placeholder summary" })).toBeNull();
+  });
+
+  it("keeps a placeholder when removal is cancelled", () => {
+    renderProfileForm({ oneTimeMessage: "{{amount}} {{due_date}} {{payment_url}}" });
+    fireEvent.click(screen.getByRole("button", { name: "Remove payment_label" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(screen.getByRole("button", { name: "Edit placeholder payment_label" })).toBeTruthy();
+  });
+
+  it("cancels an unsaved custom placeholder edit", () => {
+    renderProfileForm();
+    fireEvent.click(screen.getByRole("button", { name: "Edit placeholder payment_label" }));
+    fireEvent.change(screen.getByLabelText("Placeholder content payment_label"), { target: { value: "Unsaved content" } });
+    fireEvent.click(screen.getByRole("button", { name: "Cancel placeholder edits" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit placeholder payment_label" }));
+
+    expect((screen.getByLabelText("Placeholder content payment_label") as HTMLTextAreaElement).value).not.toBe("Unsaved content");
   });
 
   it("submits only the active profile as JSON and applies server preview", async () => {
@@ -156,10 +211,10 @@ describe("LineDueTemplateForm", () => {
     fireEvent.click(screen.getByRole("button", { name: "Preview message" }));
     await waitFor(() => expect(previewAction).toHaveBeenCalledOnce());
     expect((screen.getByRole("button", { name: "Preview message" }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole("button", { name: "Save profile" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Save message" }) as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByRole("button", { name: "Restore default" }) as HTMLButtonElement).disabled).toBe(true);
 
-    fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save message" }));
     fireEvent.click(screen.getByRole("button", { name: "Restore default" }));
     expect(saveAction).not.toHaveBeenCalled();
     expect(resetAction).not.toHaveBeenCalled();
@@ -187,11 +242,11 @@ describe("LineDueTemplateForm", () => {
     renderProfileForm({ saveAction: vi.fn().mockReturnValue(response.promise) });
     const message = screen.getByLabelText("One-time payment message") as HTMLTextAreaElement;
 
-    fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save message" }));
     fireEvent.change(message, { target: { value: "Edited during save {{amount}} {{due_date}} {{payment_url}}" } });
     response.resolve({ ok: true, paymentType: "ONE_TIME", profile: DEFAULT_LINE_DUE_PROFILES.ONE_TIME, preview: "Saved preview" });
 
-    await waitFor(() => expect(screen.getByText("Profile saved.")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Message saved.")).toBeTruthy());
     expect(message.value).toContain("Edited during save");
   });
 
@@ -205,6 +260,7 @@ describe("LineDueTemplateForm", () => {
 
   it("offers only system placeholders in custom-definition editors", () => {
     renderProfileForm();
+    fireEvent.click(screen.getByRole("button", { name: "Edit placeholder payment_label" }));
     const editor = screen.getByRole("group", { name: "Placeholder content payment_label editor" });
 
     expect(within(editor).getByRole("button", { name: "Insert {{amount}}" })).toBeTruthy();
@@ -226,7 +282,7 @@ describe("LineDueTemplateForm", () => {
     expect(screen.getByRole("alert").textContent).toMatch(/stored profile is invalid/i);
     expect((screen.getByLabelText("Installment payment message") as HTMLTextAreaElement).disabled).toBe(true);
     expect((screen.getByRole("button", { name: "Preview message" }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole("button", { name: "Save profile" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Save message" }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Restore default" }));
 
     await waitFor(() => {
@@ -242,10 +298,10 @@ describe("LineDueTemplateForm", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Installments" }));
     const installment = screen.getByLabelText("Installment payment message") as HTMLTextAreaElement;
     fireEvent.change(installment, { target: { value: "Installment draft {{amount}} {{due_date}} {{payment_url}}" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save message" }));
     await waitFor(() => expect(saveAction).toHaveBeenCalledOnce());
     expect((saveAction.mock.calls[0][0] as FormData).get("payment_type")).toBe("INSTALLMENTS");
-    await waitFor(() => expect(screen.getByText("Profile saved.")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Message saved.")).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: "Restore default" }));
     await waitFor(() => expect(resetAction).toHaveBeenCalledOnce());
     fireEvent.click(screen.getByRole("tab", { name: "One-time payment" }));

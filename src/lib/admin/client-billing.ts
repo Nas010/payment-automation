@@ -15,7 +15,7 @@ export function buildClientBillingSummary<T extends BillingSchedule>(schedules: 
 
   for (const schedule of orderedSchedules) {
     const amountSatang = parseSatang(schedule.amount_thb) ?? 0;
-    totalSatang += amountSatang;
+    if (!["CANCELLED", "DELETED"].includes(schedule.status)) totalSatang += amountSatang;
     if (schedule.status === "PAID") paidSatang += amountSatang;
   }
 
@@ -24,6 +24,6 @@ export function buildClientBillingSummary<T extends BillingSchedule>(schedules: 
     totalSatang,
     paidSatang,
     outstandingSatang: totalSatang - paidSatang,
-    nextDueDate: orderedSchedules.find((schedule) => schedule.status !== "PAID")?.due_date ?? "",
+    nextDueDate: orderedSchedules.find((schedule) => !["PAID", "PAUSED", "CANCELLED", "DELETED"].includes(schedule.status))?.due_date ?? "",
   };
 }

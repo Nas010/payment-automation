@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { appendAudit, updatePaymentIfUnchanged, type PaymentRecord } from "@/lib/sheets/payments";
 import { hasPaymentTransitionAudit } from "@/lib/sheets/audit";
-import { updateSchedule, type ScheduleRecord } from "@/lib/sheets/schedules";
+import { updateScheduleIfUnchanged, type ScheduleRecord } from "@/lib/sheets/schedules";
 
 export type PaymentStatus = "PENDING" | "REVIEW" | "FLAGGED" | "AUTO_RECORDED" | "MANUAL_CONFIRMED";
 export type ScheduleStatus = "SCHEDULED" | "GENERATED" | "PAID";
@@ -79,7 +79,10 @@ export async function reconcileTerminalPaymentEffects(input: {
   if (!claimed) return false;
   try {
     if (input.schedule.status !== "PAID") {
-      await updateSchedule({ ...input.schedule, status: "PAID", updated_at: now });
+      const paidSchedule = { ...input.schedule, status: "PAID", updated_at: now };
+      if (!await updateScheduleIfUnchanged({ expectedSchedule: input.schedule, schedule: paidSchedule })) {
+        throw new Error("Schedule changed before terminal effects reconciliation");
+      }
     }
     const identity = terminalEffectsIdentity(claimed.payment, input.schedule, claimed.provenance);
     if (!await hasPaymentTransitionAudit(identity)) {

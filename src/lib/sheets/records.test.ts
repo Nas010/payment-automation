@@ -101,7 +101,7 @@ describe("rowToRecord", () => {
     expect(SCHEDULE_HEADERS).toEqual([
       "schedule_id", "client_id", "client_name", "line_user_id", "line_display_name", "package_name", "payment_type",
       "installment_number", "installment_count", "amount_thb", "due_date", "status", "generated_at", "payment_id",
-      "payment_url", "notes", "created_at", "updated_at",
+      "payment_url", "notes", "created_at", "updated_at", "assignment_id", "assignment_kind", "lifecycle_operation_id",
     ]);
   });
 });

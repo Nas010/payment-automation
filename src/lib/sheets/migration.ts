@@ -1,5 +1,5 @@
 import { getGoogleSheets } from "./client";
-import { CLIENT_HEADERS, PAYMENT_HEADERS, sheetColumnName } from "./records";
+import { CLIENT_HEADERS, PAYMENT_HEADERS, SCHEDULE_HEADERS, sheetColumnName } from "./records";
 
 const LEGACY_CLIENT_HEADERS = ["line_link_code", "line_link_code_expires_at", "line_link_message"] as const;
 const LEGACY_CLIENT_END_COLUMN = "AA";
@@ -35,6 +35,7 @@ async function ensureSheetSchema(title: string, headers: readonly string[], firs
 
 let clientSchemaCheck: Promise<void> | null = null;
 let paymentSchemaCheck: Promise<void> | null = null;
+let scheduleSchemaCheck: Promise<void> | null = null;
 
 async function ensureLiffOnlyClientSchema(): Promise<void> {
   const { sheets, spreadsheetId } = await getGoogleSheets();
@@ -96,5 +97,16 @@ export function ensurePaymentSchema(): Promise<void> {
     throw error;
   });
   paymentSchemaCheck = cached;
+  return cached;
+}
+
+/** Extends legacy schedule sheets once per warm process with assignment metadata columns. */
+export function ensureScheduleSchema(): Promise<void> {
+  if (scheduleSchemaCheck) return scheduleSchemaCheck;
+  const cached = ensureSheetSchema("Installment Schedule", SCHEDULE_HEADERS).catch((error) => {
+    if (scheduleSchemaCheck === cached) scheduleSchemaCheck = null;
+    throw error;
+  });
+  scheduleSchemaCheck = cached;
   return cached;
 }
