@@ -76,3 +76,78 @@ export function receiverFromOcrText(text: string, aliases: string[]): string | n
     return needle.length >= 3 && haystack.includes(needle);
   }) ?? null;
 }
+
+const RECIPIENT_LABEL = /(?:ไปยัง|ผู้รับ(?:เงิน)?|recipient|to)\s*[:\-]?\s*/giu;
+const RECIPIENT_END = /(?:จำนวนเงิน|amount|บันทึกช่วยจำ|memo|(?:[X%]{2,3}[\s-]*){2,4})/iu;
+const THAI_TITLE = /^(?:นางสาว|นาย|นาง)/u;
+const THAI_CHARACTERS = /[\u0E00-\u0E7F]/gu;
+const THAI_COMBINING_MARKS = /[\u0E31\u0E34-\u0E3A\u0E47-\u0E4E]/gu;
+const RECOVERY_SCORE_FLOOR = 0.72;
+const RECOVERY_AVERAGE_FLOOR = 0.8;
+const RECOVERY_MARGIN = 0.1;
+
+function thaiName(value: string): string {
+  return (normalizeOcrText(value).match(THAI_CHARACTERS) ?? []).join("").replace(THAI_TITLE, "").replace(THAI_COMBINING_MARKS, "");
+}
+
+function recipientRegions(text: string): string[] {
+  const compact = normalizeOcrText(text).replace(/\s+/g, " ").trim();
+  const matches = [...compact.matchAll(RECIPIENT_LABEL)];
+  return matches.map((match) => {
+    const start = (match.index ?? 0) + match[0].length;
+    const remainder = compact.slice(start);
+    const end = remainder.search(RECIPIENT_END);
+    return (end === -1 ? remainder : remainder.slice(0, end)).trim();
+  }).filter(Boolean);
+}
+
+function editDistance(left: string, right: string): number {
+  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+    const current = [leftIndex];
+    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+      current[rightIndex] = Math.min(
+        current[rightIndex - 1]! + 1,
+        previous[rightIndex]! + 1,
+        previous[rightIndex - 1]! + (left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1),
+      );
+    }
+    previous.splice(0, previous.length, ...current);
+  }
+  return previous[right.length]!;
+}
+
+function similarity(left: string, right: string): number {
+  const length = Math.max(left.length, right.length);
+  return length ? 1 - editDistance(left, right) / length : 0;
+}
+
+type AliasScore = { alias: string; average: number };
+
+/**
+ * Resolves a configured Thai recipient only when two OCR passes independently
+ * produce a close, unambiguous candidate. This deliberately returns the
+ * configured alias, never untrusted OCR text.
+ */
+export function recoverReceiverFromOcrTexts(texts: readonly string[], aliases: readonly string[]): string | null {
+  for (const text of texts) {
+    const exact = receiverFromOcrText(text, [...aliases]);
+    if (exact) return exact;
+  }
+
+  const thaiAliases = aliases.map((alias) => ({ alias, name: thaiName(alias) })).filter((entry) => entry.name.length >= 6);
+  if (!thaiAliases.length) return null;
+  const candidates = texts.map(recipientRegions).filter((regions) => regions.length > 0);
+  if (candidates.length < 2) return null;
+
+  const scores: AliasScore[] = thaiAliases.map(({ alias, name }) => {
+    const passScores = candidates.map((regions) => Math.max(...regions.map((region) => similarity(thaiName(region), name))));
+    const approved = passScores.filter((score) => score >= RECOVERY_SCORE_FLOOR).sort((left, right) => right - left);
+    return { alias, average: approved.length >= 2 ? (approved[0]! + approved[1]!) / 2 : 0 };
+  }).sort((left, right) => right.average - left.average);
+  const winner = scores[0];
+  const runnerUp = scores[1];
+  if (!winner || winner.average < RECOVERY_AVERAGE_FLOOR) return null;
+  if (runnerUp && winner.average - runnerUp.average < RECOVERY_MARGIN) return null;
+  return winner.alias;
+}

@@ -70,6 +70,27 @@ describe("processSlipImage", () => {
     expect(deps.storeExceptionSlip).not.toHaveBeenCalled();
   });
 
+  it("auto-records a recovered configured Thai alias with the same aliases used for OCR and evaluation", async () => {
+    const recoveredAlias = "นางสาว พีรพร บุญสนิท";
+    const deps = dependencies({
+      receiverAliases: ["OTHER RECEIVER"],
+      analyzeSlip: vi.fn(async () => analysis({ ocrReceiver: recoveredAlias })),
+    });
+
+    const result = await processSlipImage({ bytes: new Uint8Array([1]), declaredType: "image/png", expectedPayment: payment(), source: { type: "WEB_UPLOAD" }, receiverAliases: [recoveredAlias] }, deps);
+
+    expect(deps.analyzeSlip).toHaveBeenCalledWith(expect.any(Uint8Array), "image/png", [recoveredAlias]);
+    expect(result.decision).toBe("AUTO_RECORDED");
+  });
+
+  it("keeps an ambiguous recipient recovery in review", async () => {
+    const deps = dependencies();
+
+    const result = await processSlipImage({ bytes: new Uint8Array([1]), declaredType: "image/png", expectedPayment: payment(), source: { type: "WEB_UPLOAD" }, analysis: analysis({ ocrReceiver: null }) }, deps);
+
+    expect(result).toMatchObject({ decision: "REVIEW", evaluation: { reasons: expect.arrayContaining(["Recipient match uncertain"]) } });
+  });
+
   it("uses fresh terminal payment state without overwriting it", async () => {
     const stale = payment();
     const fresh = payment({ status: "AUTO_RECORDED", line_slip_expected: "FALSE", slip_hash: "already-recorded" });

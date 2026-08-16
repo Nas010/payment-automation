@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "smoke": "tsx scripts/smoke-production.ts"
+    "smoke": "tsx scripts/smoke-production.ts",
+    "ocr:benchmark": "tsx scripts/benchmark-slip-ocr.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

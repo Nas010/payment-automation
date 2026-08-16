@@ -18,6 +18,7 @@ export type ProcessSlipImageInput = {
   expectedPayment: PaymentRecord;
   source: SlipSource;
   analysis?: SlipAnalysis;
+  receiverAliases?: string[];
 };
 
 export type SlipProcessDependencies = {
@@ -121,6 +122,7 @@ function terminalOrReplayed(payment: PaymentRecord, source: SlipSource): boolean
 /** Processes one submitted slip without depending on an HTTP transport. */
 export async function processSlipImage(input: ProcessSlipImageInput, injected?: SlipProcessDependencies): Promise<SlipProcessResult> {
   const dependencies = injected ?? await defaultDependencies();
+  const receiverAliases = [...(input.receiverAliases ?? dependencies.receiverAliases)];
   let history = await dependencies.listPayments();
   let payment = authoritativePayment(history, input.expectedPayment.payment_id);
   assertLineAssociation(payment, input.source);
@@ -128,7 +130,7 @@ export async function processSlipImage(input: ProcessSlipImageInput, injected?: 
   if (terminalOrReplayed(payment, input.source)) {
     return { decision: payment.status as PaymentStatus, duplicate: true, analysis: existingAnalysis, evaluation: null, payment };
   }
-  const analysis = input.analysis ?? await dependencies.analyzeSlip(input.bytes, input.declaredType, dependencies.receiverAliases);
+  const analysis = input.analysis ?? await dependencies.analyzeSlip(input.bytes, input.declaredType, receiverAliases);
   history = await dependencies.listPayments();
   payment = authoritativePayment(history, input.expectedPayment.payment_id);
   assertLineAssociation(payment, input.source);
@@ -141,7 +143,7 @@ export async function processSlipImage(input: ProcessSlipImageInput, injected?: 
   const expectedAmountSatang = parseSatang(payment.amount_thb);
   if (expectedAmountSatang === null || expectedAmountSatang <= 0) throw new Error("Payment amount is invalid");
   let evaluation = dependencies.evaluatePayment(
-    { paymentId: payment.payment_id, amountSatang: expectedAmountSatang, createdAt: payment.created_at, receiverAliases: dependencies.receiverAliases, timezone: "Asia/Bangkok" },
+    { paymentId: payment.payment_id, amountSatang: expectedAmountSatang, createdAt: payment.created_at, receiverAliases, timezone: "Asia/Bangkok" },
     { imageDuplicate, transactionDuplicate, qrValid: analysis.qrValid, transactionRef: analysis.transactionRef ?? undefined, amountSatang: analysis.ocrAmountSatang, receiver: analysis.ocrReceiver, transactionDate: analysis.ocrTransactionDate },
   );
 

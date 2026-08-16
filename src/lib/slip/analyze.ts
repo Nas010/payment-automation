@@ -3,7 +3,7 @@ import { BinaryBitmap, DecodeHintType, HybridBinarizer, MultiFormatReader, RGBLu
 import { sha256 } from "./hash";
 import { validateImageUpload } from "./validate";
 import { selectSlipQrPayload } from "./qr";
-import { extractCommonThaiSlipFields, receiverFromOcrText } from "./ocr";
+import { extractCommonThaiSlipFields, recoverReceiverFromOcrTexts, receiverFromOcrText } from "./ocr";
 
 export interface SlipAnalysis {
   imageHash: string;
@@ -49,23 +49,76 @@ function extractReference(payload: string | null): { reference: string | null; b
   return { reference, bank };
 }
 
-async function readOcr(bytes: Uint8Array, receiverAliases: string[], enabled: boolean): Promise<{ amount: number | null; receiver: string | null; date: string | null; reference: string | null; bank: string | null; success: boolean }> {
+type OcrResult = { amount: number | null; receiver: string | null; date: string | null; reference: string | null; bank: string | null; success: boolean };
+
+function noOcrResult(): OcrResult {
+  return { amount: null, receiver: null, date: null, reference: null, bank: null, success: false };
+}
+
+function hasThaiAlias(aliases: readonly string[]): boolean {
+  return aliases.some((alias) => /[\u0E00-\u0E7F]/u.test(alias));
+}
+
+async function ocrImage(bytes: Uint8Array, threshold = false): Promise<Buffer> {
+  const image = sharp(bytes)
+    .resize({ width: 2000, fit: "inside", withoutEnlargement: false })
+    .greyscale()
+    .normalize()
+    .sharpen();
+  return threshold ? image.threshold(185).toBuffer() : image.toBuffer();
+}
+
+async function thaiReceiverTexts(bytes: Uint8Array, isScb: boolean, width: number, height: number): Promise<string[]> {
+  const { createWorker, PSM } = await import("tesseract.js");
+  const worker = await createWorker(["tha"]);
+  try {
+    const full = await ocrImage(bytes);
+    const thresholded = await ocrImage(bytes, true);
+    const texts = [
+      (await worker.recognize(full)).data.text,
+      (await worker.recognize(thresholded)).data.text,
+    ];
+    if (isScb) {
+      const crop = {
+        left: Math.floor(width * 0.4),
+        top: Math.floor(height * 0.38),
+        width: Math.max(1, Math.floor(width * 0.58)),
+        height: Math.max(1, Math.floor(height * 0.14)),
+      };
+      await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_BLOCK });
+      const recipient = await sharp(bytes).extract(crop).resize({ width: 1800, withoutEnlargement: false }).greyscale().normalize().sharpen().toBuffer();
+      const recipientThresholded = await sharp(recipient).threshold(185).toBuffer();
+      texts.push((await worker.recognize(recipient)).data.text, (await worker.recognize(recipientThresholded)).data.text);
+    }
+    return texts;
+  } finally {
+    await worker.terminate();
+  }
+}
+
+async function readOcr(bytes: Uint8Array, receiverAliases: string[], enabled: boolean, isScb: boolean, width: number, height: number): Promise<OcrResult> {
   if (!enabled) return { amount: null, receiver: null, date: null, reference: null, bank: null, success: false };
   try {
     const { createWorker } = await import("tesseract.js");
     const worker = await createWorker(["eng", "tha"]);
-    const ocrInput = await sharp(bytes)
-      .resize({ width: 2000, fit: "inside", withoutEnlargement: false })
-      .greyscale()
-      .normalize()
-      .sharpen()
-      .toBuffer();
-    const result = await worker.recognize(ocrInput);
-    await worker.terminate();
+    let result: Awaited<ReturnType<typeof worker.recognize>>;
+    try {
+      result = await worker.recognize(await ocrImage(bytes));
+    } finally {
+      await worker.terminate();
+    }
     const text = result.data.text.replace(/\s+/g, " ");
     const fields = extractCommonThaiSlipFields(text);
-    return { amount: fields.amountSatang, receiver: receiverFromOcrText(text, receiverAliases), date: fields.transactionDate, reference: fields.reference, bank: fields.bank, success: fields.success };
-  } catch { return { amount: null, receiver: null, date: null, reference: null, bank: null, success: false }; }
+    let receiver = receiverFromOcrText(text, receiverAliases);
+    if (!receiver && hasThaiAlias(receiverAliases)) {
+      try {
+        receiver = recoverReceiverFromOcrTexts(await thaiReceiverTexts(bytes, isScb, width, height), receiverAliases);
+      } catch {
+        // Thai receiver recovery is additive; retain all primary OCR fields.
+      }
+    }
+    return { amount: fields.amountSatang, receiver, date: fields.transactionDate, reference: fields.reference, bank: fields.bank, success: fields.success };
+  } catch { return noOcrResult(); }
 }
 
 export async function analyzeSlip(bytes: Uint8Array, declaredType: string, receiverAliases: string[] = [], options: { ocrEnabled?: boolean } = {}): Promise<SlipAnalysis> {
@@ -77,7 +130,7 @@ export async function analyzeSlip(bytes: Uint8Array, declaredType: string, recei
   const candidates = await decodeQrCandidates(normalized, metadata.width, metadata.height);
   const selection = selectSlipQrPayload(candidates);
   const parsed = extractReference(selection.payload);
-  const ocr = await readOcr(normalized, receiverAliases, options.ocrEnabled ?? true);
+  const ocr = await readOcr(normalized, receiverAliases, options.ocrEnabled ?? true, selection.parsed?.sendingBankCode === "014", metadata.width, metadata.height);
   const transactionRef = selection.parsed?.transactionReference ?? parsed.reference ?? ocr.reference;
   const originatingBank = selection.parsed?.sendingBankCode ?? parsed.bank ?? ocr.bank;
   const reasons = selection.qrValid

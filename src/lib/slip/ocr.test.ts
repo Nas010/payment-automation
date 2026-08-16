@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractCommonThaiSlipFields, receiverFromOcrText } from "./ocr";
+import { extractCommonThaiSlipFields, recoverReceiverFromOcrTexts, receiverFromOcrText } from "./ocr";
 
 describe("receiverFromOcrText", () => {
   it("finds configured aliases despite whitespace and punctuation", () => {
@@ -57,5 +57,30 @@ describe("receiverFromOcrText", () => {
       transactionDate: "2026-08-10T07:34:00.000Z",
     });
     expect(receiverFromOcrText(text, ["นางสาว พิมพ์ใจ ทดสอบ"])).toBe("นางสาว พิมพ์ใจ ทดสอบ");
+  });
+
+  it("recovers a configured Thai receiver from independent near-match OCR candidates", () => {
+    expect(recoverReceiverFromOcrTexts([
+      "ไปยัง นางสาว Wsws บุญสนิท XXX-XXX-8717",
+      "ไปยัง นางสาว พ่ธพร บุญสนิท XXX-XXX-8717 จำนวนเงิน 9,730.00",
+      "ผู้รับ นางสาว พีรพ บุญสนก XXX-XXX-8717",
+    ], ["นางสาว พีรพร บุญสนิท"])).toBe("นางสาว พีรพร บุญสนิท");
+  });
+
+  it("does not recover a receiver from one weak Thai candidate or English-only text", () => {
+    expect(recoverReceiverFromOcrTexts([
+      "ไปยัง นางสาว กขคงจฉชซฌญ XXX-XXX-8717",
+    ], ["นางสาว พีรพร บุญสนิท"])).toBeNull();
+    expect(recoverReceiverFromOcrTexts([
+      "to Nisa Exampel",
+      "recipient Nisa Exampel",
+    ], ["Nisa Example"])).toBeNull();
+  });
+
+  it("keeps close competing Thai aliases in review", () => {
+    expect(recoverReceiverFromOcrTexts([
+      "ไปยัง นางสาว พีรพน บุญสนิท XXX-XXX-8717",
+      "ผู้รับ นางสาว พีรพน บุญสนิท XXX-XXX-8717",
+    ], ["นางสาว พีรพร บุญสนิท", "นางสาว พีรพน บุญสนิทท"])).toBeNull();
   });
 });
