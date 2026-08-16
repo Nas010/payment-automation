@@ -18,20 +18,20 @@ export function MessagesSettingsWorkspace({ welcome, automaticReplies, paymentMe
       <p className="text-sm text-muted-foreground">Choose a message type, then edit its template.</p>
     </div>
     <Tabs defaultValue="welcome" className="gap-6">
-      <TabsList className="grid h-auto w-full grid-cols-2 gap-1 p-1 group-data-horizontal/tabs:h-auto 2xl:grid-cols-4">
-        <TabsTrigger value="welcome" className="h-auto min-h-12 justify-start whitespace-normal px-3 py-2 text-left">
+      <TabsList className="w-full justify-start overflow-x-auto">
+        <TabsTrigger value="welcome" className="flex-none px-3">
           <HandshakeIcon data-icon="inline-start" />
           <span>Welcome message</span>
         </TabsTrigger>
-        <TabsTrigger value="replies" className="h-auto min-h-12 justify-start whitespace-normal px-3 py-2 text-left">
+        <TabsTrigger value="replies" className="flex-none px-3">
           <MessageCircleReplyIcon data-icon="inline-start" />
           <span>Automatic replies</span>
         </TabsTrigger>
-        <TabsTrigger value="payments" className="h-auto min-h-12 justify-start whitespace-normal px-3 py-2 text-left">
+        <TabsTrigger value="payments" className="flex-none px-3">
           <CreditCardIcon data-icon="inline-start" />
           <span>Payment messages</span>
         </TabsTrigger>
-        <TabsTrigger value="reminders" className="h-auto min-h-12 justify-start whitespace-normal px-3 py-2 text-left">
+        <TabsTrigger value="reminders" className="flex-none px-3">
           <BellRingIcon data-icon="inline-start" />
           <span>Installment reminders</span>
         </TabsTrigger>
