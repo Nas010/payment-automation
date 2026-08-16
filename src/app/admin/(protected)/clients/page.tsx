@@ -22,7 +22,7 @@ function PaymentProgress({ paid, total }: { paid: number; total: number }) {
 
 function ClientActivity({ active }: { active: boolean }) {
   const label = active ? "Active" : "Inactive";
-  return <span className="inline-flex items-center gap-2 text-sm" aria-label={`Client ${label.toLowerCase()}`}><span aria-hidden="true" className={`size-2 rounded-full ${active ? "bg-emerald-500" : "bg-muted-foreground/40"}`} />{label}</span>;
+  return <span className={`inline-flex size-2 rounded-full ${active ? "bg-emerald-500" : "bg-red-500"}`} aria-label={`Client ${label.toLowerCase()}`} />;
 }
 
 export default async function ClientsPage({ searchParams }: { searchParams: Promise<{ q?: string }> }) {

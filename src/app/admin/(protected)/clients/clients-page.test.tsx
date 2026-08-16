@@ -75,5 +75,6 @@ describe("ClientsPage directory", () => {
     expect(html).toContain(">1 / 3<");
     expect(html).not.toContain("1 of 3 paid");
     expect(html).toContain('aria-label="Client active"');
+    expect(html.slice(html.indexOf("<tbody"))).not.toContain(">Active<");
   });
 });
