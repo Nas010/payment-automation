@@ -579,6 +579,19 @@ export async function savePackageAction(formData: FormData): Promise<void> {
   revalidatePath("/admin/packages");
 }
 
+export async function togglePackageActiveAction(formData: FormData): Promise<void> {
+  await requireAdmin();
+  const rowNumber = Number(formData.get("package_row"));
+  const active = String(formData.get("active") ?? "");
+  if (!Number.isInteger(rowNumber) || rowNumber < 4 || !["TRUE", "FALSE"].includes(active)) {
+    throw new Error("Package state is invalid");
+  }
+  const packageRecord = (await listPackages()).find((item) => item.rowNumber === rowNumber);
+  if (!packageRecord) throw new Error("Package not found");
+  await savePackage({ ...packageRecord, active });
+  revalidatePath("/admin/packages");
+}
+
 export async function saveDashboardDisplaySettingsAction(formData: FormData): Promise<void> {
   await requireAdmin();
   const display = dashboardCollectedDeltaDisplaySchema.parse(values(formData).collected_delta_display);

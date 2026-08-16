@@ -44,7 +44,7 @@ vi.mock("@/lib/sheets/schedules", () => ({ listSchedules: mocks.listSchedules, u
 vi.mock("@/lib/sheets/settings", () => ({ listPackages: mocks.listPackages, savePackage: mocks.savePackage, upsertOperationalSetting: mocks.upsertOperationalSetting }));
 
 import { hashLineConnectionToken, recoverLineConnectionToken } from "@/lib/line/connection-token";
-import { assignPackageAction, changePackageAssignmentAction, confirmPaymentAction, createClientAction, createManualPaymentAction, deletePackageAssignmentAction, disconnectLineAction, endPackageAssignmentAction, generateMissingLineConnectionsAction, pausePackageAssignmentAction, renewLineConnectionAction, resumePackageAssignmentAction, sendLinePaymentAction, stopAwaitingLineSlipAction } from "./actions";
+import { assignPackageAction, changePackageAssignmentAction, confirmPaymentAction, createClientAction, createManualPaymentAction, deletePackageAssignmentAction, disconnectLineAction, endPackageAssignmentAction, generateMissingLineConnectionsAction, pausePackageAssignmentAction, renewLineConnectionAction, resumePackageAssignmentAction, sendLinePaymentAction, stopAwaitingLineSlipAction, togglePackageActiveAction } from "./actions";
 
 const now = "2026-08-10T12:00:00.000Z";
 const userId = "Uaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -718,5 +718,18 @@ describe("existing client billing actions", () => {
     await expect(pausePackageAssignmentAction("client_1", assignmentForm())).rejects.toThrow("cannot be changed while payment pay_1 is REVIEW");
     expect(mocks.updatePaymentIfUnchanged).not.toHaveBeenCalled();
     expect(mocks.updateSchedulesIfUnchanged).not.toHaveBeenCalled();
+  });
+
+  it("toggles an existing package without accepting editable package details", async () => {
+    const packageRecord = { rowNumber: 4, package_name: "Premium", total_price_thb: "1500", payment_type: "INSTALLMENTS", installment_count: "3", interval_months: "1", active: "TRUE" };
+    mocks.listPackages.mockResolvedValue([packageRecord]);
+    const formData = new FormData();
+    formData.set("package_row", "4");
+    formData.set("active", "FALSE");
+
+    await togglePackageActiveAction(formData);
+
+    expect(mocks.savePackage).toHaveBeenCalledWith({ ...packageRecord, active: "FALSE" });
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/admin/packages");
   });
 });
