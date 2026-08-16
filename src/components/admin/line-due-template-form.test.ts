@@ -140,7 +140,10 @@ describe("LineDueTemplateForm", () => {
     renderProfileForm({ oneTimeMessage: "{{payment_label}} {{amount}} {{due_date}} {{payment_url}}" });
     fireEvent.click(screen.getByRole("button", { name: "Edit placeholder payment_label" }));
     expect((screen.getByLabelText("Placeholder name payment_label") as HTMLInputElement).disabled).toBe(true);
-    expect((screen.getByRole("button", { name: "Remove payment_label" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Remove payment_label" }) as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Remove payment_label" }));
+    expect(screen.getByText("Can't remove payment label yet")).toBeTruthy();
+    expect(screen.getByText(/remove \{\{payment_label\}\} from the message first/i)).toBeTruthy();
     expect(screen.queryByText(/remove it from the message before renaming or deleting/i)).toBeNull();
   });
 

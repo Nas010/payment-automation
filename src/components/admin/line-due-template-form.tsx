@@ -55,6 +55,7 @@ export function LineDueTemplateForm({ profiles: initialProfiles, previewAction, 
   const requestInFlight = useRef(false);
   const revisions = useRef<Record<LinePaymentType, number>>({ ONE_TIME: 0, INSTALLMENTS: 0 });
   const [pending, startTransition] = useTransition();
+  const pendingRemovalIsReferenced = pendingRemoval ? customIsReferenced(profiles[pendingRemoval.paymentType], pendingRemoval.name) : false;
 
   function updateProfile(paymentType: LinePaymentType, update: (profile: LineDueMessageProfile) => LineDueMessageProfile): void {
     revisions.current[paymentType] += 1;
@@ -168,13 +169,12 @@ export function LineDueTemplateForm({ profiles: initialProfiles, previewAction, 
                 <p className="text-sm font-medium">Custom placeholders</p>
                 <div className="flex flex-wrap gap-2" aria-label="Custom placeholders">
                 {profile.customPlaceholders.map((definition) => {
-                  const referenced = customIsReferenced(profile, definition.name);
                   const isSelected = definition.name === customEditor?.originalName;
                   return <div key={`${paymentType}-${definition.name}`} className="relative">
                     <Button type="button" variant="outline" size="sm" className="pr-8" aria-label={`Edit placeholder ${definition.name}`} aria-pressed={isSelected} disabled={profileInvalid} onClick={() => setCustomEditorByType((current) => ({ ...current, [paymentType]: { originalName: definition.name, name: definition.name, template: definition.template } }))}>
                       {definition.name.replaceAll("_", " ")}
                     </Button>
-                    <Button type="button" variant="ghost" size="icon-xs" className="absolute top-0.5 right-0.5 rounded-full" aria-label={`Remove ${definition.name}`} disabled={profileInvalid || referenced} onClick={() => setPendingRemoval({ paymentType, name: definition.name })}>
+                    <Button type="button" variant="ghost" size="icon-xs" className="absolute top-0.5 right-0.5 rounded-full" aria-label={`Remove ${definition.name}`} disabled={profileInvalid} onClick={() => setPendingRemoval({ paymentType, name: definition.name })}>
                       <XIcon />
                     </Button>
                   </div>;
@@ -221,15 +221,15 @@ export function LineDueTemplateForm({ profiles: initialProfiles, previewAction, 
     <AlertDialog open={pendingRemoval !== null} onOpenChange={(open) => { if (!open) setPendingRemoval(null); }}>
       <AlertDialogContent size="sm">
         <AlertDialogHeader>
-          <AlertDialogTitle>Remove {pendingRemoval?.name.replaceAll("_", " ")}?</AlertDialogTitle>
-          <AlertDialogDescription>This removes the placeholder from this payment message profile. You can add it again later.</AlertDialogDescription>
+          <AlertDialogTitle>{pendingRemovalIsReferenced ? `Can't remove ${pendingRemoval?.name.replaceAll("_", " ")} yet` : `Remove ${pendingRemoval?.name.replaceAll("_", " ")}?`}</AlertDialogTitle>
+          <AlertDialogDescription>{pendingRemovalIsReferenced ? `Remove {{${pendingRemoval?.name}}} from the message first, then press X again.` : "This removes the placeholder from this payment message profile. You can add it again later."}</AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction variant="destructive" onClick={() => {
+          {!pendingRemovalIsReferenced ? <AlertDialogAction variant="destructive" onClick={() => {
             if (pendingRemoval) removeCustom(pendingRemoval.paymentType, pendingRemoval.name);
             setPendingRemoval(null);
-          }}>Remove placeholder</AlertDialogAction>
+          }}>Remove placeholder</AlertDialogAction> : null}
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
