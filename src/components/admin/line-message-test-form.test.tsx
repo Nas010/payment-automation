@@ -6,6 +6,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDefaultLineMessageTestProfile, toLineMessageTestAdminView } from "@/lib/line/message-test-profile";
 import { LineMessageTestForm } from "./line-message-test-form";
 
+const packages = [
+  { package_name: "Starter package", total_price_thb: "1500", payment_type: "ONE_TIME", installment_count: "1", interval_months: "0" },
+  { package_name: "Three-month package", total_price_thb: "4500", payment_type: "INSTALLMENTS", installment_count: "3", interval_months: "1" },
+];
+
 const initial = toLineMessageTestAdminView({
   ...createDefaultLineMessageTestProfile("2026-08-15"),
   clientName: "Coach sample client",
@@ -18,6 +23,7 @@ const initial = toLineMessageTestAdminView({
 function props(overrides: Record<string, unknown> = {}) {
   return {
     initialProfile: initial,
+    packages,
     initialConnectUrl: "https://liff.line.me/1234567890-Test?token=safe",
     linkingEnabled: true,
     messagingEnabled: true,
@@ -34,12 +40,23 @@ beforeEach(() => vi.stubGlobal("React", React));
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("LineMessageTestForm", () => {
-  it("starts with persisted client details and exposes no real-client chooser", () => {
+  it("starts with persisted client details and uses a package chooser", () => {
     render(<LineMessageTestForm {...props()} />);
     expect((screen.getByLabelText("Client name") as HTMLInputElement).value).toBe("Coach sample client");
-    expect((screen.getByLabelText("Package name") as HTMLInputElement).value).toBe("Three-month package");
+    expect((screen.getByLabelText("Package") as HTMLSelectElement).value).toBe("Three-month package");
     expect(screen.queryByLabelText(/recipient/i)).toBeNull();
     expect(screen.getByRole("link", { name: "Connect test LINE account" }).getAttribute("href")).toContain("liff.line.me");
+  });
+
+  it("applies selected package defaults while keeping the test client editable", () => {
+    render(<LineMessageTestForm {...props()} />);
+
+    fireEvent.change(screen.getByLabelText("Package"), { target: { value: "Starter package" } });
+
+    expect((screen.getByLabelText("Total price (THB)") as HTMLInputElement).value).toBe("1500");
+    expect((screen.getByLabelText("Payment type") as HTMLSelectElement).value).toBe("ONE_TIME");
+    expect(screen.queryByLabelText("Installment count")).toBeNull();
+    expect((screen.getByLabelText("First due date") as HTMLInputElement).value).toBe("2026-08-15");
   });
 
   it("forces one-time to initial and shows later controls plus all five slots only for installments", () => {

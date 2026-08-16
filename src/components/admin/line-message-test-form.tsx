@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import type { AdminPackage } from "@/components/admin/payment-plan-fields";
 import { REMINDER_SLOTS, type ReminderSlot } from "@/lib/line/message-profile";
 import type { LineMessageTestAdminView } from "@/lib/line/message-test-profile";
 
@@ -15,6 +16,7 @@ type Result =
 
 type Props = {
   initialProfile: LineMessageTestAdminView;
+  packages: AdminPackage[];
   initialConnectUrl: string;
   linkingEnabled: boolean;
   messagingEnabled: boolean;
@@ -35,6 +37,7 @@ const reminderLabels: Record<ReminderSlot, string> = {
 
 export function LineMessageTestForm({
   initialProfile,
+  packages,
   initialConnectUrl,
   linkingEnabled,
   messagingEnabled,
@@ -59,6 +62,21 @@ export function LineMessageTestForm({
   const installmentPayment = profile.paymentType === "INSTALLMENTS";
   const effectiveStage = installmentPayment ? stage : "INITIAL";
   const installmentOptions = Array.from({ length: Math.max(0, profile.installmentCount - 1) }, (_, index) => index + 2);
+
+  function selectPackage(packageName: string) {
+    const selected = packages.find((item) => item.package_name === packageName);
+    if (!selected) return;
+    const paymentType = selected.payment_type === "INSTALLMENTS" ? "INSTALLMENTS" : "ONE_TIME";
+    setProfile({
+      ...profile,
+      packageName: selected.package_name,
+      totalPriceThb: selected.total_price_thb,
+      paymentType,
+      installmentCount: paymentType === "INSTALLMENTS" ? Math.max(2, Number(selected.installment_count) || 2) : 1,
+      intervalMonths: paymentType === "INSTALLMENTS" ? Math.max(1, Number(selected.interval_months) || 1) : 0,
+    });
+    if (paymentType === "ONE_TIME") setStage("INITIAL");
+  }
 
   function formData(): FormData {
     const data = new FormData();
@@ -107,7 +125,11 @@ export function LineMessageTestForm({
     <CardContent className="space-y-5">
       <div className="grid gap-4 md:grid-cols-2">
         <Field label="Client name"><Input value={profile.clientName} onChange={(event) => setProfile({ ...profile, clientName: event.target.value })} /></Field>
-        <Field label="Package name"><Input value={profile.packageName} onChange={(event) => setProfile({ ...profile, packageName: event.target.value })} /></Field>
+        <Field label="Package">
+          <select className="h-8 w-full rounded-lg border bg-transparent px-2.5 text-sm" value={profile.packageName} onChange={(event) => selectPackage(event.target.value)}>
+            {packages.map((item) => <option key={item.package_name} value={item.package_name}>{item.package_name}</option>)}
+          </select>
+        </Field>
         <Field label="Total price (THB)"><Input inputMode="decimal" value={profile.totalPriceThb} onChange={(event) => setProfile({ ...profile, totalPriceThb: event.target.value })} /></Field>
         <Field label="First due date"><Input type="date" value={profile.firstDueDate} onChange={(event) => setProfile({ ...profile, firstDueDate: event.target.value })} /></Field>
         <Field label="Payment type">

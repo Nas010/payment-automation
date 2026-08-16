@@ -4,10 +4,11 @@ import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render } from "@testing-library/react";
 
-const mocks = vi.hoisted(() => ({ listOperationalSettings: vi.fn(), getSecretMetadata: vi.fn(), runtimeConfig: vi.fn(), form: vi.fn(), testForm: vi.fn() }));
+const mocks = vi.hoisted(() => ({ listOperationalSettings: vi.fn(), listPackages: vi.fn(), getSecretMetadata: vi.fn(), runtimeConfig: vi.fn(), form: vi.fn(), testForm: vi.fn() }));
 
 vi.mock("@/lib/sheets/settings", () => ({
   listOperationalSettings: mocks.listOperationalSettings,
+  listPackages: mocks.listPackages,
   resolveLineMessageTestProfile: (_settings: unknown, fallback: unknown) => ({ kind: "VALID", profile: fallback }),
 }));
 vi.mock("@/lib/secrets/service", () => ({ getSecretMetadata: mocks.getSecretMetadata }));
@@ -27,6 +28,7 @@ describe("LineSettingsPage", () => {
     vi.stubGlobal("React", React);
     vi.clearAllMocks();
     mocks.listOperationalSettings.mockResolvedValue([{ key: "line_access_token_validation", value: JSON.stringify({ status: "VALID", validatedAt: "2026-08-15T00:00:00.000Z" }) }]);
+    mocks.listPackages.mockResolvedValue([{ package_name: "Active package", total_price_thb: "1500", payment_type: "ONE_TIME", installment_count: "1", interval_months: "0", active: "TRUE" }, { package_name: "Archived", total_price_thb: "2500", payment_type: "ONE_TIME", installment_count: "1", interval_months: "0", active: "FALSE" }]);
     mocks.getSecretMetadata.mockResolvedValue([{ keyName: "line_channel_access_token", lastFour: "1234", updatedAt: "2026-08-15T00:00:00.000Z" }]);
     mocks.runtimeConfig.mockResolvedValue({ lineLiffId: "1234567890-Test", lineLinkingEnabled: true, lineMessagingEnabled: true });
   });
@@ -51,6 +53,7 @@ describe("LineSettingsPage", () => {
     expect(mocks.listOperationalSettings).toHaveBeenCalledOnce();
     expect(mocks.testForm).toHaveBeenCalledWith(expect.objectContaining({
       initialProfile: expect.objectContaining({ clientName: "LINE test recipient" }),
+      packages: [expect.objectContaining({ package_name: "Active package" })],
       initialConnectUrl: "",
       linkingEnabled: true,
       messagingEnabled: true,

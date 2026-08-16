@@ -5,7 +5,7 @@ import { buildLineConnectUrl, recoverLineConnectionToken } from "@/lib/line/conn
 import { createDefaultLineMessageTestProfile, LINE_MESSAGE_TEST_SUBJECT_ID, toLineMessageTestAdminView } from "@/lib/line/message-test-profile";
 import { runtimeConfig } from "@/lib/runtime-config";
 import { getSecretMetadata } from "@/lib/secrets/service";
-import { listOperationalSettings, resolveLineMessageTestProfile } from "@/lib/sheets/settings";
+import { listOperationalSettings, listPackages, resolveLineMessageTestProfile } from "@/lib/sheets/settings";
 import { saveAndTestLineCredentialsAction } from "../line-actions";
 import {
   disconnectLineMessageTestConnectionAction,
@@ -17,7 +17,7 @@ import {
 import { lineCredentialMetadata, validationMetadata } from "../line-settings";
 
 export default async function LineSettingsPage() {
-  const [settings, secretMetadata, config] = await Promise.all([listOperationalSettings(), getSecretMetadata(), runtimeConfig()]);
+  const [settings, secretMetadata, config, packages] = await Promise.all([listOperationalSettings(), getSecretMetadata(), runtimeConfig(), listPackages()]);
   const validation = validationMetadata(settings.find((item) => item.key === "line_access_token_validation")?.value);
   const fallback = createDefaultLineMessageTestProfile(bangkokDateKey());
   const resolvedTestProfile = resolveLineMessageTestProfile(settings, fallback);
@@ -36,6 +36,7 @@ export default async function LineSettingsPage() {
     <LineIntegrationForm credentials={lineCredentialMetadata(secretMetadata)} validation={validation} action={saveAndTestLineCredentialsAction} />
     <LineMessageTestForm
       initialProfile={toLineMessageTestAdminView(testProfile)}
+      packages={packages.filter((item) => item.active.toUpperCase() === "TRUE")}
       initialConnectUrl={testConnectUrl}
       linkingEnabled={config.lineLinkingEnabled}
       messagingEnabled={config.lineMessagingEnabled}
