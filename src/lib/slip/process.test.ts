@@ -70,6 +70,27 @@ describe("processSlipImage", () => {
     expect(deps.storeExceptionSlip).not.toHaveBeenCalled();
   });
 
+  it("auto-records a recovered configured Thai alias with the same aliases used for OCR and evaluation", async () => {
+    const recoveredAlias = "นางสาว พีรพร บุญสนิท";
+    const deps = dependencies({
+      receiverAliases: ["OTHER RECEIVER"],
+      analyzeSlip: vi.fn(async () => analysis({ ocrReceiver: recoveredAlias })),
+    });
+
+    const result = await processSlipImage({ bytes: new Uint8Array([1]), declaredType: "image/png", expectedPayment: payment(), source: { type: "WEB_UPLOAD" }, receiverAliases: [recoveredAlias] }, deps);
+
+    expect(deps.analyzeSlip).toHaveBeenCalledWith(expect.any(Uint8Array), "image/png", [recoveredAlias]);
+    expect(result.decision).toBe("AUTO_RECORDED");
+  });
+
+  it("keeps an ambiguous recipient recovery in review", async () => {
+    const deps = dependencies();
+
+    const result = await processSlipImage({ bytes: new Uint8Array([1]), declaredType: "image/png", expectedPayment: payment(), source: { type: "WEB_UPLOAD" }, analysis: analysis({ ocrReceiver: null }) }, deps);
+
+    expect(result).toMatchObject({ decision: "REVIEW", evaluation: { reasons: expect.arrayContaining(["Recipient match uncertain"]) } });
+  });
+
   it("uses fresh terminal payment state without overwriting it", async () => {
     const stale = payment();
     const fresh = payment({ status: "AUTO_RECORDED", line_slip_expected: "FALSE", slip_hash: "already-recorded" });
@@ -107,6 +128,41 @@ describe("processSlipImage", () => {
     const deps = dependencies();
 
     await expect(processSlipImage({ bytes: new Uint8Array([1]), declaredType: "image/png", expectedPayment: payment(), source: { type: "WEB_UPLOAD" }, analysis: analysis({ qrValid: false, transactionRef: null }) }, deps)).resolves.toMatchObject({ decision: "REVIEW" });
+  });
+
+  it("persists allowlisted OCR diagnostics without leaking arbitrary analyzer text", async () => {
+    const deps = dependencies();
+
+    const result = await processSlipImage({
+      bytes: new Uint8Array([1]),
+      declaredType: "image/png",
+      expectedPayment: payment(),
+      source: { type: "WEB_UPLOAD" },
+      analysis: analysis({
+        ocrAmountSatang: null,
+        reasons: ["OCR_AMOUNT_AMBIGUOUS", "raw OCR recipient and reference must not persist", "OCR_UNKNOWN_CODE"],
+      }),
+    }, deps);
+
+    expect(result.payment.review_reason).toContain("OCR_AMOUNT_AMBIGUOUS");
+    expect(result.payment.review_reason).not.toContain("raw OCR");
+    expect(result.payment.review_reason).not.toContain("OCR_UNKNOWN_CODE");
+    expect(deps.persistPaymentTransition).toHaveBeenCalledWith(expect.objectContaining({ reason: result.payment.review_reason }));
+  });
+
+  it("does not persist recovery diagnostics for an auto-recorded payment", async () => {
+    const deps = dependencies();
+
+    const result = await processSlipImage({
+      bytes: new Uint8Array([1]),
+      declaredType: "image/png",
+      expectedPayment: payment(),
+      source: { type: "WEB_UPLOAD" },
+      analysis: analysis({ reasons: ["OCR_LAYOUT_UNAVAILABLE"] }),
+    }, deps);
+
+    expect(result.decision).toBe("AUTO_RECORDED");
+    expect(result.payment.review_reason).not.toContain("OCR_LAYOUT_UNAVAILABLE");
   });
 
   it.each([

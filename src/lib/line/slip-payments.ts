@@ -225,9 +225,10 @@ export async function processLineSlipEvent(event: LineSlipEvent, injected?: Line
   }
   if (!await progress(dependencies, owner.payment_id, "DOWNLOADING", "ANALYZING")) return { kind: "ignored" };
 
+  const receiverAliases = [...dependencies.receiverAliases()];
   let analysis: SlipAnalysis;
   try {
-    analysis = await dependencies.analyzeSlip(content.bytes, content.mimeType, dependencies.receiverAliases());
+    analysis = await dependencies.analyzeSlip(content.bytes, content.mimeType, receiverAliases);
   } catch {
     const failed = await progress(dependencies, owner.payment_id, "ANALYZING", "FAILED_TRANSIENT", "LINE slip analysis failed");
     if (failed) await audit(dependencies, failed, "LINE_SLIP_ANALYSIS_FAILED", "LINE slip analysis failed", event);
@@ -251,7 +252,7 @@ export async function processLineSlipEvent(event: LineSlipEvent, injected?: Line
 
   let result: SlipProcessResult;
   try {
-    result = await dependencies.processSlipImage({ bytes: content.bytes, declaredType: content.mimeType, expectedPayment: selected, source: { type: "LINE", lineUserId: event.lineUserId, lineMessageId: event.messageId, clientId: client.client_id }, analysis });
+    result = await dependencies.processSlipImage({ bytes: content.bytes, declaredType: content.mimeType, expectedPayment: selected, source: { type: "LINE", lineUserId: event.lineUserId, lineMessageId: event.messageId, clientId: client.client_id }, analysis, receiverAliases });
   } catch {
     const failed = await progress(dependencies, selected.payment_id, "ANALYZING", "FAILED_TRANSIENT", "LINE slip processing failed");
     if (failed) await audit(dependencies, failed, "LINE_SLIP_PROCESSING_FAILED", "LINE slip processing failed", event);
