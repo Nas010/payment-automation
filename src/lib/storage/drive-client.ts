@@ -130,6 +130,25 @@ export async function createDriveSlipFile(input: {
   return created.data.id;
 }
 
+export async function readDriveSlipFile(fileId: string, { drive }: { drive?: DriveClientLike } = {}): Promise<{ bytes: Uint8Array; declaredMimeType: string }> {
+  try {
+    const configuredDrive = drive ?? await getConfiguredDriveClient();
+    const file = await configuredDrive.files.get(
+      { fileId, alt: "media", supportsAllDrives: true },
+      { responseType: "arraybuffer" },
+    );
+    const bytes = file.data instanceof ArrayBuffer
+      ? new Uint8Array(file.data)
+      : file.data instanceof Uint8Array
+        ? new Uint8Array(file.data)
+        : null;
+    if (!bytes) throw new Error("invalid media body");
+    return { bytes, declaredMimeType: file.headers?.["content-type"] ?? "" };
+  } catch {
+    throw new Error("Private slip is unavailable.");
+  }
+}
+
 export async function createDriveTermsImageFile(input: {
   bytes: Uint8Array;
   mimeType: "image/jpeg" | "image/png";

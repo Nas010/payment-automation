@@ -130,6 +130,41 @@ describe("processSlipImage", () => {
     await expect(processSlipImage({ bytes: new Uint8Array([1]), declaredType: "image/png", expectedPayment: payment(), source: { type: "WEB_UPLOAD" }, analysis: analysis({ qrValid: false, transactionRef: null }) }, deps)).resolves.toMatchObject({ decision: "REVIEW" });
   });
 
+  it("persists allowlisted OCR diagnostics without leaking arbitrary analyzer text", async () => {
+    const deps = dependencies();
+
+    const result = await processSlipImage({
+      bytes: new Uint8Array([1]),
+      declaredType: "image/png",
+      expectedPayment: payment(),
+      source: { type: "WEB_UPLOAD" },
+      analysis: analysis({
+        ocrAmountSatang: null,
+        reasons: ["OCR_AMOUNT_AMBIGUOUS", "raw OCR recipient and reference must not persist", "OCR_UNKNOWN_CODE"],
+      }),
+    }, deps);
+
+    expect(result.payment.review_reason).toContain("OCR_AMOUNT_AMBIGUOUS");
+    expect(result.payment.review_reason).not.toContain("raw OCR");
+    expect(result.payment.review_reason).not.toContain("OCR_UNKNOWN_CODE");
+    expect(deps.persistPaymentTransition).toHaveBeenCalledWith(expect.objectContaining({ reason: result.payment.review_reason }));
+  });
+
+  it("does not persist recovery diagnostics for an auto-recorded payment", async () => {
+    const deps = dependencies();
+
+    const result = await processSlipImage({
+      bytes: new Uint8Array([1]),
+      declaredType: "image/png",
+      expectedPayment: payment(),
+      source: { type: "WEB_UPLOAD" },
+      analysis: analysis({ reasons: ["OCR_LAYOUT_UNAVAILABLE"] }),
+    }, deps);
+
+    expect(result.decision).toBe("AUTO_RECORDED");
+    expect(result.payment.review_reason).not.toContain("OCR_LAYOUT_UNAVAILABLE");
+  });
+
   it.each([
     ["image", payment({ slip_hash: "image-hash" })],
     ["transaction reference", payment({ transaction_ref: "TXN-100", originating_bank: "014" })],

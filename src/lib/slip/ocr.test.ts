@@ -1,5 +1,77 @@
 import { describe, expect, it } from "vitest";
-import { extractCommonThaiSlipFields, recoverReceiverFromOcrTexts, receiverFromOcrText } from "./ocr";
+import {
+  amountRegionFromOcrLines,
+  amountFromLabelledOcrLines,
+  extractCommonThaiSlipFields,
+  recoverAmountFromOcrTexts,
+  recoverLabelledAmountFromOcrTexts,
+  recoverReceiverFromOcrTexts,
+  receiverFromOcrText,
+} from "./ocr";
+
+describe("structured amount recovery", () => {
+  it("accepts one unambiguous amount printed on its label line", () => {
+    expect(amountFromLabelledOcrLines([
+      { text: "จำนวนเงิน 5,900.00 บาท", confidence: 77, bbox: { x0: 70, y0: 900, x1: 690, y1: 955 } },
+      { text: "ค่าธรรมเนียม 0.00 บาท", confidence: 95, bbox: { x0: 70, y0: 1015, x1: 690, y1: 1070 } },
+    ])).toBe(590000);
+  });
+
+  it("bounds the amount region before the fee line", () => {
+    const region = amountRegionFromOcrLines([
+      { text: "เลขที่รายการ: 016228095101APP00991", confidence: 91, bbox: { x0: 70, y0: 760, x1: 650, y1: 820 } },
+      { text: "จำนวน:", confidence: 80, bbox: { x0: 70, y0: 900, x1: 250, y1: 955 } },
+      { text: "5,900.00 บาท", confidence: 58, bbox: { x0: 390, y0: 948, x1: 690, y1: 1010 } },
+      { text: "ค่าธรรมเนียม:", confidence: 78, bbox: { x0: 70, y0: 1015, x1: 330, y1: 1070 } },
+      { text: "0.00 บาท", confidence: 95, bbox: { x0: 500, y0: 1080, x1: 690, y1: 1135 } },
+    ], 1100, 1400);
+
+    expect(region).toEqual({ left: 62, top: 892, width: 636, height: 126 });
+  });
+
+  it("uses confidence only to choose between competing amount labels", () => {
+    const region = amountRegionFromOcrLines([
+      { text: "Amount", confidence: 22, bbox: { x0: 20, y0: 100, x1: 180, y1: 150 } },
+      { text: "จำนวนเงิน", confidence: 88, bbox: { x0: 70, y0: 900, x1: 250, y1: 955 } },
+      { text: "5,900.00 บาท", confidence: 58, bbox: { x0: 390, y0: 948, x1: 690, y1: 1010 } },
+    ], 1100, 1400);
+
+    expect(region).toEqual({ left: 62, top: 892, width: 636, height: 126 });
+  });
+
+  it.each([
+    ["5,900.00", "5900.00", 590000],
+    ["5900.00", "5,900.00", 590000],
+    ["5 900.00", "5900.00", 590000],
+  ])("accepts matching Arabic money formats from two passes", (normal, thresholded, expected) => {
+    expect(recoverAmountFromOcrTexts([normal, thresholded])).toEqual({ amountSatang: expected, status: "RECOVERED" });
+  });
+
+  it("rejects one-pass, conflicting, and multi-value recovery", () => {
+    expect(recoverAmountFromOcrTexts(["5900.00", ""])).toEqual({ amountSatang: null, status: "NO_CANDIDATE" });
+    expect(recoverAmountFromOcrTexts(["5900.00", "5,800.00"])).toEqual({ amountSatang: null, status: "AMBIGUOUS" });
+    expect(recoverAmountFromOcrTexts(["5900.00 1,200.00", "5900.00"])).toEqual({ amountSatang: null, status: "AMBIGUOUS" });
+  });
+
+  it("requires matching labelled values when layout blocks are unavailable", () => {
+    expect(recoverLabelledAmountFromOcrTexts([
+      "เลขที่รายการ 016228095101APP00991\nจำนวน: noise 5900.00 บาท\nค่าธรรมเนียม 0.00 บาท",
+      "เลขที่รายการ 016228095101APP00991\nจำนวนเงิน 5,900.00 บาท\nค่าธรรมเนียม 0.00 บาท",
+    ])).toEqual({ amountSatang: 590000, status: "RECOVERED" });
+    expect(recoverLabelledAmountFromOcrTexts([
+      "จำนวน 5900.00 บาท",
+      "จำนวน 5800.00 บาท",
+    ])).toEqual({ amountSatang: null, status: "AMBIGUOUS" });
+  });
+
+  it("does not treat zero fees, references, dates, Thai digits, or continental decimals as recovered amounts", () => {
+    expect(recoverAmountFromOcrTexts(["0.00", "0.00"])).toEqual({ amountSatang: null, status: "NO_CANDIDATE" });
+    expect(recoverAmountFromOcrTexts(["016228095101APP00991", "016228095101APP00991"])).toEqual({ amountSatang: null, status: "NO_CANDIDATE" });
+    expect(recoverAmountFromOcrTexts(["16.08.69", "16.08.69"])).toEqual({ amountSatang: null, status: "NO_CANDIDATE" });
+    expect(recoverAmountFromOcrTexts(["๕๙๐๐.๐๐", "๕๙๐๐.๐๐"])).toEqual({ amountSatang: null, status: "NO_CANDIDATE" });
+    expect(recoverAmountFromOcrTexts(["5.900,00", "5.900,00"])).toEqual({ amountSatang: null, status: "NO_CANDIDATE" });
+  });
+});
 
 describe("receiverFromOcrText", () => {
   it("finds configured aliases despite whitespace and punctuation", () => {

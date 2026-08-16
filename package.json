@@ -10,7 +10,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "smoke": "tsx scripts/smoke-production.ts",
-    "ocr:benchmark": "tsx scripts/benchmark-slip-ocr.ts"
+    "ocr:benchmark": "tsx scripts/benchmark-slip-ocr.ts",
+    "ocr:reprocess": "tsx --env-file-if-exists=.env.local scripts/reprocess-slip-ocr.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

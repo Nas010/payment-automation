@@ -14,12 +14,21 @@ import { analyzeSlip } from "./analyze";
 
 let image: Buffer;
 
-function worker(texts: string[]) {
+type RecognitionFixture = string | { text: string; blocks?: unknown[] | null };
+
+function worker(fixtures: RecognitionFixture[]) {
   return {
-    recognize: vi.fn(async () => ({ data: { text: texts.shift() ?? "" } })),
+    recognize: vi.fn(async () => {
+      const fixture = fixtures.shift() ?? "";
+      return { data: typeof fixture === "string" ? { text: fixture } : fixture };
+    }),
     setParameters: vi.fn(async () => undefined),
     terminate: vi.fn(async () => undefined),
   };
+}
+
+function blocks(lines: Array<{ text: string; confidence: number; bbox: { x0: number; y0: number; x1: number; y1: number } }>) {
+  return [{ paragraphs: [{ lines }] }];
 }
 
 beforeEach(async () => {
@@ -35,6 +44,101 @@ beforeEach(async () => {
 });
 
 describe("analyzeSlip", () => {
+  it("recovers a separately printed amount only when both field passes agree", async () => {
+    const mixedWorker = worker([
+      {
+        text: "โอนเงินสำเร็จ\nไปยัง นางสาว พีรพร บุญสนิท\nจำนวน:\n5900.00 บาท\nค่าธรรมเนียม:\n0.00 บาท\n16 ส.ค. 69 09:51 น.",
+        blocks: blocks([
+          { text: "จำนวน:", confidence: 80, bbox: { x0: 70, y0: 900, x1: 250, y1: 955 } },
+          { text: "5900.00 บาท", confidence: 58, bbox: { x0: 390, y0: 948, x1: 690, y1: 1010 } },
+          { text: "ค่าธรรมเนียม:", confidence: 78, bbox: { x0: 70, y0: 1015, x1: 330, y1: 1070 } },
+          { text: "0.00 บาท", confidence: 95, bbox: { x0: 500, y0: 1080, x1: 690, y1: 1135 } },
+        ]),
+      },
+      "5900.00",
+      "5,900.00",
+    ]);
+    mocks.createWorker.mockReset().mockResolvedValueOnce(mixedWorker);
+
+    const result = await analyzeSlip(image, "image/png", ["นางสาว พีรพร บุญสนิท"]);
+
+    expect(result.ocrAmountSatang).toBe(590000);
+    expect(mixedWorker.recognize).toHaveBeenCalledTimes(3);
+    expect(mixedWorker.recognize.mock.calls[0]?.[2]).toMatchObject({ text: true, blocks: true });
+    expect(mixedWorker.setParameters).toHaveBeenCalledWith(expect.objectContaining({ tessedit_char_whitelist: "0123456789,. ", tessedit_pageseg_mode: "6" }));
+  });
+
+  it("rejects conflicting field passes instead of trusting the full receipt", async () => {
+    const mixedWorker = worker([
+      {
+        text: "โอนเงินสำเร็จ\nไปยัง นางสาว พีรพร บุญสนิท\nจำนวน:\n5900.00 บาท",
+        blocks: blocks([
+          { text: "จำนวน:", confidence: 80, bbox: { x0: 70, y0: 900, x1: 250, y1: 955 } },
+          { text: "5900.00 บาท", confidence: 58, bbox: { x0: 390, y0: 948, x1: 690, y1: 1010 } },
+        ]),
+      },
+      "5900.00",
+      "5800.00",
+    ]);
+    mocks.createWorker.mockReset().mockResolvedValueOnce(mixedWorker);
+
+    const result = await analyzeSlip(image, "image/png", ["นางสาว พีรพร บุญสนิท"]);
+
+    expect(result.ocrAmountSatang).toBeNull();
+    expect(result.reasons).toContain("OCR_AMOUNT_AMBIGUOUS");
+  });
+
+  it("keeps a clear amount on its labelled line without extra OCR passes", async () => {
+    const mixedWorker = worker([{
+      text: "โอนเงินสำเร็จ\nไปยัง นางสาว พีรพร บุญสนิท\nจำนวนเงิน 5,900.00 บาท",
+      blocks: blocks([
+        { text: "จำนวนเงิน 5,900.00 บาท", confidence: 77, bbox: { x0: 70, y0: 900, x1: 690, y1: 955 } },
+      ]),
+    }]);
+    mocks.createWorker.mockReset().mockResolvedValueOnce(mixedWorker);
+
+    const result = await analyzeSlip(image, "image/png", ["นางสาว พีรพร บุญสนิท"]);
+
+    expect(result.ocrAmountSatang).toBe(590000);
+    expect(mixedWorker.recognize).toHaveBeenCalledOnce();
+  });
+
+  it("uses labelled two-pass text recovery when layout blocks are unavailable", async () => {
+    const mixedWorker = worker([
+      "โอนเงินสำเร็จ\nไปยัง นางสาว พีรพร บุญสนิท\nจำนวน: noise 5900.00 บาท\nค่าธรรมเนียม 0.00 บาท",
+      "โอนเงินสำเร็จ\nจำนวนเงิน 5,900.00 บาท\nค่าธรรมเนียม 0.00 บาท",
+    ]);
+    mocks.createWorker.mockReset().mockResolvedValueOnce(mixedWorker);
+
+    const result = await analyzeSlip(image, "image/png", ["นางสาว พีรพร บุญสนิท"]);
+
+    expect(result.ocrAmountSatang).toBe(590000);
+    expect(result.reasons).toContain("OCR_LAYOUT_UNAVAILABLE");
+    expect(mixedWorker.recognize).toHaveBeenCalledTimes(2);
+  });
+
+  it("retains QR authority and emits a fixed diagnostic when primary OCR fails", async () => {
+    const failedWorker = {
+      recognize: vi.fn(async () => { throw new Error("private OCR failure"); }),
+      setParameters: vi.fn(async () => undefined),
+      terminate: vi.fn(async () => undefined),
+    };
+    mocks.createWorker.mockReset().mockResolvedValueOnce(failedWorker);
+    mocks.selectSlipQrPayload.mockReturnValue({
+      payload: "slip-qr",
+      parsed: { valid: true, fields: {}, transactionReference: "TXN-100", sendingBankCode: "004", countryCode: "TH" },
+      qrValid: true,
+      ambiguous: false,
+    });
+
+    const result = await analyzeSlip(image, "image/png", ["นางสาว พีรพร บุญสนิท"]);
+
+    expect(result).toMatchObject({ qrValid: true, transactionRef: "TXN-100", originatingBank: "004", ocrAmountSatang: null });
+    expect(result.reasons).toContain("OCR_PASS_FAILED");
+    expect(JSON.stringify(result.reasons)).not.toContain("private OCR failure");
+    expect(failedWorker.terminate).toHaveBeenCalledOnce();
+  });
+
   it("recovers a configured Thai receiver after mixed OCR produces Wsws", async () => {
     const result = await analyzeSlip(image, "image/png", ["นางสาว พีรพร บุญสนิท"]);
 

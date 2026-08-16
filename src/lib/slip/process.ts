@@ -7,6 +7,7 @@ import { listPayments, type PaymentRecord } from "@/lib/sheets/payments";
 import { listSchedules, type ScheduleRecord } from "@/lib/sheets/schedules";
 import { shouldRetainSlip, storeExceptionSlip } from "@/lib/storage/slip";
 import { analyzeSlip, type SlipAnalysis } from "./analyze";
+import { privacySafeOcrDiagnostics } from "./diagnostics";
 
 export type SlipSource =
   | { type: "WEB_UPLOAD" }
@@ -66,8 +67,15 @@ function samePaymentDuplicate(payment: PaymentRecord, analysis: SlipAnalysis): b
   return payment.slip_hash === analysis.imageHash || sameTransactionReference(payment, analysis);
 }
 
+function reviewReasons(analysis: SlipAnalysis, evaluation: Evaluation): string[] {
+  if (evaluation.decision === "AUTO_RECORDED") return evaluation.reasons;
+  const diagnostics = privacySafeOcrDiagnostics(analysis.reasons);
+  return [...new Set([...evaluation.reasons, ...diagnostics])];
+}
+
 function updatedPayment(payment: PaymentRecord, analysis: SlipAnalysis, evaluation: Evaluation, source: SlipSource, now: string, slipUrl: string): PaymentRecord {
   const terminal = new Set<PaymentStatus>(["AUTO_RECORDED", "MANUAL_CONFIRMED"]).has(evaluation.decision);
+  const reasons = reviewReasons(analysis, evaluation);
   return {
     ...payment,
     status: evaluation.decision,
@@ -85,7 +93,7 @@ function updatedPayment(payment: PaymentRecord, analysis: SlipAnalysis, evaluati
     receiver_match: String(evaluation.receiverMatch),
     date_match: String(evaluation.dateMatch),
     check_score: String(evaluation.score),
-    review_reason: evaluation.reasons.join("; "),
+    review_reason: reasons.join("; "),
     slip_url: slipUrl,
     ...(source.type === "LINE" ? {
       line_source_message_id: source.lineMessageId,
@@ -166,7 +174,7 @@ export async function processSlipImage(input: ProcessSlipImageInput, injected?: 
     schedule,
     nextStatus: evaluation.decision,
     source: transitionSource(input.source),
-    reason: evaluation.reasons.join("; "),
+    reason: nextPayment.review_reason,
     paymentUpdate: nextPayment,
     now,
   });

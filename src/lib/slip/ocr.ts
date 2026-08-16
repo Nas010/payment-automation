@@ -24,6 +24,87 @@ export interface CommonThaiSlipFields {
   transactionDate: string | null;
 }
 
+export type OcrBoundingBox = { x0: number; y0: number; x1: number; y1: number };
+export type OcrTextLine = { text: string; confidence: number; bbox: OcrBoundingBox };
+export type OcrImageRegion = { left: number; top: number; width: number; height: number };
+export type AmountRecovery = { amountSatang: number | null; status: "RECOVERED" | "NO_CANDIDATE" | "AMBIGUOUS" };
+
+const AMOUNT_LABEL = /(?:จำนวนเงิน|จำนวน|amount)/iu;
+const FIELD_BOUNDARY = /(?:ค่าธรรมเนียม|fee|บันทึกช่วยจำ|memo|เลขที่รายการ|reference|รหัสอ้างอิง|ผู้รับ(?:เงิน)?|ไปยัง|recipient|\bto\b|\bfrom\b)/iu;
+const RECOVERY_MONEY = /(?<![\d.,])((?:\d{1,3}(?:[ ,]\d{3})+|\d+)\.\d{2})(?![\d.,])/gu;
+
+function compactLabel(value: string): string {
+  return normalizeOcrText(value).replace(/\s+/g, "").toLowerCase();
+}
+
+/** Finds the smallest labelled amount area while excluding the following field. */
+export function amountRegionFromOcrLines(lines: readonly OcrTextLine[], imageWidth: number, imageHeight: number): OcrImageRegion | null {
+  if (!Number.isFinite(imageWidth) || !Number.isFinite(imageHeight) || imageWidth <= 0 || imageHeight <= 0) return null;
+  const ordered = [...lines]
+    .filter((line) => line.text.trim() && line.bbox.x1 > line.bbox.x0 && line.bbox.y1 > line.bbox.y0)
+    .sort((left, right) => left.bbox.y0 - right.bbox.y0 || left.bbox.x0 - right.bbox.x0);
+  const label = ordered
+    .filter((line) => AMOUNT_LABEL.test(compactLabel(line.text)))
+    .sort((left, right) => right.confidence - left.confidence || left.bbox.y0 - right.bbox.y0)[0];
+  if (!label) return null;
+  const labelIndex = ordered.indexOf(label);
+  const maximumBottom = Math.min(imageHeight, label.bbox.y1 + imageHeight * 0.12);
+  const selected = [label];
+  for (const line of ordered.slice(labelIndex + 1)) {
+    if (line.bbox.y0 >= maximumBottom) break;
+    if (FIELD_BOUNDARY.test(compactLabel(line.text))) break;
+    selected.push(line);
+  }
+  const padding = 8;
+  const left = Math.max(0, Math.floor(Math.min(...selected.map((line) => line.bbox.x0)) - padding));
+  const top = Math.max(0, Math.floor(Math.min(...selected.map((line) => line.bbox.y0)) - padding));
+  const right = Math.min(imageWidth, Math.ceil(Math.max(...selected.map((line) => line.bbox.x1)) + padding));
+  const bottom = Math.min(imageHeight, Math.ceil(Math.max(...selected.map((line) => line.bbox.y1)) + padding));
+  return right > left && bottom > top ? { left, top, width: right - left, height: bottom - top } : null;
+}
+
+function recoveredMoneyCandidates(text: string): number[] {
+  const candidates = [...normalizeOcrText(text).matchAll(RECOVERY_MONEY)]
+    .map((match) => parseSatang(match[1]!.replace(/\s/g, "")))
+    .filter((amount): amount is number => amount !== null && amount > 0);
+  return [...new Set(candidates)];
+}
+
+function labelledMoneyCandidates(text: string): number[] {
+  const compact = normalizeOcrText(text).replace(/\s+/g, " ").trim();
+  const label = AMOUNT_LABEL.exec(compact);
+  if (!label) return [];
+  const remainder = compact.slice((label.index ?? 0) + label[0].length);
+  const boundary = FIELD_BOUNDARY.exec(remainder);
+  return recoveredMoneyCandidates(boundary ? remainder.slice(0, boundary.index) : remainder);
+}
+
+function amountAgreement(candidates: number[][]): AmountRecovery {
+  if (candidates.length < 2) return { amountSatang: null, status: "NO_CANDIDATE" };
+  if (candidates.some((pass) => pass.length > 1)) return { amountSatang: null, status: "AMBIGUOUS" };
+  if (candidates.some((pass) => pass.length === 0)) return { amountSatang: null, status: "NO_CANDIDATE" };
+  const [normal, thresholded] = candidates;
+  if (normal![0] !== thresholded![0]) return { amountSatang: null, status: "AMBIGUOUS" };
+  return { amountSatang: normal![0]!, status: "RECOVERED" };
+}
+
+export function amountFromLabelledOcrLines(lines: readonly OcrTextLine[]): number | null {
+  const candidates = lines
+    .filter((line) => AMOUNT_LABEL.test(compactLabel(line.text)))
+    .flatMap((line) => recoveredMoneyCandidates(line.text));
+  const unique = [...new Set(candidates)];
+  return unique.length === 1 ? unique[0]! : null;
+}
+
+/** Requires two preprocessing passes to independently produce one identical amount. */
+export function recoverAmountFromOcrTexts(texts: readonly string[]): AmountRecovery {
+  return amountAgreement(texts.slice(0, 2).map(recoveredMoneyCandidates));
+}
+
+export function recoverLabelledAmountFromOcrTexts(texts: readonly string[]): AmountRecovery {
+  return amountAgreement(texts.slice(0, 2).map(labelledMoneyCandidates));
+}
+
 function bankFromText(text: string): string | null {
   if (/krungthai/i.test(text)) return "Krungthai";
   if (/\bK\+/i.test(text)) return "K+";

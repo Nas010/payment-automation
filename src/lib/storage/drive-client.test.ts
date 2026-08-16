@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createDriveFolder, createDriveSlipFile, createDriveTermsImageFile, readDriveTermsImageFile, testDriveFolderWrite, validateDriveFolder, type DriveClientLike } from "./drive-client";
+import { createDriveFolder, createDriveSlipFile, createDriveTermsImageFile, readDriveSlipFile, readDriveTermsImageFile, testDriveFolderWrite, validateDriveFolder, type DriveClientLike } from "./drive-client";
 
 function driveWith({ folder, getError, createdId = "file-12345", deleteError }: { folder?: Record<string, unknown>; getError?: unknown; createdId?: string | null; deleteError?: unknown } = {}) {
   const get = vi.fn().mockImplementation(async () => {
@@ -56,6 +56,27 @@ describe("createDriveSlipFile", () => {
       fields: "id",
       supportsAllDrives: true,
     }));
+  });
+});
+
+describe("readDriveSlipFile", () => {
+  it("returns retained slip bytes and declared type without exposing Drive metadata", async () => {
+    const get = vi.fn().mockResolvedValue({ data: new Uint8Array([255, 216, 255]).buffer, headers: { "content-type": "image/jpeg" } });
+    const drive = { files: { get } } as unknown as DriveClientLike;
+
+    await expect(readDriveSlipFile("slip-file-12345", { drive })).resolves.toEqual({
+      bytes: new Uint8Array([255, 216, 255]),
+      declaredMimeType: "image/jpeg",
+    });
+    expect(get).toHaveBeenCalledWith(
+      { fileId: "slip-file-12345", alt: "media", supportsAllDrives: true },
+      { responseType: "arraybuffer" },
+    );
+  });
+
+  it("returns a stable error when retained media cannot be read", async () => {
+    const drive = driveWith({ getError: new Error("private Google body") }).drive;
+    await expect(readDriveSlipFile("slip-file-12345", { drive })).rejects.toThrow("Private slip is unavailable.");
   });
 });
 
