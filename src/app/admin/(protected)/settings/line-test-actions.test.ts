@@ -110,6 +110,19 @@ describe("LINE message test actions", () => {
     expect(result).toMatchObject({ ok: true, outcome: "ACCEPTED", requestCode: "request_1" });
   });
 
+  it("sends a saved installment reminder using the later-installment scenario", async () => {
+    const data = new FormData();
+    data.set("payment_type", "INSTALLMENTS");
+    data.set("reminder_slot", "T_MINUS_3_DAYS");
+
+    await sendSavedLineMessageTestAction(data);
+
+    expect(mocks.send).toHaveBeenCalledWith(expect.objectContaining({
+      scenario: { paymentType: "INSTALLMENTS", stage: "LATER", installmentNumber: 2, reminderSlot: "T_MINUS_3_DAYS" },
+      profile: linked,
+    }));
+  });
+
   it("disconnects only the test profile", async () => {
     await expect(disconnectLineMessageTestConnectionAction()).resolves.toMatchObject({ ok: true, profile: { lineLinkStatus: "" } });
     expect(mocks.disconnect).toHaveBeenCalled();

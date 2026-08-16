@@ -20,6 +20,6 @@ export default async function MessagesSettingsPage() {
     welcome={<LineWelcomeTemplateForm template={welcomeTemplate} previewAction={previewLineWelcomeTemplateAction} saveAction={saveLineWelcomeTemplateAction} resetAction={resetLineWelcomeTemplateAction} />}
     automaticReplies={<LineAutomaticReplyForm resolved={automaticReplies} saveAction={saveLineAutomaticReplyConfigAction} resetAction={resetLineAutomaticReplyConfigAction} />}
     paymentMessages={<LineDueTemplateForm profiles={dueProfiles} previewAction={previewLineDueMessageProfileAction} saveAction={saveLineDueMessageProfileAction} resetAction={resetLineDueMessageProfileAction} sendTestAction={sendSavedLineMessageTestAction} />}
-    reminders={<LineInstallmentReminderForm resolved={reminderConfig} previewAction={previewLineInstallmentReminderAction} saveAction={saveLineInstallmentReminderConfigAction} resetAction={resetLineInstallmentReminderConfigAction} />}
+    reminders={<LineInstallmentReminderForm resolved={reminderConfig} previewAction={previewLineInstallmentReminderAction} saveAction={saveLineInstallmentReminderConfigAction} resetAction={resetLineInstallmentReminderConfigAction} sendTestAction={sendSavedLineMessageTestAction} />}
   />;
 }

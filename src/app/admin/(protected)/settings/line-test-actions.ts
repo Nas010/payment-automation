@@ -184,7 +184,10 @@ export async function sendSavedLineMessageTestAction(formData: FormData): Promis
   await requireAdmin();
   try {
     const paymentType = String(formData.get("payment_type") ?? "");
-    const scenario = parseLineMessageTestScenario({ paymentType, stage: "INITIAL" });
+    const reminderSlot = String(formData.get("reminder_slot") ?? "");
+    const scenario = reminderSlot
+      ? parseLineMessageTestScenario({ paymentType: "INSTALLMENTS", stage: "LATER", installmentNumber: "2", reminderSlot })
+      : parseLineMessageTestScenario({ paymentType, stage: "INITIAL" });
     const [profile, config] = await Promise.all([currentProfile(), runtimeConfig()]);
     const result = await sendLineMessageTest({ scenario, baseUrl: config.publicBaseUrl, profile });
     return { ok: true, outcome: result.outcome, requestCode: result.requestCode };
