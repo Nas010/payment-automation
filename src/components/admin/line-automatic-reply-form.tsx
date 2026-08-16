@@ -15,8 +15,6 @@ type Props = {
   resetAction: () => Promise<ActionResult>;
 };
 
-type SlipField = keyof LineAutomaticReplyConfig["slip"];
-
 function ReplyField({ id, label, value, onChange }: { id: string; label: string; value: string; onChange: (value: string) => void }) {
   return <Field>
     <FieldLabel htmlFor={id}>{label}</FieldLabel>
@@ -29,7 +27,7 @@ export function LineAutomaticReplyForm({ resolved, saveAction, resetAction }: Pr
   const [outcome, setOutcome] = useState("");
   const [pending, startTransition] = useTransition();
 
-  const updateSlip = (field: SlipField, value: string) => setDraft((current) => ({ ...current, slip: { ...current.slip, [field]: value } }));
+  const updateSlip = (value: string) => setDraft((current) => ({ ...current, slip: { received: value } }));
 
   const save = () => {
     const formData = new FormData();
@@ -62,20 +60,18 @@ export function LineAutomaticReplyForm({ resolved, saveAction, resetAction }: Pr
   return <section className="flex flex-col gap-4">
     <div className="flex flex-col gap-1">
       <h2 className="text-lg font-semibold">Automatic replies</h2>
-      <p className="text-sm text-muted-foreground">Messages LINE sends after payment-slip processing.</p>
+      <p className="text-sm text-muted-foreground">Message LINE sends after a payment slip is received.</p>
     </div>
     {resolved.kind === "INVALID" ? <p className="text-sm text-destructive">Saved automatic replies are invalid. Defaults are active until you save or restore them.</p> : null}
     <form className="flex flex-col gap-4" onSubmit={(event) => { event.preventDefault(); save(); }}>
       <Card>
         <CardHeader>
-          <CardTitle>Reply templates</CardTitle>
-          <CardDescription>Customize replies for payment-slip outcomes.</CardDescription>
+          <CardTitle>Payment slip received</CardTitle>
+          <CardDescription>This single message is sent after every payment-slip submission.</CardDescription>
         </CardHeader>
         <CardContent>
           <FieldGroup>
-            <ReplyField id="line-slip-auto-recorded" label="Payment recorded automatically" value={draft.slip.autoRecorded} onChange={(value) => updateSlip("autoRecorded", value)} />
-            <ReplyField id="line-slip-review" label="Payment needs review" value={draft.slip.review} onChange={(value) => updateSlip("review", value)} />
-            <ReplyField id="line-slip-flagged" label="Payment flagged" value={draft.slip.flagged} onChange={(value) => updateSlip("flagged", value)} />
+            <ReplyField id="line-slip-received" label="Payment slip received message" value={draft.slip.received} onChange={updateSlip} />
           </FieldGroup>
         </CardContent>
         <CardFooter className="justify-end gap-2">

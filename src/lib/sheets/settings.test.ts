@@ -56,7 +56,7 @@ describe("operational settings writes", () => {
 
   it("stores one validated automatic reply object atomically", async () => {
     const config = structuredClone(DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG);
-    config.slip.review = "Custom review";
+    config.slip.received = "Custom received reply";
 
     await saveLineAutomaticReplyConfig(config);
 
@@ -67,7 +67,7 @@ describe("operational settings writes", () => {
 
   it("rejects malformed automatic replies before a Sheets write", async () => {
     const invalid = structuredClone(DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG);
-    invalid.slip.review = "   ";
+    invalid.slip.received = "   ";
 
     await expect(upsertOperationalSetting(LINE_AUTOMATIC_REPLY_CONFIG_SETTING_KEY, JSON.stringify(invalid)))
       .rejects.toThrow("LINE automatic reply configuration is invalid");
@@ -76,9 +76,8 @@ describe("operational settings writes", () => {
 
   it("loads saved automatic replies and safely falls back for malformed storage or Sheets errors", async () => {
     const custom = structuredClone(DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG);
-    custom.slip.review = "Review custom";
-    const legacy = { ...custom, connection: { linked: "legacy", alreadyLinked: "legacy", invalidOrExpired: "legacy", conflict: "legacy" } };
-    mocks.get.mockResolvedValueOnce({ data: { values: [["key", "value"], [LINE_AUTOMATIC_REPLY_CONFIG_SETTING_KEY, JSON.stringify(legacy)]] } });
+    custom.slip.received = "Received custom";
+    mocks.get.mockResolvedValueOnce({ data: { values: [["key", "value"], [LINE_AUTOMATIC_REPLY_CONFIG_SETTING_KEY, JSON.stringify(custom)]] } });
     await expect(getLineAutomaticReplyConfig()).resolves.toEqual(custom);
 
     mocks.get.mockResolvedValueOnce({ data: { values: [["key", "value"], [LINE_AUTOMATIC_REPLY_CONFIG_SETTING_KEY, "invalid"]] } });

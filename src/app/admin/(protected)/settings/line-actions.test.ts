@@ -52,7 +52,7 @@ describe("LINE automatic reply actions", () => {
 
   it("saves one complete config and audits no message body", async () => {
     const config = structuredClone(DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG);
-    config.slip.flagged = "Private custom flagged copy";
+    config.slip.received = "Private custom received copy";
     const formData = new FormData();
     formData.set("config", JSON.stringify(config));
 
@@ -60,9 +60,9 @@ describe("LINE automatic reply actions", () => {
     expect(mocks.saveLineAutomaticReplyConfig).toHaveBeenCalledWith(config);
     expect(mocks.appendAudit).toHaveBeenCalledWith(expect.objectContaining({
       action: "LINE_AUTOMATIC_REPLY_CONFIG_SAVED",
-      metadata: JSON.stringify({ settingKey: LINE_AUTOMATIC_REPLY_CONFIG_SETTING_KEY, version: 1 }),
+      metadata: JSON.stringify({ settingKey: LINE_AUTOMATIC_REPLY_CONFIG_SETTING_KEY, version: 2 }),
     }));
-    expect(JSON.stringify(mocks.appendAudit.mock.calls)).not.toContain("Private custom flagged copy");
+    expect(JSON.stringify(mocks.appendAudit.mock.calls)).not.toContain("Private custom received copy");
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/admin/settings");
   });
 

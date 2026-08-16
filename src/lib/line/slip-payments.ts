@@ -1,7 +1,7 @@
 import { replyLineMessage, getLineMessageContent } from "@/lib/line/client";
 import { getLineChannelAccessToken } from "@/lib/secrets/service";
 import { getLineAutomaticReplyConfig } from "@/lib/sheets/settings";
-import { lineSlipReplyText, type LineAutomaticReplyConfig, type LineSlipReplyDecision } from "@/lib/line/reply-config";
+import { lineSlipReplyText, type LineAutomaticReplyConfig } from "@/lib/line/reply-config";
 import { resolveLinePaymentCandidate } from "@/lib/line/payment-match";
 import { persistPaymentTransition, reconcileTerminalPaymentEffects } from "@/lib/payments/transition";
 import { runtimeConfig } from "@/lib/runtime-config";
@@ -87,18 +87,6 @@ function terminalEffectsClaimedOrPending(marker: string): boolean {
   return /^(TRANSITION_EFFECTS_PENDING|TRANSITION_EFFECTS_CLAIMED):/.test(marker);
 }
 
-function replyDecision(decision: SlipProcessResult["decision"]): LineSlipReplyDecision {
-  switch (decision) {
-    case "AUTO_RECORDED":
-    case "MANUAL_CONFIRMED":
-    case "REVIEW":
-    case "FLAGGED":
-      return decision;
-    default:
-      throw new Error("LINE reply cannot be sent for this payment status");
-  }
-}
-
 function latestPayment(first: PaymentRecord, second: PaymentRecord): PaymentRecord {
   const firstTime = Date.parse(first.updated_at);
   const secondTime = Date.parse(second.updated_at);
@@ -123,7 +111,7 @@ async function auditReplyStatusFailure(dependencies: LineSlipDependencies, payme
   await audit(dependencies, payment, "LINE_PAYMENT_REPLY_STATUS_FAILED", reason, event);
 }
 
-async function replyAfterResult(dependencies: LineSlipDependencies, payment: PaymentRecord, decision: SlipProcessResult["decision"], event: LineSlipEvent, channelAccessToken: string): Promise<void> {
+async function replyAfterResult(dependencies: LineSlipDependencies, payment: PaymentRecord, event: LineSlipEvent, channelAccessToken: string): Promise<void> {
   try {
     await writeReplyStatus(dependencies, payment, "SENDING");
   } catch {
@@ -132,7 +120,7 @@ async function replyAfterResult(dependencies: LineSlipDependencies, payment: Pay
   }
 
   try {
-    await dependencies.replyLineMessage({ channelAccessToken, replyToken: event.replyToken, text: lineSlipReplyText(dependencies.automaticReplyConfig, replyDecision(decision)), fetchFn: fetch });
+    await dependencies.replyLineMessage({ channelAccessToken, replyToken: event.replyToken, text: lineSlipReplyText(dependencies.automaticReplyConfig), fetchFn: fetch });
   } catch {
     await audit(dependencies, payment, "LINE_PAYMENT_REPLY_FAILED", "LINE reply failed", event);
     try {
@@ -194,7 +182,7 @@ export async function processLineSlipEvent(event: LineSlipEvent, injected?: Line
       if (terminalEffectsClaimedOrPending(replay.line_slip_error) && !reconciled) return { kind: "duplicate", payment: replay };
       if (replyCanBeRetried(replay.line_reply_status)) {
         const channelAccessToken = await dependencies.getLineChannelAccessToken();
-        await replyAfterResult(dependencies, replay, replay.status as SlipProcessResult["decision"], event, channelAccessToken);
+        await replyAfterResult(dependencies, replay, event, channelAccessToken);
       }
     } catch {
       return { kind: "failed_transient" };
@@ -241,7 +229,7 @@ export async function processLineSlipEvent(event: LineSlipEvent, injected?: Line
       return { kind: "failed_transient" };
     }
     if (!review) return { kind: "ignored" };
-    await replyAfterResult(dependencies, review, "REVIEW", event, channelAccessToken);
+    await replyAfterResult(dependencies, review, event, channelAccessToken);
     return { kind: "review", decision: "REVIEW", payment: review };
   }
   if (selected.payment_id !== owner.payment_id) {
@@ -261,6 +249,6 @@ export async function processLineSlipEvent(event: LineSlipEvent, injected?: Line
     await progress(dependencies, selected.payment_id, "ANALYZING", "AWAITING");
     return { kind: "duplicate", payment: result.payment };
   }
-  await replyAfterResult(dependencies, result.payment, result.decision, event, channelAccessToken);
+  await replyAfterResult(dependencies, result.payment, event, channelAccessToken);
   return { kind: "processed", decision: result.decision, payment: result.payment };
 }
