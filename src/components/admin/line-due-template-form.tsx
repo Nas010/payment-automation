@@ -3,6 +3,7 @@
 import { useRef, useState, useTransition } from "react";
 import { PlusIcon, XIcon } from "lucide-react";
 import { LinePlaceholderEditor, type PlaceholderOption } from "@/components/admin/line-placeholder-editor";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
@@ -47,6 +48,7 @@ export function LineDueTemplateForm({ profiles: initialProfiles, previewAction, 
   const [invalidByType, setInvalidByType] = useState<Record<LinePaymentType, boolean>>(() => Object.fromEntries(paymentTypes.map((paymentType) => [paymentType, initialProfiles[paymentType].kind === "INVALID"])) as Record<LinePaymentType, boolean>);
   const [activeType, setActiveType] = useState<LinePaymentType>("ONE_TIME");
   const [customEditorByType, setCustomEditorByType] = useState<Record<LinePaymentType, CustomPlaceholderEditor | null>>({ ONE_TIME: null, INSTALLMENTS: null });
+  const [pendingRemoval, setPendingRemoval] = useState<{ paymentType: LinePaymentType; name: string } | null>(null);
   const [previewByType, setPreviewByType] = useState<Record<LinePaymentType, string>>({ ONE_TIME: "", INSTALLMENTS: "" });
   const [outcomeByType, setOutcomeByType] = useState<Record<LinePaymentType, string>>({ ONE_TIME: "", INSTALLMENTS: "" });
   const [requestPending, setRequestPending] = useState(false);
@@ -141,7 +143,8 @@ export function LineDueTemplateForm({ profiles: initialProfiles, previewAction, 
     })();
   }
 
-  return <Card>
+  return <>
+    <Card>
     <CardHeader>
       <CardTitle>LINE due-payment messages</CardTitle>
       <CardDescription>Set separate messages for one-time payments and installments. Requires an amount, due date, and payment link.</CardDescription>
@@ -171,7 +174,7 @@ export function LineDueTemplateForm({ profiles: initialProfiles, previewAction, 
                     <Button type="button" variant="outline" size="sm" className="pr-8" aria-label={`Edit placeholder ${definition.name}`} aria-pressed={isSelected} disabled={profileInvalid} onClick={() => setCustomEditorByType((current) => ({ ...current, [paymentType]: { originalName: definition.name, name: definition.name, template: definition.template } }))}>
                       {definition.name.replaceAll("_", " ")}
                     </Button>
-                    <Button type="button" variant="ghost" size="icon-xs" className="absolute top-0.5 right-0.5 rounded-full" aria-label={`Remove ${definition.name}`} disabled={profileInvalid || referenced} onClick={() => removeCustom(paymentType, definition.name)}>
+                    <Button type="button" variant="ghost" size="icon-xs" className="absolute top-0.5 right-0.5 rounded-full" aria-label={`Remove ${definition.name}`} disabled={profileInvalid || referenced} onClick={() => setPendingRemoval({ paymentType, name: definition.name })}>
                       <XIcon />
                     </Button>
                   </div>;
@@ -214,5 +217,21 @@ export function LineDueTemplateForm({ profiles: initialProfiles, previewAction, 
         })}
       </Tabs>
     </CardContent>
-  </Card>;
+    </Card>
+    <AlertDialog open={pendingRemoval !== null} onOpenChange={(open) => { if (!open) setPendingRemoval(null); }}>
+      <AlertDialogContent size="sm">
+        <AlertDialogHeader>
+          <AlertDialogTitle>Remove {pendingRemoval?.name.replaceAll("_", " ")}?</AlertDialogTitle>
+          <AlertDialogDescription>This removes the placeholder from this payment message profile. You can add it again later.</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction variant="destructive" onClick={() => {
+            if (pendingRemoval) removeCustom(pendingRemoval.paymentType, pendingRemoval.name);
+            setPendingRemoval(null);
+          }}>Remove placeholder</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  </>;
 }

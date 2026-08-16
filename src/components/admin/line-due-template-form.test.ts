@@ -144,14 +144,27 @@ describe("LineDueTemplateForm", () => {
     expect(screen.queryByText(/remove it from the message before renaming or deleting/i)).toBeNull();
   });
 
-  it("renames and removes an unused custom placeholder", () => {
+  it("confirms before removing an unused custom placeholder", () => {
     renderProfileForm({ oneTimeMessage: "{{amount}} {{due_date}} {{payment_url}}" });
     fireEvent.click(screen.getByRole("button", { name: "Edit placeholder payment_label" }));
     fireEvent.change(screen.getByLabelText("Placeholder name payment_label"), { target: { value: "summary" } });
     fireEvent.click(screen.getByRole("button", { name: "Save placeholder" }));
     expect(screen.getByRole("button", { name: "Edit placeholder summary" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Remove summary" }));
+
+    expect(screen.getByText("Remove summary?")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Remove placeholder" }));
+
     expect(screen.queryByRole("button", { name: "Edit placeholder summary" })).toBeNull();
+  });
+
+  it("keeps a placeholder when removal is cancelled", () => {
+    renderProfileForm({ oneTimeMessage: "{{amount}} {{due_date}} {{payment_url}}" });
+    fireEvent.click(screen.getByRole("button", { name: "Remove payment_label" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(screen.getByRole("button", { name: "Edit placeholder payment_label" })).toBeTruthy();
   });
 
   it("cancels an unsaved custom placeholder edit", () => {
