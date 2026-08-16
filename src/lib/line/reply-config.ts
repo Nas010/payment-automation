@@ -1,5 +1,4 @@
 import { z } from "zod";
-import type { LinkResult } from "@/lib/line/linking";
 
 export const LINE_AUTOMATIC_REPLY_CONFIG_SETTING_KEY = "line_automatic_reply_config";
 
@@ -13,12 +12,6 @@ const automaticReplyConfigSchema = z.object({
     autoRecorded: messageSchema,
     review: messageSchema,
     flagged: messageSchema,
-  }).strict(),
-  connection: z.object({
-    linked: messageSchema,
-    alreadyLinked: messageSchema,
-    invalidOrExpired: messageSchema,
-    conflict: messageSchema,
   }).strict(),
 }).strict();
 
@@ -36,12 +29,6 @@ export const DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG: LineAutomaticReplyConfig = {
     review: "Payment slip received. It will be reviewed.",
     flagged: "Payment slip received. Please contact your trainer so they can review it.",
   },
-  connection: {
-    linked: "✓ Connected\n\nYour coaching account is now linked. Future payment links can be sent here automatically.",
-    alreadyLinked: "✓ Already connected\n\nThis LINE account is already linked to your coaching account.",
-    invalidOrExpired: "I couldn't connect this account. The code is invalid or expired. Please ask your trainer for a new code.",
-    conflict: "I couldn't connect this account automatically. Please contact your trainer so they can check the existing connection.",
-  },
 };
 
 export class LineAutomaticReplyConfigError extends Error {
@@ -54,6 +41,11 @@ export class LineAutomaticReplyConfigError extends Error {
 export function parseLineAutomaticReplyConfig(value: unknown): LineAutomaticReplyConfig {
   try {
     const parsed = typeof value === "string" ? JSON.parse(value) : value;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const current = { ...(parsed as Record<string, unknown>) };
+      delete current.connection;
+      return automaticReplyConfigSchema.parse(current);
+    }
     return automaticReplyConfigSchema.parse(parsed);
   } catch {
     throw new LineAutomaticReplyConfigError();
@@ -76,15 +68,5 @@ export function lineSlipReplyText(config: LineAutomaticReplyConfig, decision: Li
     case "FLAGGED": return config.slip.flagged;
     case "MANUAL_CONFIRMED":
     case "REVIEW": return config.slip.review;
-  }
-}
-
-export function lineConnectionReplyText(config: LineAutomaticReplyConfig, result: LinkResult): string {
-  switch (result) {
-    case "LINKED": return config.connection.linked;
-    case "ALREADY_LINKED": return config.connection.alreadyLinked;
-    case "INVALID_OR_EXPIRED":
-    case "CLIENT_INACTIVE": return config.connection.invalidOrExpired;
-    case "CONFLICT": return config.connection.conflict;
   }
 }

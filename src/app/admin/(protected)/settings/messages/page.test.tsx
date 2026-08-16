@@ -22,6 +22,7 @@ vi.mock("@/components/admin/line-installment-reminder-form", () => ({ LineInstal
 vi.mock("@/components/admin/line-welcome-template-form", () => ({ LineWelcomeTemplateForm: (props: unknown) => { mocks.welcomeForm(props); return null; } }));
 vi.mock("@/components/admin/line-automatic-reply-form", () => ({ LineAutomaticReplyForm: (props: unknown) => { mocks.automaticReplyForm(props); return null; } }));
 vi.mock("../line-actions", () => ({ previewLineDueMessageProfileAction: vi.fn(), previewLineInstallmentReminderAction: vi.fn(), previewLineWelcomeTemplateAction: vi.fn(), resetLineAutomaticReplyConfigAction: vi.fn(), resetLineDueMessageProfileAction: vi.fn(), resetLineInstallmentReminderConfigAction: vi.fn(), resetLineWelcomeTemplateAction: vi.fn(), saveLineAutomaticReplyConfigAction: vi.fn(), saveLineDueMessageProfileAction: vi.fn(), saveLineInstallmentReminderConfigAction: vi.fn(), saveLineWelcomeTemplateAction: vi.fn() }));
+vi.mock("../line-test-actions", () => ({ sendSavedLineMessageTestAction: vi.fn() }));
 
 import MessagesSettingsPage from "./page";
 
@@ -50,7 +51,7 @@ describe("MessagesSettingsPage", () => {
       resetAction: expect.any(Function),
     }));
     fireEvent.click(screen.getByRole("tab", { name: /Payment messages/ }));
-    expect(mocks.dueForm).toHaveBeenCalledWith(expect.objectContaining({ profiles: { ONE_TIME: { kind: "VALID", profile: DEFAULT_LINE_DUE_PROFILES.ONE_TIME }, INSTALLMENTS: { kind: "INVALID" } } }));
+    expect(mocks.dueForm).toHaveBeenCalledWith(expect.objectContaining({ profiles: { ONE_TIME: { kind: "VALID", profile: DEFAULT_LINE_DUE_PROFILES.ONE_TIME }, INSTALLMENTS: { kind: "INVALID" } }, sendTestAction: expect.any(Function) }));
     fireEvent.click(screen.getByRole("tab", { name: /Installment reminders/ }));
     expect(mocks.reminderForm).toHaveBeenCalledWith(expect.objectContaining({ resolved: { kind: "VALID", config: DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG } }));
   });
