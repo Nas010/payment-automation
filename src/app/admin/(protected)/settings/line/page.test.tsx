@@ -18,7 +18,7 @@ vi.mock("@/components/admin/line-integration-form", () => ({ LineIntegrationForm
 vi.mock("@/components/admin/line-message-test-form", () => ({ LineMessageTestForm: (props: unknown) => { mocks.testForm(props); return null; } }));
 vi.mock("../line-actions", () => ({ saveAndTestLineCredentialsAction: vi.fn() }));
 vi.mock("../line-test-actions", () => ({
-  saveLineMessageTestProfileAction: vi.fn(), renewLineMessageTestConnectionAction: vi.fn(), disconnectLineMessageTestConnectionAction: vi.fn(), previewLineMessageTestAction: vi.fn(), sendLineMessageTestAction: vi.fn(),
+  saveLineMessageTestProfileAction: vi.fn(), renewLineMessageTestConnectionAction: vi.fn(), disconnectLineMessageTestConnectionAction: vi.fn(),
 }));
 
 import LineSettingsPage from "./page";
@@ -56,9 +56,7 @@ describe("LineSettingsPage", () => {
       packages: [expect.objectContaining({ package_name: "Active package" })],
       initialConnectUrl: "",
       linkingEnabled: true,
-      messagingEnabled: true,
       saveAction: expect.any(Function),
-      sendAction: expect.any(Function),
     }));
     expect(JSON.stringify(mocks.testForm.mock.calls)).not.toContain("lineUserId");
   });

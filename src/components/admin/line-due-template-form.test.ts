@@ -13,6 +13,7 @@ type RenderOptions = {
   resetAction?: ReturnType<typeof vi.fn>;
   profiles?: typeof DEFAULT_LINE_DUE_PROFILES;
   resolved?: ResolvedLineDueMessageProfiles;
+  sendTestAction?: ReturnType<typeof vi.fn>;
 };
 
 function resolvedProfiles(profiles: typeof DEFAULT_LINE_DUE_PROFILES): ResolvedLineDueMessageProfiles {
@@ -43,13 +44,15 @@ function renderProfileForm(options: RenderOptions = {}) {
     const paymentType = String(formData.get("payment_type")) as "ONE_TIME" | "INSTALLMENTS";
     return { ok: true, paymentType, profile: DEFAULT_LINE_DUE_PROFILES[paymentType], preview: "Default preview" };
   });
+  const sendTestAction = options.sendTestAction ?? vi.fn().mockResolvedValue({ ok: true, outcome: "ACCEPTED", requestCode: "request_1" });
   render(createElement(LineDueTemplateForm, {
     profiles: options.resolved ?? resolvedProfiles(profiles),
     previewAction,
     saveAction,
     resetAction,
+    sendTestAction,
   }));
-  return { previewAction, saveAction, resetAction };
+  return { previewAction, saveAction, resetAction, sendTestAction };
 }
 
 beforeEach(() => {
@@ -66,6 +69,14 @@ afterEach(() => {
 });
 
 describe("LineDueTemplateForm", () => {
+  it("sends the saved active template to the configured test client", async () => {
+    const { sendTestAction } = renderProfileForm();
+
+    fireEvent.click(screen.getByRole("button", { name: "Send saved test message" }));
+
+    await waitFor(() => expect(sendTestAction).toHaveBeenCalledOnce());
+    expect((sendTestAction.mock.calls[0][0] as FormData).get("payment_type")).toBe("ONE_TIME");
+  });
   it("inserts a system placeholder at the current message caret and restores focus", async () => {
     renderProfileForm();
     const textarea = screen.getByLabelText("One-time payment message") as HTMLTextAreaElement;

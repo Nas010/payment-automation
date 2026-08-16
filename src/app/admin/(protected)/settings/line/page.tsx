@@ -9,10 +9,8 @@ import { listOperationalSettings, listPackages, resolveLineMessageTestProfile } 
 import { saveAndTestLineCredentialsAction } from "../line-actions";
 import {
   disconnectLineMessageTestConnectionAction,
-  previewLineMessageTestAction,
   renewLineMessageTestConnectionAction,
   saveLineMessageTestProfileAction,
-  sendLineMessageTestAction,
 } from "../line-test-actions";
 import { lineCredentialMetadata, validationMetadata } from "../line-settings";
 
@@ -39,12 +37,9 @@ export default async function LineSettingsPage() {
       packages={packages.filter((item) => item.active.toUpperCase() === "TRUE")}
       initialConnectUrl={testConnectUrl}
       linkingEnabled={config.lineLinkingEnabled}
-      messagingEnabled={config.lineMessagingEnabled}
       saveAction={saveLineMessageTestProfileAction}
       renewAction={renewLineMessageTestConnectionAction}
       disconnectAction={disconnectLineMessageTestConnectionAction}
-      previewAction={previewLineMessageTestAction}
-      sendAction={sendLineMessageTestAction}
     />
   </div>;
 }

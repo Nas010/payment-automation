@@ -21,6 +21,7 @@ import {
 } from "@/lib/line/message-profile";
 
 type ProfileAction = (formData: FormData) => Promise<LineDueMessageProfileActionResult>;
+type SendTestAction = (formData: FormData) => Promise<{ ok: true; outcome: "ACCEPTED" | "FAILED" | "REVIEW"; requestCode?: string } | { ok: false; message: string }>;
 type CustomPlaceholderEditor = { originalName: string | null; name: string; template: string };
 
 type Props = {
@@ -28,6 +29,7 @@ type Props = {
   previewAction: ProfileAction;
   saveAction: ProfileAction;
   resetAction: ProfileAction;
+  sendTestAction: SendTestAction;
 };
 
 const paymentTypes = ["ONE_TIME", "INSTALLMENTS"] as const;
@@ -43,7 +45,7 @@ function optionsFor(paymentType: LinePaymentType): PlaceholderOption[] {
   return systemPlaceholders(paymentType).map((name) => ({ name, label: name.replaceAll("_", " ") }));
 }
 
-export function LineDueTemplateForm({ profiles: initialProfiles, previewAction, saveAction, resetAction }: Props) {
+export function LineDueTemplateForm({ profiles: initialProfiles, previewAction, saveAction, resetAction, sendTestAction }: Props) {
   const [profiles, setProfiles] = useState<LineDueMessageProfiles>(() => Object.fromEntries(paymentTypes.map((paymentType) => [paymentType, initialProfiles[paymentType].kind === "VALID" ? structuredClone(initialProfiles[paymentType].profile) : structuredClone(DEFAULT_LINE_DUE_PROFILES[paymentType])])) as LineDueMessageProfiles);
   const [invalidByType, setInvalidByType] = useState<Record<LinePaymentType, boolean>>(() => Object.fromEntries(paymentTypes.map((paymentType) => [paymentType, initialProfiles[paymentType].kind === "INVALID"])) as Record<LinePaymentType, boolean>);
   const [activeType, setActiveType] = useState<LinePaymentType>("ONE_TIME");
@@ -144,6 +146,21 @@ export function LineDueTemplateForm({ profiles: initialProfiles, previewAction, 
     })();
   }
 
+  function sendSavedTest(paymentType: LinePaymentType): void {
+    if (requestInFlight.current) return;
+    requestInFlight.current = true;
+    setRequestPending(true);
+    setOutcomeByType((current) => ({ ...current, [paymentType]: "" }));
+    void sendTestAction(profileFormData(paymentType, profiles[paymentType])).then((result) => {
+      startTransition(() => setOutcomeByType((current) => ({ ...current, [paymentType]: result.ok ? `${result.outcome === "ACCEPTED" ? "Test sent" : result.outcome === "REVIEW" ? "Review required" : "Delivery failed"}${result.requestCode ? ` (${result.requestCode})` : ""}` : result.message })));
+    }).catch(() => {
+      startTransition(() => setOutcomeByType((current) => ({ ...current, [paymentType]: "Could not send test message." })));
+    }).finally(() => {
+      requestInFlight.current = false;
+      setRequestPending(false);
+    });
+  }
+
   return <>
     <Card>
     <CardHeader>
@@ -208,6 +225,7 @@ export function LineDueTemplateForm({ profiles: initialProfiles, previewAction, 
               <div className="flex flex-wrap items-center gap-2">
                 <Button type="button" variant="outline" disabled={profileInvalid || requestPending || pending} onClick={() => runProfileAction(previewAction, paymentType, "preview", "")}>Preview message</Button>
                 <Button type="button" disabled={profileInvalid || requestPending || pending} onClick={() => runProfileAction(saveAction, paymentType, "save", "Profile saved.")}>Save profile</Button>
+                <Button type="button" variant="outline" disabled={profileInvalid || requestPending || pending} onClick={() => sendSavedTest(paymentType)}>Send saved test message</Button>
                 <Button type="button" variant="ghost" disabled={requestPending || pending} onClick={() => runProfileAction(resetAction, paymentType, "reset", "Documented default restored.")}>Restore default</Button>
               </div>
               {previewByType[paymentType] ? <pre className="whitespace-pre-wrap rounded-md border bg-muted/40 p-3 text-sm">{previewByType[paymentType]}</pre> : null}

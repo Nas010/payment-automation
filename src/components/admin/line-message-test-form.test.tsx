@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 
 import React from "react";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDefaultLineMessageTestProfile, toLineMessageTestAdminView } from "@/lib/line/message-test-profile";
 import { LineMessageTestForm } from "./line-message-test-form";
@@ -59,36 +59,20 @@ describe("LineMessageTestForm", () => {
     expect((screen.getByLabelText("First due date") as HTMLInputElement).value).toBe("2026-08-15");
   });
 
-  it("forces one-time to initial and shows later controls plus all five slots only for installments", () => {
+  it("uses installment settings only for installment test clients", () => {
     render(<LineMessageTestForm {...props()} />);
-    fireEvent.change(screen.getByLabelText("Payment stage"), { target: { value: "LATER" } });
-    expect(screen.getByLabelText("Installment number")).not.toBeNull();
-    expect(screen.getByLabelText("Reminder timing").querySelectorAll("option")).toHaveLength(5);
+    expect(screen.getByLabelText("Installment count")).not.toBeNull();
+    expect(screen.getByLabelText("Interval (months)")).not.toBeNull();
 
     fireEvent.change(screen.getByLabelText("Payment type"), { target: { value: "ONE_TIME" } });
-    expect(screen.queryByLabelText("Payment stage")).toBeNull();
     expect(screen.queryByLabelText("Installment number")).toBeNull();
-    expect(screen.queryByLabelText("Reminder timing")).toBeNull();
+    expect(screen.queryByLabelText("Installment count")).toBeNull();
+    expect(screen.queryByLabelText("Interval (months)")).toBeNull();
   });
 
-  it("previews without sending and disables send until linked", async () => {
-    const actions = props();
-    const { rerender } = render(<LineMessageTestForm {...actions} />);
-    fireEvent.click(screen.getByRole("button", { name: "Preview message" }));
-    await screen.findByText("Rendered test message");
-    expect(actions.previewAction).toHaveBeenCalledOnce();
-    expect(actions.sendAction).not.toHaveBeenCalled();
-    expect((screen.getByRole("button", { name: "Send test message" }) as HTMLButtonElement).disabled).toBe(true);
-
-    const linkedProfile = { ...initial, lineLinkStatus: "LINKED" as const, lineDisplayName: "Test Account" };
-    rerender(<LineMessageTestForm {...props({ initialProfile: linkedProfile })} />);
-    expect((screen.getByRole("button", { name: "Send test message" }) as HTMLButtonElement).disabled).toBe(false);
-  });
-
-  it("shows accepted delivery in the live status region", async () => {
-    const linkedProfile = { ...initial, lineLinkStatus: "LINKED" as const, lineDisplayName: "Test Account" };
-    render(<LineMessageTestForm {...props({ initialProfile: linkedProfile })} />);
-    fireEvent.click(screen.getByRole("button", { name: "Send test message" }));
-    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Accepted"));
+  it("keeps preview and delivery actions out of recipient setup", () => {
+    render(<LineMessageTestForm {...props()} />);
+    expect(screen.queryByRole("button", { name: "Preview message" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /send test message/i })).toBeNull();
   });
 });
