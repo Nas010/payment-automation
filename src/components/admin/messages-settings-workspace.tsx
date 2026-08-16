@@ -15,7 +15,6 @@ export function MessagesSettingsWorkspace({ welcome, automaticReplies, paymentMe
   return <section className="flex flex-col gap-6">
     <div className="flex flex-col gap-1">
       <h2 className="text-xl font-semibold">Messages</h2>
-      <p className="text-sm text-muted-foreground">Choose a message type, then edit its template.</p>
     </div>
     <Tabs defaultValue="welcome" className="gap-6">
       <TabsList className="w-full justify-start overflow-x-auto">

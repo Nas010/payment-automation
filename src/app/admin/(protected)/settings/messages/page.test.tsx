@@ -17,7 +17,6 @@ vi.mock("@/lib/sheets/settings", () => ({
   resolveLineInstallmentReminderConfig: () => ({ kind: "VALID", config: DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG }),
   resolveLineAutomaticReplyConfig: () => ({ kind: "VALID", config: DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG }),
 }));
-vi.mock("@/lib/runtime-config", () => ({ runtimeConfig: vi.fn().mockResolvedValue({ lineMessagingEnabled: true, lineChatPaymentsEnabled: true }) }));
 vi.mock("@/components/admin/line-due-template-form", () => ({ LineDueTemplateForm: (props: unknown) => { mocks.dueForm(props); return null; } }));
 vi.mock("@/components/admin/line-installment-reminder-form", () => ({ LineInstallmentReminderForm: (props: unknown) => { mocks.reminderForm(props); return null; } }));
 vi.mock("@/components/admin/line-welcome-template-form", () => ({ LineWelcomeTemplateForm: (props: unknown) => { mocks.welcomeForm(props); return null; } }));

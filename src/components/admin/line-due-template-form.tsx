@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
+import { PlusIcon, XIcon } from "lucide-react";
 import { LinePlaceholderEditor, type PlaceholderOption } from "@/components/admin/line-placeholder-editor";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,8 +23,6 @@ type ProfileAction = (formData: FormData) => Promise<LineDueMessageProfileAction
 
 type Props = {
   profiles: ResolvedLineDueMessageProfiles;
-  messagingEnabled: boolean;
-  chatPaymentsEnabled: boolean;
   previewAction: ProfileAction;
   saveAction: ProfileAction;
   resetAction: ProfileAction;
@@ -42,10 +41,11 @@ function optionsFor(paymentType: LinePaymentType): PlaceholderOption[] {
   return systemPlaceholders(paymentType).map((name) => ({ name, label: name.replaceAll("_", " ") }));
 }
 
-export function LineDueTemplateForm({ profiles: initialProfiles, messagingEnabled, chatPaymentsEnabled, previewAction, saveAction, resetAction }: Props) {
+export function LineDueTemplateForm({ profiles: initialProfiles, previewAction, saveAction, resetAction }: Props) {
   const [profiles, setProfiles] = useState<LineDueMessageProfiles>(() => Object.fromEntries(paymentTypes.map((paymentType) => [paymentType, initialProfiles[paymentType].kind === "VALID" ? structuredClone(initialProfiles[paymentType].profile) : structuredClone(DEFAULT_LINE_DUE_PROFILES[paymentType])])) as LineDueMessageProfiles);
   const [invalidByType, setInvalidByType] = useState<Record<LinePaymentType, boolean>>(() => Object.fromEntries(paymentTypes.map((paymentType) => [paymentType, initialProfiles[paymentType].kind === "INVALID"])) as Record<LinePaymentType, boolean>);
   const [activeType, setActiveType] = useState<LinePaymentType>("ONE_TIME");
+  const [customEditorByType, setCustomEditorByType] = useState<Record<LinePaymentType, string | null>>({ ONE_TIME: null, INSTALLMENTS: null });
   const [previewByType, setPreviewByType] = useState<Record<LinePaymentType, string>>({ ONE_TIME: "", INSTALLMENTS: "" });
   const [outcomeByType, setOutcomeByType] = useState<Record<LinePaymentType, string>>({ ONE_TIME: "", INSTALLMENTS: "" });
   const [requestPending, setRequestPending] = useState(false);
@@ -85,6 +85,7 @@ export function LineDueTemplateForm({ profiles: initialProfiles, messagingEnable
       ...profile,
       customPlaceholders: profile.customPlaceholders.map((item, itemIndex) => itemIndex === index ? { ...item, name } : item),
     }));
+    setCustomEditorByType((current) => current[paymentType] === profiles[paymentType].customPlaceholders[index]?.name ? { ...current, [paymentType]: name } : current);
   }
 
   function removeCustom(paymentType: LinePaymentType, name: string): void {
@@ -92,13 +93,16 @@ export function LineDueTemplateForm({ profiles: initialProfiles, messagingEnable
       ...profile,
       customPlaceholders: profile.customPlaceholders.filter((item) => item.name !== name),
     });
+    setCustomEditorByType((current) => current[paymentType] === name ? { ...current, [paymentType]: null } : current);
   }
 
   function addCustom(paymentType: LinePaymentType): void {
+    const name = nextCustomName(profiles[paymentType]);
     updateProfile(paymentType, (profile) => ({
       ...profile,
-      customPlaceholders: [...profile.customPlaceholders, { name: nextCustomName(profile), template: "" }],
+      customPlaceholders: [...profile.customPlaceholders, { name, template: "" }],
     }));
+    setCustomEditorByType((current) => ({ ...current, [paymentType]: name }));
   }
 
   function runProfileAction(action: ProfileAction, paymentType: LinePaymentType, mode: "preview" | "save" | "reset", success: string): void {
@@ -133,13 +137,9 @@ export function LineDueTemplateForm({ profiles: initialProfiles, messagingEnable
   return <Card>
     <CardHeader>
       <CardTitle>LINE due-payment messages</CardTitle>
-      <CardDescription>Set separate messages for one-time payments and installments. Required: amount, due_date, payment_url.</CardDescription>
+      <CardDescription>Set separate messages for one-time payments and installments. Requires an amount, due date, and payment link.</CardDescription>
     </CardHeader>
     <CardContent>
-      <div className="mb-4 flex flex-wrap gap-2 text-sm text-muted-foreground">
-        <span>{messagingEnabled ? "LINE messaging enabled" : "LINE messaging disabled"}</span>
-        <span>{chatPaymentsEnabled ? "LINE chat payments enabled" : "LINE chat payments disabled"}</span>
-      </div>
       <Tabs value={activeType} onValueChange={(value) => setActiveType(value === "INSTALLMENTS" ? "INSTALLMENTS" : "ONE_TIME")}>
         <TabsList>
           <TabsTrigger value="ONE_TIME">One-time payment</TabsTrigger>
@@ -151,26 +151,36 @@ export function LineDueTemplateForm({ profiles: initialProfiles, messagingEnable
           const systemOptions = optionsFor(paymentType);
           const mainOptions = [...systemOptions, ...profile.customPlaceholders.map(({ name }) => ({ name, label: name.replaceAll("_", " ") }))];
           const messageLabel = paymentType === "ONE_TIME" ? "One-time payment message" : "Installment payment message";
+          const selectedCustom = profile.customPlaceholders.find(({ name }) => name === customEditorByType[paymentType]);
           return <TabsContent key={paymentType} value={paymentType}>
             <FieldGroup className="mt-4">
-              {profile.customPlaceholders.map((definition, index) => {
-                const referenced = customIsReferenced(profile, definition.name);
-                return <fieldset key={`${paymentType}-${index}`} disabled={profileInvalid} className="rounded-md border p-3">
-                  <FieldLabel htmlFor={`${paymentType}-${index}-name`}>Custom placeholder</FieldLabel>
-                  <Input id={`${paymentType}-${index}-name`} aria-label={`Placeholder name ${definition.name}`} value={definition.name} disabled={profileInvalid || referenced} onChange={(event) => renameCustom(paymentType, index, event.target.value)} />
-                  <div className="mt-3">
-                    <LinePlaceholderEditor id={`${paymentType}-${index}-template`} label={`Placeholder content ${definition.name}`} value={definition.template} placeholders={systemOptions} onChange={(template) => updateCustomTemplate(paymentType, definition.name, template)} disabled={profileInvalid} />
-                  </div>
-                  <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <Button type="button" variant="ghost" aria-label={`Remove ${definition.name}`} disabled={profileInvalid || referenced} onClick={() => removeCustom(paymentType, definition.name)}>Remove</Button>
-                    {referenced ? <FieldDescription>Remove it from the message before renaming or deleting.</FieldDescription> : null}
-                  </div>
-                </fieldset>;
-              })}
+              <div className="flex flex-wrap gap-2" aria-label="Custom placeholders">
+                {profile.customPlaceholders.map((definition) => {
+                  const referenced = customIsReferenced(profile, definition.name);
+                  const isSelected = definition.name === selectedCustom?.name;
+                  return <div key={`${paymentType}-${definition.name}`} className="flex items-center overflow-hidden rounded-lg border bg-background">
+                    <Button type="button" variant="ghost" size="sm" aria-label={`Edit placeholder ${definition.name}`} aria-pressed={isSelected} disabled={profileInvalid} onClick={() => setCustomEditorByType((current) => ({ ...current, [paymentType]: definition.name }))}>
+                      {definition.name.replaceAll("_", " ")}
+                    </Button>
+                    <Button type="button" variant="ghost" size="icon-xs" className="rounded-none border-l" aria-label={`Remove ${definition.name}`} disabled={profileInvalid || referenced} onClick={() => removeCustom(paymentType, definition.name)}>
+                      <XIcon />
+                    </Button>
+                  </div>;
+                })}
+                <Button type="button" variant="outline" size="sm" aria-label="Add placeholder" onClick={() => addCustom(paymentType)} disabled={profileInvalid || profile.customPlaceholders.length >= 20}>
+                  <PlusIcon data-icon="inline-start" />
+                  Add placeholder
+                </Button>
+              </div>
+              {selectedCustom ? <fieldset disabled={profileInvalid} className="rounded-md border p-3">
+                <FieldLabel htmlFor={`${paymentType}-${selectedCustom.name}-name`}>Custom placeholder</FieldLabel>
+                <Input id={`${paymentType}-${selectedCustom.name}-name`} aria-label={`Placeholder name ${selectedCustom.name}`} value={selectedCustom.name} disabled={profileInvalid || customIsReferenced(profile, selectedCustom.name)} onChange={(event) => renameCustom(paymentType, profile.customPlaceholders.findIndex((item) => item.name === selectedCustom.name), event.target.value)} />
+                <div className="mt-3">
+                  <LinePlaceholderEditor id={`${paymentType}-${selectedCustom.name}-template`} label={`Placeholder content ${selectedCustom.name}`} value={selectedCustom.template} placeholders={systemOptions} onChange={(template) => updateCustomTemplate(paymentType, selectedCustom.name, template)} disabled={profileInvalid} />
+                </div>
+              </fieldset> : null}
               {profileInvalid ? <FieldDescription role="alert">Stored profile is invalid. Restore documented default before editing or sending.</FieldDescription> : null}
-              <Button type="button" variant="outline" onClick={() => addCustom(paymentType)} disabled={profileInvalid || profile.customPlaceholders.length >= 20}>Add placeholder</Button>
               <LinePlaceholderEditor id={`${paymentType}-message`} label={messageLabel} value={profile.message} placeholders={mainOptions} onChange={(message) => updateProfile(paymentType, (current) => ({ ...current, message }))} rows={10} disabled={profileInvalid} />
-              <FieldDescription>Message limit: 5,000 characters after substitution. Custom placeholders may use system placeholders only.</FieldDescription>
               <div className="flex flex-wrap items-center gap-2">
                 <Button type="button" variant="outline" disabled={profileInvalid || requestPending || pending} onClick={() => runProfileAction(previewAction, paymentType, "preview", "")}>Preview message</Button>
                 <Button type="button" disabled={profileInvalid || requestPending || pending} onClick={() => runProfileAction(saveAction, paymentType, "save", "Profile saved.")}>Save profile</Button>

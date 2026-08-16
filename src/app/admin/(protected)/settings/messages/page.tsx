@@ -5,12 +5,11 @@ import { LineAutomaticReplyForm } from "@/components/admin/line-automatic-reply-
 import { MessagesSettingsWorkspace } from "@/components/admin/messages-settings-workspace";
 import { DEFAULT_LINE_WELCOME_TEMPLATE } from "@/lib/line/message-template";
 import { resolveLineAutomaticReplyConfig } from "@/lib/line/reply-config";
-import { runtimeConfig } from "@/lib/runtime-config";
 import { listOperationalSettings, resolveLineDueMessageProfiles, resolveLineInstallmentReminderConfig } from "@/lib/sheets/settings";
 import { previewLineDueMessageProfileAction, previewLineInstallmentReminderAction, previewLineWelcomeTemplateAction, resetLineAutomaticReplyConfigAction, resetLineDueMessageProfileAction, resetLineInstallmentReminderConfigAction, resetLineWelcomeTemplateAction, saveLineAutomaticReplyConfigAction, saveLineDueMessageProfileAction, saveLineInstallmentReminderConfigAction, saveLineWelcomeTemplateAction } from "../line-actions";
 
 export default async function MessagesSettingsPage() {
-  const [settings, config] = await Promise.all([listOperationalSettings(), runtimeConfig()]);
+  const settings = await listOperationalSettings();
   const dueProfiles = resolveLineDueMessageProfiles(settings);
   const reminderConfig = resolveLineInstallmentReminderConfig(settings);
   const automaticReplies = resolveLineAutomaticReplyConfig(settings);
@@ -19,7 +18,7 @@ export default async function MessagesSettingsPage() {
   return <MessagesSettingsWorkspace
     welcome={<LineWelcomeTemplateForm template={welcomeTemplate} previewAction={previewLineWelcomeTemplateAction} saveAction={saveLineWelcomeTemplateAction} resetAction={resetLineWelcomeTemplateAction} />}
     automaticReplies={<LineAutomaticReplyForm resolved={automaticReplies} saveAction={saveLineAutomaticReplyConfigAction} resetAction={resetLineAutomaticReplyConfigAction} />}
-    paymentMessages={<LineDueTemplateForm profiles={dueProfiles} messagingEnabled={config.lineMessagingEnabled} chatPaymentsEnabled={config.lineChatPaymentsEnabled} previewAction={previewLineDueMessageProfileAction} saveAction={saveLineDueMessageProfileAction} resetAction={resetLineDueMessageProfileAction} />}
+    paymentMessages={<LineDueTemplateForm profiles={dueProfiles} previewAction={previewLineDueMessageProfileAction} saveAction={saveLineDueMessageProfileAction} resetAction={resetLineDueMessageProfileAction} />}
     reminders={<LineInstallmentReminderForm resolved={reminderConfig} previewAction={previewLineInstallmentReminderAction} saveAction={saveLineInstallmentReminderConfigAction} resetAction={resetLineInstallmentReminderConfigAction} />}
   />;
 }

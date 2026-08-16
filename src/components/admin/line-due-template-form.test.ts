@@ -45,8 +45,6 @@ function renderProfileForm(options: RenderOptions = {}) {
   });
   render(createElement(LineDueTemplateForm, {
     profiles: options.resolved ?? resolvedProfiles(profiles),
-    messagingEnabled: true,
-    chatPaymentsEnabled: true,
     previewAction,
     saveAction,
     resetAction,
@@ -113,7 +111,19 @@ describe("LineDueTemplateForm", () => {
     expect(within(editor).getByRole("button", { name: "Insert {{installment_ordinal_word}}" })).toBeTruthy();
   });
 
-  it("adds a custom placeholder and inserts it into the active profile message", () => {
+  it("renders custom placeholders as pills and opens one to edit", () => {
+    renderProfileForm();
+
+    expect(screen.getByRole("button", { name: "Edit placeholder payment_label" })).toBeTruthy();
+    expect(screen.queryByLabelText("Placeholder name payment_label")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit placeholder payment_label" }));
+
+    expect(screen.getByLabelText("Placeholder name payment_label")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Remove payment_label" })).toBeTruthy();
+  });
+
+  it("adds a custom placeholder from the pill list and inserts it into the active profile message", () => {
     renderProfileForm();
     fireEvent.click(screen.getByRole("button", { name: "Add placeholder" }));
     fireEvent.change(screen.getByLabelText("Placeholder name custom_1"), { target: { value: "greeting" } });
@@ -123,13 +133,15 @@ describe("LineDueTemplateForm", () => {
 
   it("blocks rename and removal while the custom placeholder is referenced", () => {
     renderProfileForm({ oneTimeMessage: "{{payment_label}} {{amount}} {{due_date}} {{payment_url}}" });
+    fireEvent.click(screen.getByRole("button", { name: "Edit placeholder payment_label" }));
     expect((screen.getByLabelText("Placeholder name payment_label") as HTMLInputElement).disabled).toBe(true);
     expect((screen.getByRole("button", { name: "Remove payment_label" }) as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByText(/remove it from the message before renaming or deleting/i)).toBeTruthy();
+    expect(screen.queryByText(/remove it from the message before renaming or deleting/i)).toBeNull();
   });
 
   it("renames and removes an unused custom placeholder", () => {
     renderProfileForm({ oneTimeMessage: "{{amount}} {{due_date}} {{payment_url}}" });
+    fireEvent.click(screen.getByRole("button", { name: "Edit placeholder payment_label" }));
     fireEvent.change(screen.getByLabelText("Placeholder name payment_label"), { target: { value: "summary" } });
     expect(screen.getByLabelText("Placeholder name summary")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Remove summary" }));
@@ -205,6 +217,7 @@ describe("LineDueTemplateForm", () => {
 
   it("offers only system placeholders in custom-definition editors", () => {
     renderProfileForm();
+    fireEvent.click(screen.getByRole("button", { name: "Edit placeholder payment_label" }));
     const editor = screen.getByRole("group", { name: "Placeholder content payment_label editor" });
 
     expect(within(editor).getByRole("button", { name: "Insert {{amount}}" })).toBeTruthy();
