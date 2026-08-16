@@ -18,7 +18,7 @@ export function MessagesSettingsWorkspace({ welcome, automaticReplies, paymentMe
       <p className="text-sm text-muted-foreground">Choose a message type, then edit its template.</p>
     </div>
     <Tabs defaultValue="welcome" className="gap-6">
-      <TabsList className="grid h-auto w-full grid-cols-2 gap-1 p-1 2xl:grid-cols-4">
+      <TabsList className="grid h-auto w-full grid-cols-2 gap-1 p-1 group-data-horizontal/tabs:h-auto 2xl:grid-cols-4">
         <TabsTrigger value="welcome" className="h-auto min-h-12 justify-start whitespace-normal px-3 py-2 text-left">
           <HandshakeIcon data-icon="inline-start" />
           <span>Welcome message</span>
