@@ -11,7 +11,9 @@
     "test:watch": "vitest",
     "smoke": "tsx scripts/smoke-production.ts",
     "ocr:benchmark": "tsx scripts/benchmark-slip-ocr.ts",
-    "ocr:reprocess": "tsx --env-file-if-exists=.env.local scripts/reprocess-slip-ocr.ts"
+    "ocr:reprocess": "tsx --env-file-if-exists=.env.local scripts/reprocess-slip-ocr.ts",
+    "ocr:fuzz": "tsx scripts/ocr-fuzz.ts",
+    "test:python": "python3 -m unittest discover -s api -p 'test_*.py'"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

@@ -12,6 +12,14 @@ const nextConfig: NextConfig = {
     "/api/payment/[token]/submit": [
       "./node_modules/tesseract.js-core/**/*",
       "./node_modules/tesseract.js/node_modules/tesseract.js-core/**/*.wasm",
+      "./eng.traineddata",
+      "./tha.traineddata",
+    ],
+    "/api/line/webhook": [
+      "./node_modules/tesseract.js-core/**/*",
+      "./node_modules/tesseract.js/node_modules/tesseract.js-core/**/*.wasm",
+      "./eng.traineddata",
+      "./tha.traineddata",
     ],
   },
 };

@@ -11,6 +11,7 @@ import { analyzeSlip, type SlipAnalysis } from "@/lib/slip/analyze";
 import { appendAudit, listPayments, updatePayment, updatePaymentIfUnchanged, type PaymentRecord } from "@/lib/sheets/payments";
 import { listSchedules, type ScheduleRecord } from "@/lib/sheets/schedules";
 import { listClients, type ClientRecord } from "@/lib/sheets/clients";
+import { deriveRecipientProxySuffix } from "@/lib/slip/recipient";
 
 export type LineSlipEvent = { webhookEventId: string; replyToken: string; lineUserId: string; messageId: string };
 
@@ -34,10 +35,11 @@ export type LineSlipDependencies = {
   lineChatPaymentsEnabled: () => boolean;
   automaticReplyConfig: LineAutomaticReplyConfig;
   receiverAliases: () => string[];
+  recipientProxySuffix?: () => string | null;
   getLineChannelAccessToken: () => Promise<string>;
   getLineMessageContent: typeof getLineMessageContent;
   hashSlipImage: (bytes: Uint8Array) => string;
-  analyzeSlip: (bytes: Uint8Array, declaredType: string, receiverAliases?: string[]) => Promise<SlipAnalysis>;
+  analyzeSlip: (bytes: Uint8Array, declaredType: string, receiverAliases?: string[], options?: { recipientProxySuffix?: string | null }) => Promise<SlipAnalysis>;
   resolveLinePaymentCandidate: typeof resolveLinePaymentCandidate;
   processSlipImage: typeof processSlipImage;
   replyLineMessage: typeof replyLineMessage;
@@ -46,7 +48,7 @@ export type LineSlipDependencies = {
 
 async function defaultDependencies(): Promise<LineSlipDependencies> {
   const [config, automaticReplyConfig] = await Promise.all([runtimeConfig(), getLineAutomaticReplyConfig()]);
-  return { listClients, listPayments, listSchedules, updatePayment, updatePaymentIfUnchanged, appendAudit, persistPaymentTransition, reconcileTerminalPaymentEffects, lineChatPaymentsEnabled: () => config.lineChatPaymentsEnabled, automaticReplyConfig, receiverAliases: () => [config.recipientNameEn, config.recipientNameTh, ...config.recipientAliases].filter(Boolean), getLineChannelAccessToken, getLineMessageContent, hashSlipImage: sha256, analyzeSlip: (bytes, declaredType, aliases) => analyzeSlip(bytes, declaredType, aliases, { ocrEnabled: config.ocrEnabled }), resolveLinePaymentCandidate, processSlipImage, replyLineMessage, now: () => new Date().toISOString() };
+  return { listClients, listPayments, listSchedules, updatePayment, updatePaymentIfUnchanged, appendAudit, persistPaymentTransition, reconcileTerminalPaymentEffects, lineChatPaymentsEnabled: () => config.lineChatPaymentsEnabled, automaticReplyConfig, receiverAliases: () => [config.recipientNameEn, config.recipientNameTh, ...config.recipientAliases].filter(Boolean), recipientProxySuffix: () => deriveRecipientProxySuffix(config.promptPayIdentifier), getLineChannelAccessToken, getLineMessageContent, hashSlipImage: sha256, analyzeSlip: (bytes, declaredType, aliases, options) => analyzeSlip(bytes, declaredType, aliases, { ocrEnabled: config.ocrEnabled, recipientProxySuffix: options?.recipientProxySuffix ?? deriveRecipientProxySuffix(config.promptPayIdentifier) }), resolveLinePaymentCandidate, processSlipImage, replyLineMessage, now: () => new Date().toISOString() };
 }
 
 function linkedClient(clients: ClientRecord[], lineUserId: string): ClientRecord | null {
@@ -214,9 +216,12 @@ export async function processLineSlipEvent(event: LineSlipEvent, injected?: Line
   if (!await progress(dependencies, owner.payment_id, "DOWNLOADING", "ANALYZING")) return { kind: "ignored" };
 
   const receiverAliases = [...dependencies.receiverAliases()];
+  const recipientProxySuffix = dependencies.recipientProxySuffix?.() ?? null;
   let analysis: SlipAnalysis;
   try {
-    analysis = await dependencies.analyzeSlip(content.bytes, content.mimeType, receiverAliases);
+    analysis = dependencies.recipientProxySuffix
+      ? await dependencies.analyzeSlip(content.bytes, content.mimeType, receiverAliases, { recipientProxySuffix })
+      : await dependencies.analyzeSlip(content.bytes, content.mimeType, receiverAliases);
   } catch {
     const failed = await progress(dependencies, owner.payment_id, "ANALYZING", "FAILED_TRANSIENT", "LINE slip analysis failed");
     if (failed) await audit(dependencies, failed, "LINE_SLIP_ANALYSIS_FAILED", "LINE slip analysis failed", event);
@@ -240,7 +245,7 @@ export async function processLineSlipEvent(event: LineSlipEvent, injected?: Line
 
   let result: SlipProcessResult;
   try {
-    result = await dependencies.processSlipImage({ bytes: content.bytes, declaredType: content.mimeType, expectedPayment: selected, source: { type: "LINE", lineUserId: event.lineUserId, lineMessageId: event.messageId, clientId: client.client_id }, analysis, receiverAliases });
+    result = await dependencies.processSlipImage({ bytes: content.bytes, declaredType: content.mimeType, expectedPayment: selected, source: { type: "LINE", lineUserId: event.lineUserId, lineMessageId: event.messageId, clientId: client.client_id }, analysis, receiverAliases, recipientProxySuffix });
   } catch {
     const failed = await progress(dependencies, selected.payment_id, "ANALYZING", "FAILED_TRANSIENT", "LINE slip processing failed");
     if (failed) await audit(dependencies, failed, "LINE_SLIP_PROCESSING_FAILED", "LINE slip processing failed", event);

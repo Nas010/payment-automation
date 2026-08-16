@@ -1,0 +1,20 @@
+{
+  "engine": "PaddleOCR",
+  "version": "3.7.0",
+  "runtime": "onnxruntime==1.28.0",
+  "license": "Apache-2.0",
+  "models": [
+    {
+      "name": "PP-OCRv5_mobile_det",
+      "source": "https://huggingface.co/PaddlePaddle/PP-OCRv5_mobile_det",
+      "sha256": "RECORD_PINNED_ARTIFACT_SHA256_BEFORE_ENABLEMENT"
+    },
+    {
+      "name": "th_PP-OCRv5_mobile_rec",
+      "source": "https://huggingface.co/PaddlePaddle/th_PP-OCRv5_mobile_rec",
+      "sha256": "RECORD_PINNED_ARTIFACT_SHA256_BEFORE_ENABLEMENT"
+    }
+  ],
+  "runtime_downloads": false,
+  "production_enabled": false
+}

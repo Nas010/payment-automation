@@ -45,4 +45,12 @@ describe("evaluatePayment", () => {
     const original = evaluatePayment(payment, { imageDuplicate: false, transactionDuplicate: false, qrValid: true, transactionRef: "TX1", amountSatang: 300000, receiver: "NAS O", transactionDate: "2026-08-10T04:00:00.000Z" });
     expect(sendToReviewForStorageFailure(original)).toMatchObject({ decision: "REVIEW", reasons: expect.arrayContaining(["Private slip storage failed; manual review is required"]) });
   });
+
+  it("requires agreed recipient suffix and success evidence for automatic recording", () => {
+    const base = { imageDuplicate: false, transactionDuplicate: false, qrValid: true, transactionRef: "TX1", amountSatang: 300000, receiver: "NAS O", transactionDate: "2026-08-10T04:00:00.000Z" };
+    expect(evaluatePayment(payment, { ...base, recipientProxyMatch: null, transferStatus: "UNKNOWN" }).decision).toBe("REVIEW");
+    expect(evaluatePayment(payment, { ...base, recipientProxyMatch: false, transferStatus: "SUCCESS" }).decision).toBe("FLAGGED");
+    expect(evaluatePayment(payment, { ...base, recipientProxyMatch: true, transferStatus: "NOT_SUCCESS" }).decision).toBe("FLAGGED");
+    expect(evaluatePayment(payment, { ...base, recipientProxyMatch: true, transferStatus: "SUCCESS" }).decision).toBe("AUTO_RECORDED");
+  });
 });

@@ -18,6 +18,9 @@ export interface SlipSignals {
   amountSatang: number | null;
   receiver: string | null;
   transactionDate: string | null;
+  /** New evidence fields are optional for old callers; production paths always set them. */
+  recipientProxyMatch?: boolean | null;
+  transferStatus?: "SUCCESS" | "NOT_SUCCESS" | "UNKNOWN";
 }
 
 export interface Evaluation {
@@ -53,17 +56,28 @@ function plausibleDate(value: string | null, createdAt: string): boolean {
 export function evaluatePayment(payment: EvaluationPayment, signals: SlipSignals): Evaluation {
   const reasons: string[] = [];
   const amountMatch = signals.amountSatang === payment.amountSatang;
-  const receiverMatch = matchesReceiver(signals.receiver, payment.receiverAliases);
+  const hasEvidencePolicy = "recipientProxyMatch" in signals || "transferStatus" in signals;
+  // Legacy direct callers predate suffix/status evidence. All application
+  // entrypoints pass the fields, so missing evidence there remains REVIEW.
+  const receiverNameMatch = matchesReceiver(signals.receiver, payment.receiverAliases);
+  const recipientProxyMatch = hasEvidencePolicy ? signals.recipientProxyMatch ?? null : true;
+  const receiverMatch = hasEvidencePolicy
+    ? receiverNameMatch && recipientProxyMatch === true
+    : receiverNameMatch;
   const dateMatch = plausibleDate(signals.transactionDate, payment.createdAt);
+  const transferStatus = hasEvidencePolicy ? signals.transferStatus ?? "UNKNOWN" : "SUCCESS";
 
   if (signals.imageDuplicate) reasons.push("Exact slip image is already allocated to another payment");
   if (signals.transactionDuplicate) reasons.push("Transaction reference is already allocated to another payment");
   if (signals.amountSatang !== null && !amountMatch) reasons.push("Slip amount differs from expected amount");
-  if (signals.receiver && !receiverMatch) reasons.push("Slip recipient does not match configured recipient");
+  if (signals.receiver && !receiverNameMatch) reasons.push("Slip recipient does not match configured recipient");
+  if (hasEvidencePolicy && recipientProxyMatch === false) reasons.push("Slip recipient proxy suffix does not match configured recipient");
+  if (hasEvidencePolicy && transferStatus === "NOT_SUCCESS") reasons.push("Slip transfer status is not successful");
 
   if (reasons.length > 0) return { decision: "FLAGGED", score: 0, reasons, amountMatch, receiverMatch, dateMatch };
 
-  const complete = signals.qrValid && Boolean(signals.transactionRef) && amountMatch && receiverMatch && dateMatch;
+  const complete = signals.qrValid && Boolean(signals.transactionRef) && amountMatch && receiverMatch && dateMatch
+    && (!hasEvidencePolicy || (recipientProxyMatch === true && transferStatus === "SUCCESS"));
   if (complete) return { decision: "AUTO_RECORDED", score: 100, reasons: ["All operational checks passed; not bank verified"], amountMatch, receiverMatch, dateMatch };
 
   if (!signals.qrValid) reasons.push("Slip verification QR missing or invalid");
@@ -71,7 +85,9 @@ export function evaluatePayment(payment: EvaluationPayment, signals: SlipSignals
   if (signals.amountSatang === null) reasons.push("Amount could not be extracted");
   if (!receiverMatch) reasons.push("Recipient match uncertain");
   if (!dateMatch) reasons.push("Transaction date unavailable or unusual");
-  return { decision: "REVIEW", score: [signals.qrValid, amountMatch, receiverMatch, dateMatch].filter(Boolean).length * 20, reasons, amountMatch, receiverMatch, dateMatch };
+  if (hasEvidencePolicy && recipientProxyMatch === null) reasons.push("Recipient proxy suffix evidence is missing or conflicting");
+  if (hasEvidencePolicy && transferStatus === "UNKNOWN") reasons.push("Transfer status evidence is missing or conflicting");
+  return { decision: "REVIEW", score: [signals.qrValid, amountMatch, receiverMatch, dateMatch, !hasEvidencePolicy || transferStatus === "SUCCESS"].filter(Boolean).length * 20, reasons, amountMatch, receiverMatch, dateMatch };
 }
 
 export function sendToReviewForStorageFailure(evaluation: Evaluation): Evaluation {

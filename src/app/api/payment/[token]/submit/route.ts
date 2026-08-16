@@ -4,6 +4,7 @@ import { getPaymentByToken } from "@/lib/sheets/payments";
 import { paymentSubmissionLimiter } from "@/lib/security/rate-limit";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ token: string }> }): Promise<Response> {
   const { token } = await params;

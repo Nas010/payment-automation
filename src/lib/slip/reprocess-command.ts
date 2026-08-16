@@ -1,5 +1,6 @@
 import { runtimeConfig } from "@/lib/runtime-config";
 import { reprocessStoredSlipEvidence, type ReprocessSlipInput, type ReprocessSlipReport } from "./reprocess";
+import { deriveRecipientProxySuffix } from "./recipient";
 
 export type ReprocessArguments = { paymentIds: string[]; applyEvidence: boolean };
 export type ReprocessCommandResult = {
@@ -29,7 +30,7 @@ export function parseReprocessArguments(argumentsList: string[]): ReprocessArgum
 }
 
 export type ReprocessCommandDependencies = {
-  loadOcrSettings: () => Promise<{ receiverAliases: string[]; ocrEnabled: boolean }>;
+  loadOcrSettings: () => Promise<{ receiverAliases: string[]; recipientProxySuffix?: string | null; ocrEnabled: boolean }>;
   reprocess: (input: ReprocessSlipInput) => Promise<ReprocessSlipReport>;
 };
 
@@ -38,6 +39,7 @@ const defaultDependencies: ReprocessCommandDependencies = {
     const config = await runtimeConfig();
     return {
       receiverAliases: [config.recipientNameEn, config.recipientNameTh, ...config.recipientAliases].filter(Boolean),
+      recipientProxySuffix: deriveRecipientProxySuffix(config.promptPayIdentifier),
       ocrEnabled: config.ocrEnabled,
     };
   },
@@ -59,12 +61,14 @@ export async function runReprocessCommand(argumentsList: string[], dependencies:
   const args = parseReprocessArguments(argumentsList);
   const settings = await dependencies.loadOcrSettings();
   const receiverAliases = [...settings.receiverAliases];
+  const recipientProxySuffix = settings.recipientProxySuffix ?? null;
   const results: ReprocessCommandResult["results"] = [];
   for (let index = 0; index < args.paymentIds.length; index += 1) {
     try {
       const report = await dependencies.reprocess({
         paymentId: args.paymentIds[index]!,
         receiverAliases,
+        ...(settings.recipientProxySuffix !== undefined ? { recipientProxySuffix } : {}),
         ocrEnabled: settings.ocrEnabled,
         applyEvidence: args.applyEvidence,
       });

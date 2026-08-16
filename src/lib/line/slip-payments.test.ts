@@ -17,7 +17,7 @@ function payment(overrides: Partial<PaymentRecord> = {}): PaymentRecord {
 }
 
 function analysis(overrides: Partial<SlipAnalysis> = {}): SlipAnalysis {
-  return { imageHash: "image-hash", qrPayloadHash: "qr-hash", qrValid: true, transactionRef: "TXN-100", originatingBank: "014", ocrAmountSatang: 300000, ocrReceiver: "NAS O", ocrTransactionDate: "2026-08-11T04:00:00.000Z", reasons: [], ...overrides };
+  return { imageHash: "image-hash", qrPayloadHash: "qr-hash", qrValid: true, transactionRef: "TXN-100", originatingBank: "014", ocrAmountSatang: 300000, ocrReceiver: "NAS O", ocrTransactionDate: "2026-08-11T04:00:00.000Z", reasons: [], ...overrides, recipientProxyMatch: overrides.recipientProxyMatch ?? true, transferStatus: overrides.transferStatus ?? "SUCCESS" };
 }
 
 function dependencies(overrides: Partial<LineSlipDependencies> = {}, initialPayments: PaymentRecord[] = [payment()]): LineSlipDependencies {
@@ -140,6 +140,20 @@ describe("processLineSlipEvent", () => {
     expect(deps.processSlipImage).toHaveBeenCalledWith(expect.objectContaining({ receiverAliases: ["NAS O", "NAS OFFICE"] }));
     expect(deps.receiverAliases).toHaveBeenCalledTimes(1);
     expect(deps.appendAudit.mock.calls.flat().join(" ")).not.toContain("NAS OFFICE");
+  });
+
+  it("freezes recipient aliases and suffix for both analysis and evaluation", async () => {
+    const suffix = vi.fn(() => "8717");
+    const deps = dependencies({
+      receiverAliases: vi.fn(() => ["NAS O"]),
+      recipientProxySuffix: suffix,
+    } as Partial<LineSlipDependencies>);
+
+    await processLineSlipEvent(event, deps);
+
+    expect(deps.analyzeSlip).toHaveBeenCalledWith(expect.any(Uint8Array), "image/jpeg", ["NAS O"], { recipientProxySuffix: "8717" });
+    expect(deps.processSlipImage).toHaveBeenCalledWith(expect.objectContaining({ receiverAliases: ["NAS O"], recipientProxySuffix: "8717" }));
+    expect(suffix).toHaveBeenCalledOnce();
   });
 
   it("reconciles terminal transition effects before replying to a redelivered LINE message", async () => {

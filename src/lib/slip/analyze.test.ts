@@ -10,7 +10,7 @@ vi.mock("tesseract.js", () => ({
 
 vi.mock("./qr", () => ({ selectSlipQrPayload: mocks.selectSlipQrPayload }));
 
-import { analyzeSlip } from "./analyze";
+import { analyzeSlip, normalizeOcrImage, preprocessOcrImage } from "./analyze";
 
 let image: Buffer;
 
@@ -44,6 +44,18 @@ beforeEach(async () => {
 });
 
 describe("analyzeSlip", () => {
+  it("keeps normalized OCR variants dimension-stable and does not mutate source bytes", async () => {
+    const source = await sharp({ create: { width: 24, height: 12, channels: 4, background: { r: 240, g: 220, b: 210, alpha: 0.5 } } }).png().toBuffer();
+    const original = Buffer.from(source);
+    const normalized = await normalizeOcrImage(source);
+    const clahe = await preprocessOcrImage(normalized, "CLAHE");
+    const sauvola = await preprocessOcrImage(normalized, "SAUVOLA");
+    await expect(sharp(normalized).metadata()).resolves.toMatchObject({ width: 24, height: 12 });
+    await expect(sharp(clahe).metadata()).resolves.toMatchObject({ width: 24, height: 12 });
+    await expect(sharp(sauvola).metadata()).resolves.toMatchObject({ width: 24, height: 12 });
+    expect(Buffer.compare(source, original)).toBe(0);
+  });
+
   it("recovers a separately printed amount only when both field passes agree", async () => {
     const mixedWorker = worker([
       {
@@ -63,7 +75,7 @@ describe("analyzeSlip", () => {
     const result = await analyzeSlip(image, "image/png", ["นางสาว พีรพร บุญสนิท"]);
 
     expect(result.ocrAmountSatang).toBe(590000);
-    expect(mixedWorker.recognize).toHaveBeenCalledTimes(3);
+    expect(mixedWorker.recognize).toHaveBeenCalledTimes(4);
     expect(mixedWorker.recognize.mock.calls[0]?.[2]).toMatchObject({ text: true, blocks: true });
     expect(mixedWorker.setParameters).toHaveBeenCalledWith(expect.objectContaining({ tessedit_char_whitelist: "0123456789,. ", tessedit_pageseg_mode: "6" }));
   });
@@ -86,7 +98,7 @@ describe("analyzeSlip", () => {
     const result = await analyzeSlip(image, "image/png", ["นางสาว พีรพร บุญสนิท"]);
 
     expect(result.ocrAmountSatang).toBe(660000);
-    expect(mixedWorker.recognize).toHaveBeenCalledTimes(3);
+    expect(mixedWorker.recognize).toHaveBeenCalledTimes(4);
   });
 
   it("rejects conflicting field passes instead of trusting the full receipt", async () => {
@@ -109,7 +121,7 @@ describe("analyzeSlip", () => {
     expect(result.reasons).toContain("OCR_AMOUNT_AMBIGUOUS");
   });
 
-  it("keeps a clear amount on its labelled line without extra OCR passes", async () => {
+  it("keeps a one-pass labelled amount in review until an independent pass agrees", async () => {
     const mixedWorker = worker([{
       text: "โอนเงินสำเร็จ\nไปยัง นางสาว พีรพร บุญสนิท\nจำนวนเงิน 5,900.00 บาท",
       blocks: blocks([
@@ -120,8 +132,9 @@ describe("analyzeSlip", () => {
 
     const result = await analyzeSlip(image, "image/png", ["นางสาว พีรพร บุญสนิท"]);
 
-    expect(result.ocrAmountSatang).toBe(590000);
-    expect(mixedWorker.recognize).toHaveBeenCalledOnce();
+    expect(result.ocrAmountSatang).toBeNull();
+    expect(result.reasons).toContain("OCR_AMOUNT_NO_CANDIDATE");
+    expect(mixedWorker.recognize).toHaveBeenCalledTimes(4);
   });
 
   it("uses labelled two-pass text recovery when layout blocks are unavailable", async () => {
@@ -164,7 +177,7 @@ describe("analyzeSlip", () => {
     const result = await analyzeSlip(image, "image/png", ["นางสาว พีรพร บุญสนิท"]);
 
     expect(result.ocrReceiver).toBe("นางสาว พีรพร บุญสนิท");
-    expect(mocks.createWorker).toHaveBeenNthCalledWith(1, ["eng", "tha"]);
+    expect(mocks.createWorker).toHaveBeenNthCalledWith(1, ["eng", "tha"], undefined, expect.objectContaining({ langPath: expect.any(String), cacheMethod: "none" }));
     expect(mocks.createWorker).toHaveBeenNthCalledWith(2, ["tha"]);
   });
 
@@ -189,7 +202,7 @@ describe("analyzeSlip", () => {
     const result = await analyzeSlip(image, "image/png", ["นางสาว พีรพร บุญสนิท"]);
 
     expect(result.ocrReceiver).toBe("นางสาว พีรพร บุญสนิท");
-    expect(thaiWorker.recognize).toHaveBeenCalledTimes(4);
+    expect(thaiWorker.recognize).toHaveBeenCalledTimes(2);
     expect(thaiWorker.setParameters).toHaveBeenCalledOnce();
   });
 });

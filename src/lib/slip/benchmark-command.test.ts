@@ -14,6 +14,8 @@ function analysis(overrides: Partial<SlipAnalysis> = {}): SlipAnalysis {
     ocrTransactionDate: "2026-08-16T02:51:00.000Z",
     reasons: [],
     ...overrides,
+    recipientProxyMatch: overrides.recipientProxyMatch ?? true,
+    transferStatus: overrides.transferStatus ?? "SUCCESS",
   };
 }
 

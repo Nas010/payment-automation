@@ -9,6 +9,7 @@ import { privacySafeOcrDiagnostics } from "./diagnostics";
 export type ReprocessSlipInput = {
   paymentId: string;
   receiverAliases: string[];
+  recipientProxySuffix?: string | null;
   ocrEnabled: boolean;
   applyEvidence?: boolean;
 };
@@ -74,6 +75,9 @@ function declaredImageType(value: string): "image/jpeg" | "image/png" | "image/w
 function evaluateReprocessedPayment(payment: PaymentRecord, history: PaymentRecord[], analysis: SlipAnalysis, receiverAliases: string[], evaluate: typeof evaluatePayment): Evaluation {
   const expectedAmountSatang = parseSatang(payment.amount_thb);
   if (expectedAmountSatang === null || expectedAmountSatang <= 0) throw new Error("Payment amount is invalid");
+  const evidenceSignals = analysis.recipientProxyMatch !== undefined || analysis.transferStatus !== undefined
+    ? { recipientProxyMatch: analysis.recipientProxyMatch ?? null, transferStatus: analysis.transferStatus ?? "UNKNOWN" as const }
+    : {};
   return evaluate(
     { paymentId: payment.payment_id, amountSatang: expectedAmountSatang, createdAt: payment.created_at, receiverAliases, timezone: "Asia/Bangkok" },
     {
@@ -84,6 +88,7 @@ function evaluateReprocessedPayment(payment: PaymentRecord, history: PaymentReco
       amountSatang: analysis.ocrAmountSatang,
       receiver: analysis.ocrReceiver,
       transactionDate: analysis.ocrTransactionDate,
+      ...evidenceSignals,
     },
   );
 }
@@ -117,7 +122,9 @@ export async function reprocessStoredSlipEvidence(input: ReprocessSlipInput, dep
   const stored = await dependencies.readDriveSlipFile(fileId);
   const declaredType = declaredImageType(stored.declaredMimeType);
   const receiverAliases = [...input.receiverAliases];
-  const analysis = await dependencies.analyzeSlip(stored.bytes, declaredType, receiverAliases, { ocrEnabled: input.ocrEnabled });
+  const analysis = input.recipientProxySuffix !== undefined
+    ? await dependencies.analyzeSlip(stored.bytes, declaredType, receiverAliases, { ocrEnabled: input.ocrEnabled, recipientProxySuffix: input.recipientProxySuffix })
+    : await dependencies.analyzeSlip(stored.bytes, declaredType, receiverAliases, { ocrEnabled: input.ocrEnabled });
 
   const history = await dependencies.listPayments();
   const payment = history.find((candidate) => candidate.payment_id === input.paymentId);

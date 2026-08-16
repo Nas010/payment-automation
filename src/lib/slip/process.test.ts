@@ -41,6 +41,8 @@ function analysis(overrides: Partial<SlipAnalysis> = {}): SlipAnalysis {
     ocrTransactionDate: "2026-08-10T03:00:00.000Z",
     reasons: [],
     ...overrides,
+    recipientProxyMatch: overrides.recipientProxyMatch ?? true,
+    transferStatus: overrides.transferStatus ?? "SUCCESS",
   };
 }
 
@@ -81,6 +83,21 @@ describe("processSlipImage", () => {
 
     expect(deps.analyzeSlip).toHaveBeenCalledWith(expect.any(Uint8Array), "image/png", [recoveredAlias]);
     expect(result.decision).toBe("AUTO_RECORDED");
+  });
+
+  it("passes a frozen recipient suffix into analysis", async () => {
+    const deps = dependencies();
+
+    await processSlipImage({
+      bytes: new Uint8Array([1]),
+      declaredType: "image/png",
+      expectedPayment: payment(),
+      source: { type: "WEB_UPLOAD" },
+      receiverAliases: ["NAS O"],
+      recipientProxySuffix: "8717",
+    }, deps);
+
+    expect(deps.analyzeSlip).toHaveBeenCalledWith(expect.any(Uint8Array), "image/png", ["NAS O"], { recipientProxySuffix: "8717" });
   });
 
   it("keeps an ambiguous recipient recovery in review", async () => {

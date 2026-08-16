@@ -2,14 +2,32 @@ import { describe, expect, it } from "vitest";
 import {
   amountRegionFromOcrLines,
   amountFromLabelledOcrLines,
+  consensusAmountFromCandidates,
+  consensusRecipientSuffix,
+  consensusTransactionDate,
+  consensusTransferStatus,
   extractCommonThaiSlipFields,
+  fieldLinesFromOcrLines,
   recoverAmountFromOcrTexts,
   recoverLabelledAmountFromOcrTexts,
   recoverReceiverFromOcrTexts,
+  normalizeOcrText,
+  recipientSuffixCandidatesFromOcrText,
+  recipientSuffixCandidatesFromOcrLines,
   receiverFromOcrText,
+  transactionDateFromText,
+  transferStatusFromText,
 } from "./ocr";
 
 describe("structured amount recovery", () => {
+  it("does not let a majority source hide a conflicting third view", () => {
+    expect(consensusAmountFromCandidates([
+      { amountSatang: 590000, source: "TESSERACT:BASELINE" },
+      { amountSatang: 590000, source: "TESSERACT:SAUVOLA" },
+      { amountSatang: 580000, source: "PADDLE:BASELINE" },
+    ])).toMatchObject({ value: null, status: "CONFLICT" });
+  });
+
   it("accepts one unambiguous amount printed on its label line", () => {
     expect(amountFromLabelledOcrLines([
       { text: "จำนวนเงิน 5,900.00 บาท", confidence: 77, bbox: { x0: 70, y0: 900, x1: 690, y1: 955 } },
@@ -184,6 +202,32 @@ describe("receiverFromOcrText", () => {
     expect(fields.amountSatang).toBe(590000);
   });
 
+  it("keeps line boundaries while normalizing character-spaced labels", () => {
+    const text = "จ ํ า น ว น :\n5900.00 บาท\nค่าธรรมเนียม\n0.00 บาท";
+    expect(normalizeOcrText(text)).toContain("จำนวน:\n5900.00 บาท");
+    expect(recoverLabelledAmountFromOcrTexts([text, text])).toMatchObject({ amountSatang: 590000, status: "RECOVERED" });
+  });
+
+  it("accepts OCR mask punctuation variants without widening to unrelated fields", () => {
+    expect(recipientSuffixCandidatesFromOcrText("พีรพร บุญสนิท\nXXX=XXX=87 17")).toEqual(["8717"]);
+    expect(recipientSuffixCandidatesFromOcrText("พีรพร บุญสนิท\n2๐0๐๐๓๐๐๐-8717")).toEqual(["8717"]);
+    expect(recipientSuffixCandidatesFromOcrText("พีรพร บุญสนิท\n016228095101APP00991")).toEqual([]);
+  });
+
+  it("never selects the sender suffix when an unlabeled recipient follows it", () => {
+    expect(recipientSuffixCandidatesFromOcrText([
+      "น.ส. ผู้ส่ง ทดสอบ",
+      "XXX-XXX-2603",
+      "นางสาว พีรพร บุญสนิท",
+      "XXX-XXX-8717",
+    ].join("\n"))).toEqual(["8717"]);
+  });
+
+  it("repairs a close success phrase and skips reference-shaped date starts", () => {
+    expect(transferStatusFromText("โอนเงินส ํ า เ ร ื อ")).toBe("SUCCESS");
+    expect(transactionDateFromText("รหัสอ้างอิง: 2026072053Bz6Kc5\n20 ก . ค . 2569 - 16:23")).toBe("2026-07-20T09:23:00.000Z");
+  });
+
   it("recovers a configured Thai receiver from independent near-match OCR candidates", () => {
     expect(recoverReceiverFromOcrTexts([
       "ไปยัง นางสาว Wsws บุญสนิท XXX-XXX-8717",
@@ -232,5 +276,35 @@ describe("receiverFromOcrText", () => {
       "ไปยัง นางสาว พีรพน บุญสนิท XXX-XXX-8717",
       "ผู้รับ นางสาว พีรพน บุญสนิท XXX-XXX-8717",
     ], ["นางสาว พีรพร บุญสนิท", "นางสาว พีรพน บุญสนิทท"])).toBeNull();
+  });
+});
+
+describe("layout evidence consensus", () => {
+  it("keeps amount and recipient values inside labelled spatial boundaries", () => {
+    const lines = [
+      { text: "ไปยัง", confidence: 0.9, bbox: { x0: 20, y0: 200, x1: 100, y1: 240 } },
+      { text: "นางสาว พีรพร บุญสนิท", confidence: 0.9, bbox: { x0: 130, y0: 200, x1: 400, y1: 240 } },
+      { text: "XXX-XXX-8717", confidence: 0.9, bbox: { x0: 130, y0: 250, x1: 300, y1: 285 } },
+      { text: "จำนวนเงิน", confidence: 0.9, bbox: { x0: 20, y0: 500, x1: 120, y1: 540 } },
+      { text: "5,900.00 บาท", confidence: 0.9, bbox: { x0: 300, y0: 500, x1: 500, y1: 540 } },
+      { text: "ค่าธรรมเนียม", confidence: 0.9, bbox: { x0: 20, y0: 600, x1: 130, y1: 640 } },
+      { text: "0.00 บาท", confidence: 0.9, bbox: { x0: 300, y0: 600, x1: 500, y1: 640 } },
+    ];
+    expect(fieldLinesFromOcrLines(lines, ["ไปยัง"], 1000).map((line) => line.text)).toEqual(["ไปยัง", "นางสาว พีรพร บุญสนิท", "XXX-XXX-8717"]);
+    expect(recipientSuffixCandidatesFromOcrLines(lines, 1000)).toEqual(["8717"]);
+  });
+
+  it("requires distinct sources for suffix, amount, date, and status", () => {
+    expect(consensusAmountFromCandidates([{ amountSatang: 590000, source: "TESSERACT:BASELINE" }, { amountSatang: 590000, source: "TESSERACT:SAUVOLA" }])).toMatchObject({ value: 590000, status: "AGREED", sources: 2 });
+    expect(consensusAmountFromCandidates([{ amountSatang: 590000, source: "TESSERACT:BASELINE" }]).status).toBe("MISSING");
+    expect(consensusRecipientSuffix([{ suffix: "8717", source: "TESSERACT:BASELINE" }, { suffix: "2603", source: "TESSERACT:SAUVOLA" }], "8717").match).toBeNull();
+    expect(consensusTransferStatus([{ status: "SUCCESS", source: "TESSERACT:BASELINE" }, { status: "NOT_SUCCESS", source: "TESSERACT:SAUVOLA" }]).consensus).toBe("CONFLICT");
+  });
+
+  it("keeps the baseline timestamp when independent sources agree on Bangkok day", () => {
+    expect(consensusTransactionDate([
+      { date: "2026-08-16T01:00:00.000Z", source: "TESSERACT:BASELINE" },
+      { date: "2026-08-16T02:00:00.000Z", source: "TESSERACT:SAUVOLA" },
+    ])).toMatchObject({ value: "2026-08-16T01:00:00.000Z", status: "AGREED", sources: 2 });
   });
 });

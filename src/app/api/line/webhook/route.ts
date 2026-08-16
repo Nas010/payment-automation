@@ -7,6 +7,7 @@ import { verifyLineSignature } from "@/lib/line/signature";
 import { runtimeConfig } from "@/lib/runtime-config";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 const LINE_USER_ID_PATTERN = /^U[a-f0-9]{32}$/;
 type LineEvent = { type?: unknown; webhookEventId?: unknown; replyToken?: unknown; source?: unknown; message?: unknown };

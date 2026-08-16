@@ -8,6 +8,7 @@ import { listSchedules, type ScheduleRecord } from "@/lib/sheets/schedules";
 import { shouldRetainSlip, storeExceptionSlip } from "@/lib/storage/slip";
 import { analyzeSlip, type SlipAnalysis } from "./analyze";
 import { privacySafeOcrDiagnostics } from "./diagnostics";
+import { deriveRecipientProxySuffix } from "./recipient";
 
 export type SlipSource =
   | { type: "WEB_UPLOAD" }
@@ -20,10 +21,11 @@ export type ProcessSlipImageInput = {
   source: SlipSource;
   analysis?: SlipAnalysis;
   receiverAliases?: string[];
+  recipientProxySuffix?: string | null;
 };
 
 export type SlipProcessDependencies = {
-  analyzeSlip: (bytes: Uint8Array, declaredType: string, receiverAliases: string[]) => Promise<SlipAnalysis>;
+  analyzeSlip: (bytes: Uint8Array, declaredType: string, receiverAliases: string[], options?: { recipientProxySuffix?: string | null }) => Promise<SlipAnalysis>;
   listPayments: () => Promise<PaymentRecord[]>;
   listSchedules: () => Promise<ScheduleRecord[]>;
   evaluatePayment: typeof evaluatePayment;
@@ -31,6 +33,7 @@ export type SlipProcessDependencies = {
   shouldRetainSlip: (status: string) => boolean;
   storeExceptionSlip: typeof storeExceptionSlip;
   receiverAliases: string[];
+  recipientProxySuffix?: string | null;
   now: () => string;
 };
 
@@ -45,7 +48,7 @@ export type SlipProcessResult = {
 async function defaultDependencies(): Promise<SlipProcessDependencies> {
   const config = await runtimeConfig();
   return {
-    analyzeSlip: (bytes, declaredType, receiverAliases) => analyzeSlip(bytes, declaredType, receiverAliases, { ocrEnabled: config.ocrEnabled }),
+    analyzeSlip: (bytes, declaredType, receiverAliases, options) => analyzeSlip(bytes, declaredType, receiverAliases, { ocrEnabled: config.ocrEnabled, recipientProxySuffix: options?.recipientProxySuffix ?? deriveRecipientProxySuffix(config.promptPayIdentifier) }),
     listPayments,
     listSchedules,
     evaluatePayment,
@@ -53,6 +56,7 @@ async function defaultDependencies(): Promise<SlipProcessDependencies> {
     shouldRetainSlip: (status) => shouldRetainSlip(status, config.slipRetentionDays),
     storeExceptionSlip,
     receiverAliases: [config.recipientNameEn, config.recipientNameTh, ...config.recipientAliases].filter(Boolean),
+    recipientProxySuffix: deriveRecipientProxySuffix(config.promptPayIdentifier),
     now: () => new Date().toISOString(),
   };
 }
@@ -131,6 +135,7 @@ function terminalOrReplayed(payment: PaymentRecord, source: SlipSource): boolean
 export async function processSlipImage(input: ProcessSlipImageInput, injected?: SlipProcessDependencies): Promise<SlipProcessResult> {
   const dependencies = injected ?? await defaultDependencies();
   const receiverAliases = [...(input.receiverAliases ?? dependencies.receiverAliases)];
+  const recipientProxySuffix = input.recipientProxySuffix !== undefined ? input.recipientProxySuffix : dependencies.recipientProxySuffix;
   let history = await dependencies.listPayments();
   let payment = authoritativePayment(history, input.expectedPayment.payment_id);
   assertLineAssociation(payment, input.source);
@@ -138,7 +143,9 @@ export async function processSlipImage(input: ProcessSlipImageInput, injected?: 
   if (terminalOrReplayed(payment, input.source)) {
     return { decision: payment.status as PaymentStatus, duplicate: true, analysis: existingAnalysis, evaluation: null, payment };
   }
-  const analysis = input.analysis ?? await dependencies.analyzeSlip(input.bytes, input.declaredType, receiverAliases);
+  const analysis = input.analysis ?? (recipientProxySuffix !== undefined
+    ? await dependencies.analyzeSlip(input.bytes, input.declaredType, receiverAliases, { recipientProxySuffix })
+    : await dependencies.analyzeSlip(input.bytes, input.declaredType, receiverAliases));
   history = await dependencies.listPayments();
   payment = authoritativePayment(history, input.expectedPayment.payment_id);
   assertLineAssociation(payment, input.source);
@@ -150,9 +157,12 @@ export async function processSlipImage(input: ProcessSlipImageInput, injected?: 
   const transactionDuplicate = detectTransactionDuplicate(history, payment.payment_id, analysis.originatingBank, analysis.transactionRef);
   const expectedAmountSatang = parseSatang(payment.amount_thb);
   if (expectedAmountSatang === null || expectedAmountSatang <= 0) throw new Error("Payment amount is invalid");
+  const evidenceSignals = analysis.recipientProxyMatch !== undefined || analysis.transferStatus !== undefined
+    ? { recipientProxyMatch: analysis.recipientProxyMatch ?? null, transferStatus: analysis.transferStatus ?? "UNKNOWN" as const }
+    : {};
   let evaluation = dependencies.evaluatePayment(
     { paymentId: payment.payment_id, amountSatang: expectedAmountSatang, createdAt: payment.created_at, receiverAliases, timezone: "Asia/Bangkok" },
-    { imageDuplicate, transactionDuplicate, qrValid: analysis.qrValid, transactionRef: analysis.transactionRef ?? undefined, amountSatang: analysis.ocrAmountSatang, receiver: analysis.ocrReceiver, transactionDate: analysis.ocrTransactionDate },
+    { imageDuplicate, transactionDuplicate, qrValid: analysis.qrValid, transactionRef: analysis.transactionRef ?? undefined, amountSatang: analysis.ocrAmountSatang, receiver: analysis.ocrReceiver, transactionDate: analysis.ocrTransactionDate, ...evidenceSignals },
   );
 
   let slipUrl = payment.slip_url;
