@@ -68,6 +68,27 @@ describe("analyzeSlip", () => {
     expect(mixedWorker.setParameters).toHaveBeenCalledWith(expect.objectContaining({ tessedit_char_whitelist: "0123456789,. ", tessedit_pageseg_mode: "6" }));
   });
 
+  it("uses two agreeing numeric passes after a Thai amount label is slightly corrupted", async () => {
+    const mixedWorker = worker([
+      {
+        text: "โอนเงินสำเร็จ\nนางสาว พีรพร บุญสนิท\nจ ้ า น ว น :\n6,600.00 บาท\nค่าธรรมเนียม 0.00 บาท\n10 ส.ค. 69 10:41 น.",
+        blocks: blocks([
+          { text: "จ ้ า น ว น :", confidence: 75, bbox: { x0: 70, y0: 900, x1: 250, y1: 955 } },
+          { text: "6,600.00 บาท", confidence: 61, bbox: { x0: 390, y0: 948, x1: 690, y1: 1010 } },
+          { text: "ค่าธรรมเนียม 0.00 บาท", confidence: 90, bbox: { x0: 70, y0: 1015, x1: 690, y1: 1070 } },
+        ]),
+      },
+      "6600.00",
+      "6,600.00",
+    ]);
+    mocks.createWorker.mockReset().mockResolvedValueOnce(mixedWorker);
+
+    const result = await analyzeSlip(image, "image/png", ["นางสาว พีรพร บุญสนิท"]);
+
+    expect(result.ocrAmountSatang).toBe(660000);
+    expect(mixedWorker.recognize).toHaveBeenCalledTimes(3);
+  });
+
   it("rejects conflicting field passes instead of trusting the full receipt", async () => {
     const mixedWorker = worker([
       {

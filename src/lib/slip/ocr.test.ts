@@ -40,9 +40,41 @@ describe("structured amount recovery", () => {
   });
 
   it.each([
+    "จ ้ า น ว น :",
+    "จ ํ า แว น บ",
+    "ข ํ า น ว น เ ง ิ น",
+  ])("finds amount regions after conservative Thai label OCR corruption: %s", (label) => {
+    const region = amountRegionFromOcrLines([
+      { text: label, confidence: 76, bbox: { x0: 70, y0: 900, x1: 250, y1: 955 } },
+      { text: "6,600.00 บาท", confidence: 61, bbox: { x0: 390, y0: 948, x1: 690, y1: 1010 } },
+      { text: "ค่าธรรมเนียม 0.00 บาท", confidence: 90, bbox: { x0: 70, y0: 1015, x1: 690, y1: 1070 } },
+    ], 1100, 1400);
+
+    expect(region).toEqual({ left: 62, top: 892, width: 636, height: 126 });
+  });
+
+  it("includes a money value whose larger text box begins slightly above its label", () => {
+    const region = amountRegionFromOcrLines([
+      { text: "4,000.00 บาท", confidence: 94, bbox: { x0: 390, y0: 892, x1: 690, y1: 960 } },
+      { text: "จ ํ า น ว น เ ง ิ น", confidence: 92, bbox: { x0: 70, y0: 900, x1: 250, y1: 955 } },
+      { text: "ค่าธรรมเนียม 0.00 บาท", confidence: 94, bbox: { x0: 70, y0: 1015, x1: 690, y1: 1070 } },
+    ], 1100, 1400);
+
+    expect(region).toEqual({ left: 62, top: 884, width: 636, height: 84 });
+  });
+
+  it("does not mistake unrelated Thai field labels for an amount label", () => {
+    expect(amountRegionFromOcrLines([
+      { text: "ค่าธรรมเนียม 0.00 บาท", confidence: 90, bbox: { x0: 70, y0: 900, x1: 690, y1: 955 } },
+      { text: "เลขที่รายการ 016222104126APP12168", confidence: 90, bbox: { x0: 70, y0: 1015, x1: 690, y1: 1070 } },
+    ], 1100, 1400)).toBeNull();
+  });
+
+  it.each([
     ["5,900.00", "5900.00", 590000],
     ["5900.00", "5,900.00", 590000],
     ["5 900.00", "5900.00", 590000],
+    ["0\n3,900.00...", "3,900.00", 390000],
   ])("accepts matching Arabic money formats from two passes", (normal, thresholded, expected) => {
     expect(recoverAmountFromOcrTexts([normal, thresholded])).toEqual({ amountSatang: expected, status: "RECOVERED" });
   });
@@ -108,6 +140,13 @@ describe("receiverFromOcrText", () => {
     expect(scb).toMatchObject({ bank: "SCB", amountSatang: 390000, recipientProxySuffix: "8717", transactionDate: "2026-07-20T09:23:00.000Z" });
   });
 
+  it.each([
+    ["02 a.n. 2569 17:24", "2026-08-02T10:24:00.000Z"],
+    ["วันที่ทำรายการ 28 n.A. 2569 - 18:29", "2026-07-28T11:29:00.000Z"],
+  ])("normalizes constrained Latin-lookalike Thai month OCR: %s", (text, expected) => {
+    expect(extractCommonThaiSlipFields(text).transactionDate).toBe(expected);
+  });
+
   it("normalizes character-spaced Thai OCR without changing the monetary value", () => {
     const text = `
       โอ น เ ง ิ น ส ํ า เ ร ็ จ
@@ -151,6 +190,31 @@ describe("receiverFromOcrText", () => {
       "ไปยัง นางสาว พ่ธพร บุญสนิท XXX-XXX-8717 จำนวนเงิน 9,730.00",
       "ผู้รับ นางสาว พีรพ บุญสนก XXX-XXX-8717",
     ], ["นางสาว พีรพร บุญสนิท"])).toBe("นางสาว พีรพร บุญสนิท");
+  });
+
+  it("matches a configured Thai receiver when the slip omits its title", () => {
+    expect(receiverFromOcrText("พีรพร บุญสนิท", ["นางสาว พีรพร บุญสนิท"])).toBe("นางสาว พีรพร บุญสนิท");
+  });
+
+  it("recovers an unlabeled Thai receiver from two independent name lines", () => {
+    expect(recoverReceiverFromOcrTexts([
+      "โอนเงินสำเร็จ\nพรพร บุญสนิท\nXXX-XXX-8717",
+      "โอนเงินสำเร็จ\nพฟิรพร บุญสนิท\nXXX-XXX-8717",
+    ], ["นางสาว พีรพร บุญสนิท"])).toBe("นางสาว พีรพร บุญสนิท");
+  });
+
+  it("keeps close competing unlabeled Thai receiver aliases in review", () => {
+    expect(recoverReceiverFromOcrTexts([
+      "พีรพน บุญสนิท\nXXX-XXX-8717",
+      "พีรพน บุญสนิท\nXXX-XXX-8717",
+    ], ["นางสาว พีรพร บุญสนิท", "นางสาว พีรพน บุญสนิทท"])).toBeNull();
+  });
+
+  it("does not fuzzy-match an unlabeled Thai name without adjacent masked account evidence", () => {
+    expect(recoverReceiverFromOcrTexts([
+      "พรพร บุญสนิท\nโอนเงินสำเร็จ",
+      "พฟิรพร บุญสนิท\nโอนเงินสำเร็จ",
+    ], ["นางสาว พีรพร บุญสนิท"])).toBeNull();
   });
 
   it("does not recover a receiver from one weak Thai candidate or English-only text", () => {

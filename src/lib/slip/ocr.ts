@@ -32,9 +32,32 @@ export type AmountRecovery = { amountSatang: number | null; status: "RECOVERED" 
 const AMOUNT_LABEL = /(?:จำนวนเงิน|จำนวน|amount)/iu;
 const FIELD_BOUNDARY = /(?:ค่าธรรมเนียม|fee|บันทึกช่วยจำ|memo|เลขที่รายการ|reference|รหัสอ้างอิง|ผู้รับ(?:เงิน)?|ไปยัง|recipient|\bto\b|\bfrom\b)/iu;
 const RECOVERY_MONEY = /(?<![\d.,])((?:\d{1,3}(?:[ ,]\d{3})+|\d+)\.\d{2})(?![\d.,])/gu;
+const THAI_OCR_MARKS = /[\u0E31\u0E34-\u0E3A\u0E47-\u0E4E]/gu;
+const THAI_AMOUNT_LABELS = ["จำนวนเงิน", "จำนวน"];
 
 function compactLabel(value: string): string {
   return normalizeOcrText(value).replace(/\s+/g, "").toLowerCase();
+}
+
+function thaiSkeleton(value: string): string {
+  return normalizeOcrText(value).normalize("NFKD").replace(THAI_OCR_MARKS, "").replace(/[^\u0E00-\u0E7F]/gu, "");
+}
+
+function resemblesThaiAmountLabel(value: string): boolean {
+  const source = thaiSkeleton(value);
+  return THAI_AMOUNT_LABELS.some((label) => {
+    const target = thaiSkeleton(label);
+    const minimumLength = Math.max(1, target.length - 1);
+    const maximumLength = Math.min(source.length, target.length + 2);
+    for (let length = minimumLength; length <= maximumLength; length += 1) {
+      if (similarity(source.slice(0, length), target) >= 0.65) return true;
+    }
+    return false;
+  });
+}
+
+function hasAmountLabel(value: string): boolean {
+  return AMOUNT_LABEL.test(compactLabel(value)) || resemblesThaiAmountLabel(value);
 }
 
 /** Finds the smallest labelled amount area while excluding the following field. */
@@ -44,16 +67,22 @@ export function amountRegionFromOcrLines(lines: readonly OcrTextLine[], imageWid
     .filter((line) => line.text.trim() && line.bbox.x1 > line.bbox.x0 && line.bbox.y1 > line.bbox.y0)
     .sort((left, right) => left.bbox.y0 - right.bbox.y0 || left.bbox.x0 - right.bbox.x0);
   const label = ordered
-    .filter((line) => AMOUNT_LABEL.test(compactLabel(line.text)))
+    .filter((line) => hasAmountLabel(line.text))
     .sort((left, right) => right.confidence - left.confidence || left.bbox.y0 - right.bbox.y0)[0];
   if (!label) return null;
   const labelIndex = ordered.indexOf(label);
   const maximumBottom = Math.min(imageHeight, label.bbox.y1 + imageHeight * 0.12);
-  const selected = [label];
+  const selected = [
+    label,
+    ...ordered.filter((line) => line !== label
+      && line.bbox.y0 < label.bbox.y0
+      && line.bbox.y1 >= label.bbox.y0
+      && recoveredMoneyCandidates(line.text).length === 1),
+  ];
   for (const line of ordered.slice(labelIndex + 1)) {
     if (line.bbox.y0 >= maximumBottom) break;
     if (FIELD_BOUNDARY.test(compactLabel(line.text))) break;
-    selected.push(line);
+    if (!selected.includes(line)) selected.push(line);
   }
   const padding = 8;
   const left = Math.max(0, Math.floor(Math.min(...selected.map((line) => line.bbox.x0)) - padding));
@@ -64,7 +93,8 @@ export function amountRegionFromOcrLines(lines: readonly OcrTextLine[], imageWid
 }
 
 function recoveredMoneyCandidates(text: string): number[] {
-  const candidates = [...normalizeOcrText(text).matchAll(RECOVERY_MONEY)]
+  const moneyText = normalizeOcrText(text).replace(/(\.\d{2})\.+(?!\d)/g, "$1 ");
+  const candidates = [...moneyText.matchAll(RECOVERY_MONEY)]
     .map((match) => parseSatang(match[1]!.replace(/\s/g, "")))
     .filter((amount): amount is number => amount !== null && amount > 0);
   return [...new Set(candidates)];
@@ -114,12 +144,13 @@ function bankFromText(text: string): string | null {
 }
 
 function timestampFromText(text: string): string | null {
-  const match = text.match(/(\d{1,2})\s+([\u0E00-\u0E7F.\s]{2,10}?)\s+(\d{2}|\d{4})(?:\s*[-–]?\s*)(\d{1,2}):(\d{2})/);
+  const match = text.match(/(\d{1,2})\s+([\u0E00-\u0E7FA-Za-z.\s]{2,10}?)\s+(\d{2}|\d{4})(?:\s*[-–]?\s*)(\d{1,2}):(\d{2})/);
   if (!match) return null;
-  const monthKey = match[2].replace(/[.\s]/g, "");
+  const monthKey = match[2].replace(/[.\s]/g, "").toLowerCase();
   const monthAliases: Record<string, string> = {
     "มค": "ม.ค.", "กพ": "ก.พ.", "มีค": "มี.ค.", "เมย": "เม.ย.", "พค": "พ.ค.", "มิย": "มิ.ย.",
     "กค": "ก.ค.", "สค": "ส.ค.", "สุค": "ส.ค.", "กย": "ก.ย.", "ตค": "ต.ค.", "พย": "พ.ย.", "ธค": "ธ.ค.",
+    "an": "ส.ค.", "na": "ก.ค.",
   };
   const month = monthAliases[monthKey];
   if (!month) return null;
@@ -150,17 +181,18 @@ export function extractCommonThaiSlipFields(text: string): CommonThaiSlipFields 
   };
 }
 
+const THAI_TITLE = /^(?:นางสาว|นาย|นาง)/u;
+
 export function receiverFromOcrText(text: string, aliases: string[]): string | null {
   const haystack = normalized(text);
   return aliases.find((alias) => {
-    const needle = normalized(alias);
+    const needle = normalized(alias.replace(THAI_TITLE, ""));
     return needle.length >= 3 && haystack.includes(needle);
   }) ?? null;
 }
 
 const RECIPIENT_LABEL = /(?:ไปยัง|ผู้รับ(?:เงิน)?|recipient|to)\s*[:\-]?\s*/giu;
 const RECIPIENT_END = /(?:จำนวนเงิน|amount|บันทึกช่วยจำ|memo|(?:[X%]{2,3}[\s-]*){2,4})/iu;
-const THAI_TITLE = /^(?:นางสาว|นาย|นาง)/u;
 const THAI_CHARACTERS = /[\u0E00-\u0E7F]/gu;
 const THAI_COMBINING_MARKS = /[\u0E31\u0E34-\u0E3A\u0E47-\u0E4E]/gu;
 const RECOVERY_SCORE_FLOOR = 0.72;
@@ -180,6 +212,17 @@ function recipientRegions(text: string): string[] {
     const end = remainder.search(RECIPIENT_END);
     return (end === -1 ? remainder : remainder.slice(0, end)).trim();
   }).filter(Boolean);
+}
+
+function unlabelledRecipientRegions(text: string): string[] {
+  const lines = text.split(/\r?\n/).map((line) => normalizeOcrText(line).trim()).filter(Boolean);
+  const looksLikeMaskedAccount = (line: string): boolean =>
+    (line.match(/[0-9๐-๙]/gu) ?? []).length >= 4 && /[Xx%*<>-]/u.test(line);
+  return lines.filter((line, index) => {
+    const name = thaiName(line);
+    return name.length >= 6 && name.length <= 40
+      && (looksLikeMaskedAccount(line) || looksLikeMaskedAccount(lines[index + 1] ?? ""));
+  });
 }
 
 function editDistance(left: string, right: string): number {
@@ -218,7 +261,12 @@ export function recoverReceiverFromOcrTexts(texts: readonly string[], aliases: r
 
   const thaiAliases = aliases.map((alias) => ({ alias, name: thaiName(alias) })).filter((entry) => entry.name.length >= 6);
   if (!thaiAliases.length) return null;
-  const candidates = texts.map(recipientRegions).filter((regions) => regions.length > 0);
+  const candidates = texts
+    .map((text) => {
+      const labelled = recipientRegions(text);
+      return labelled.length ? labelled : unlabelledRecipientRegions(text);
+    })
+    .filter((regions) => regions.length > 0);
   if (candidates.length < 2) return null;
 
   const scores: AliasScore[] = thaiAliases.map(({ alias, name }) => {
