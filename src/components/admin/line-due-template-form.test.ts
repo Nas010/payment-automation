@@ -119,8 +119,12 @@ describe("LineDueTemplateForm", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Edit placeholder payment_label" }));
 
+    expect(screen.getByText("Edit placeholder")).toBeTruthy();
     expect(screen.getByLabelText("Placeholder name payment_label")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Remove payment_label" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Preview placeholder" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Cancel placeholder edits" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Save placeholder" })).toBeTruthy();
   });
 
   it("adds a custom placeholder from the pill list and inserts it into the active profile message", () => {
@@ -128,6 +132,7 @@ describe("LineDueTemplateForm", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add placeholder" }));
     fireEvent.change(screen.getByLabelText("Placeholder name custom_1"), { target: { value: "greeting" } });
     fireEvent.change(screen.getByLabelText("Placeholder content greeting"), { target: { value: "Hi {{client_name}}" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save placeholder" }));
     expect(screen.getByRole("button", { name: "Insert {{greeting}}" })).toBeTruthy();
   });
 
@@ -143,9 +148,20 @@ describe("LineDueTemplateForm", () => {
     renderProfileForm({ oneTimeMessage: "{{amount}} {{due_date}} {{payment_url}}" });
     fireEvent.click(screen.getByRole("button", { name: "Edit placeholder payment_label" }));
     fireEvent.change(screen.getByLabelText("Placeholder name payment_label"), { target: { value: "summary" } });
-    expect(screen.getByLabelText("Placeholder name summary")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Save placeholder" }));
+    expect(screen.getByRole("button", { name: "Edit placeholder summary" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Remove summary" }));
-    expect(screen.queryByLabelText("Placeholder name summary")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Edit placeholder summary" })).toBeNull();
+  });
+
+  it("cancels an unsaved custom placeholder edit", () => {
+    renderProfileForm();
+    fireEvent.click(screen.getByRole("button", { name: "Edit placeholder payment_label" }));
+    fireEvent.change(screen.getByLabelText("Placeholder content payment_label"), { target: { value: "Unsaved content" } });
+    fireEvent.click(screen.getByRole("button", { name: "Cancel placeholder edits" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit placeholder payment_label" }));
+
+    expect((screen.getByLabelText("Placeholder content payment_label") as HTMLTextAreaElement).value).not.toBe("Unsaved content");
   });
 
   it("submits only the active profile as JSON and applies server preview", async () => {
