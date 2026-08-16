@@ -17,23 +17,23 @@ export function MessagesSettingsWorkspace({ welcome, automaticReplies, paymentMe
       <h2 className="text-xl font-semibold">Messages</h2>
       <p className="text-sm text-muted-foreground">Choose a message type, then edit its template.</p>
     </div>
-    <Tabs defaultValue="welcome" className="gap-6 lg:flex-row">
-      <TabsList className="h-auto w-full justify-start overflow-x-auto lg:w-56 lg:shrink-0 lg:flex-col lg:items-stretch">
-        <TabsTrigger value="welcome" className="h-auto min-h-14 flex-none justify-start whitespace-normal px-3 py-2 text-left lg:w-full">
+    <Tabs defaultValue="welcome" className="gap-6">
+      <TabsList className="grid h-auto w-full grid-cols-2 gap-1 p-1 2xl:grid-cols-4">
+        <TabsTrigger value="welcome" className="h-auto min-h-12 justify-start whitespace-normal px-3 py-2 text-left">
           <HandshakeIcon data-icon="inline-start" />
-          <span className="flex flex-col items-start"><span>Welcome message</span><span className="text-xs font-normal text-muted-foreground">New client connections</span></span>
+          <span>Welcome message</span>
         </TabsTrigger>
-        <TabsTrigger value="replies" className="h-auto min-h-14 flex-none justify-start whitespace-normal px-3 py-2 text-left lg:w-full">
+        <TabsTrigger value="replies" className="h-auto min-h-12 justify-start whitespace-normal px-3 py-2 text-left">
           <MessageCircleReplyIcon data-icon="inline-start" />
-          <span className="flex flex-col items-start"><span>Automatic replies</span><span className="text-xs font-normal text-muted-foreground">Slip and connection responses</span></span>
+          <span>Automatic replies</span>
         </TabsTrigger>
-        <TabsTrigger value="payments" className="h-auto min-h-14 flex-none justify-start whitespace-normal px-3 py-2 text-left lg:w-full">
+        <TabsTrigger value="payments" className="h-auto min-h-12 justify-start whitespace-normal px-3 py-2 text-left">
           <CreditCardIcon data-icon="inline-start" />
-          <span className="flex flex-col items-start"><span>Payment messages</span><span className="text-xs font-normal text-muted-foreground">Due-payment notices</span></span>
+          <span>Payment messages</span>
         </TabsTrigger>
-        <TabsTrigger value="reminders" className="h-auto min-h-14 flex-none justify-start whitespace-normal px-3 py-2 text-left lg:w-full">
+        <TabsTrigger value="reminders" className="h-auto min-h-12 justify-start whitespace-normal px-3 py-2 text-left">
           <BellRingIcon data-icon="inline-start" />
-          <span className="flex flex-col items-start"><span>Installment reminders</span><span className="text-xs font-normal text-muted-foreground">Later payment alerts</span></span>
+          <span>Installment reminders</span>
         </TabsTrigger>
       </TabsList>
       <TabsContent value="welcome" className="min-w-0">{welcome}</TabsContent>
