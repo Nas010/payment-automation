@@ -224,7 +224,7 @@ export function LineDueTemplateForm({ profiles: initialProfiles, previewAction, 
               <LinePlaceholderEditor id={`${paymentType}-message`} label={messageLabel} value={profile.message} placeholders={mainOptions} onChange={(message) => updateProfile(paymentType, (current) => ({ ...current, message }))} rows={10} disabled={profileInvalid} />
               <div className="flex flex-wrap items-center gap-2">
                 <Button type="button" variant="outline" disabled={profileInvalid || requestPending || pending} onClick={() => runProfileAction(previewAction, paymentType, "preview", "")}>Preview message</Button>
-                <Button type="button" disabled={profileInvalid || requestPending || pending} onClick={() => runProfileAction(saveAction, paymentType, "save", "Profile saved.")}>Save profile</Button>
+                <Button type="button" disabled={profileInvalid || requestPending || pending} onClick={() => runProfileAction(saveAction, paymentType, "save", "Message saved.")}>Save message</Button>
                 <Button type="button" variant="outline" disabled={profileInvalid || requestPending || pending} onClick={() => sendSavedTest(paymentType)}>Send saved test message</Button>
                 <Button type="button" variant="ghost" disabled={requestPending || pending} onClick={() => runProfileAction(resetAction, paymentType, "reset", "Documented default restored.")}>Restore default</Button>
               </div>

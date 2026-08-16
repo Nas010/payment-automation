@@ -211,10 +211,10 @@ describe("LineDueTemplateForm", () => {
     fireEvent.click(screen.getByRole("button", { name: "Preview message" }));
     await waitFor(() => expect(previewAction).toHaveBeenCalledOnce());
     expect((screen.getByRole("button", { name: "Preview message" }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole("button", { name: "Save profile" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Save message" }) as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByRole("button", { name: "Restore default" }) as HTMLButtonElement).disabled).toBe(true);
 
-    fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save message" }));
     fireEvent.click(screen.getByRole("button", { name: "Restore default" }));
     expect(saveAction).not.toHaveBeenCalled();
     expect(resetAction).not.toHaveBeenCalled();
@@ -242,11 +242,11 @@ describe("LineDueTemplateForm", () => {
     renderProfileForm({ saveAction: vi.fn().mockReturnValue(response.promise) });
     const message = screen.getByLabelText("One-time payment message") as HTMLTextAreaElement;
 
-    fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save message" }));
     fireEvent.change(message, { target: { value: "Edited during save {{amount}} {{due_date}} {{payment_url}}" } });
     response.resolve({ ok: true, paymentType: "ONE_TIME", profile: DEFAULT_LINE_DUE_PROFILES.ONE_TIME, preview: "Saved preview" });
 
-    await waitFor(() => expect(screen.getByText("Profile saved.")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Message saved.")).toBeTruthy());
     expect(message.value).toContain("Edited during save");
   });
 
@@ -282,7 +282,7 @@ describe("LineDueTemplateForm", () => {
     expect(screen.getByRole("alert").textContent).toMatch(/stored profile is invalid/i);
     expect((screen.getByLabelText("Installment payment message") as HTMLTextAreaElement).disabled).toBe(true);
     expect((screen.getByRole("button", { name: "Preview message" }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole("button", { name: "Save profile" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Save message" }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Restore default" }));
 
     await waitFor(() => {
@@ -298,10 +298,10 @@ describe("LineDueTemplateForm", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Installments" }));
     const installment = screen.getByLabelText("Installment payment message") as HTMLTextAreaElement;
     fireEvent.change(installment, { target: { value: "Installment draft {{amount}} {{due_date}} {{payment_url}}" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save message" }));
     await waitFor(() => expect(saveAction).toHaveBeenCalledOnce());
     expect((saveAction.mock.calls[0][0] as FormData).get("payment_type")).toBe("INSTALLMENTS");
-    await waitFor(() => expect(screen.getByText("Profile saved.")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Message saved.")).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: "Restore default" }));
     await waitFor(() => expect(resetAction).toHaveBeenCalledOnce());
     fireEvent.click(screen.getByRole("tab", { name: "One-time payment" }));
