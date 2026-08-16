@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("next/link", () => ({ default: ({ children, href }: { children: React.ReactNode; href: string }) => React.createElement("a", { href }, children) }));
 vi.mock("next/image", () => ({ default: (imageProps: React.ImgHTMLAttributes<HTMLImageElement> & { unoptimized?: boolean }) => { const { unoptimized, ...props } = imageProps; void unoptimized; return React.createElement("img", props); } }));
+vi.mock("next/navigation", () => ({ usePathname: () => "/admin/clients", useRouter: () => ({ replace: vi.fn() }) }));
 vi.mock("@/lib/sheets/clients", () => ({ listClients: mocks.listClients }));
 vi.mock("@/lib/sheets/schedules", () => ({ listSchedules: mocks.listSchedules }));
 vi.mock("@/lib/sheets/settings", () => ({ getLineWelcomeTemplate: mocks.getLineWelcomeTemplate }));
