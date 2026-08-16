@@ -1,5 +1,4 @@
 import { z } from "zod";
-import type { LinkResult } from "@/lib/line/linking";
 
 export const LINE_AUTOMATIC_REPLY_CONFIG_SETTING_KEY = "line_automatic_reply_config";
 
@@ -8,17 +7,11 @@ const messageSchema = z.string()
   .pipe(z.string().min(1).max(5000));
 
 const automaticReplyConfigSchema = z.object({
-  version: z.literal(1),
+  version: z.literal(2),
   slip: z.object({
     autoRecorded: messageSchema,
     review: messageSchema,
     flagged: messageSchema,
-  }).strict(),
-  connection: z.object({
-    linked: messageSchema,
-    alreadyLinked: messageSchema,
-    invalidOrExpired: messageSchema,
-    conflict: messageSchema,
   }).strict(),
 }).strict();
 
@@ -30,17 +23,11 @@ export type ResolvedLineAutomaticReplyConfig = {
 };
 
 export const DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG: LineAutomaticReplyConfig = {
-  version: 1,
+  version: 2,
   slip: {
     autoRecorded: "Payment slip received and recorded.",
     review: "Payment slip received. It will be reviewed.",
     flagged: "Payment slip received. Please contact your trainer so they can review it.",
-  },
-  connection: {
-    linked: "✓ Connected\n\nYour coaching account is now linked. Future payment links can be sent here automatically.",
-    alreadyLinked: "✓ Already connected\n\nThis LINE account is already linked to your coaching account.",
-    invalidOrExpired: "I couldn't connect this account. The code is invalid or expired. Please ask your trainer for a new code.",
-    conflict: "I couldn't connect this account automatically. Please contact your trainer so they can check the existing connection.",
   },
 };
 
@@ -76,15 +63,5 @@ export function lineSlipReplyText(config: LineAutomaticReplyConfig, decision: Li
     case "FLAGGED": return config.slip.flagged;
     case "MANUAL_CONFIRMED":
     case "REVIEW": return config.slip.review;
-  }
-}
-
-export function lineConnectionReplyText(config: LineAutomaticReplyConfig, result: LinkResult): string {
-  switch (result) {
-    case "LINKED": return config.connection.linked;
-    case "ALREADY_LINKED": return config.connection.alreadyLinked;
-    case "INVALID_OR_EXPIRED":
-    case "CLIENT_INACTIVE": return config.connection.invalidOrExpired;
-    case "CONFLICT": return config.connection.conflict;
   }
 }

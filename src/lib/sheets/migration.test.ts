@@ -10,28 +10,47 @@ import { CLIENT_HEADERS, PAYMENT_HEADERS } from "./records";
 
 beforeEach(() => {
   vi.resetModules();
-  spreadsheetGet.mockResolvedValue({ data: { sheets: [{ properties: { sheetId: 9, title: "Clients", gridProperties: { columnCount: 26 } } }] } });
+  spreadsheetGet.mockResolvedValue({ data: { sheets: [{ properties: { sheetId: 9, title: "Clients", gridProperties: { columnCount: 27 } } }] } });
 });
 afterEach(() => vi.clearAllMocks());
 
 describe("ensureClientSchema", () => {
-  it("writes only blank missing header cells and preserves existing header values", async () => {
+  it("physically deletes legacy link-code columns and stale code reservations", async () => {
     const { ensureClientSchema } = await import("./migration");
-    get.mockResolvedValueOnce({ data: { values: [[...CLIENT_HEADERS.slice(0, 17), "line_link_code", "", "legacy status"]] } });
+    const legacyHeaders = [
+      ...CLIENT_HEADERS.slice(0, 17),
+      "line_link_code", "line_link_code_expires_at", "line_link_status", "line_linked_at", "line_link_message", "line_link_error",
+      "line_link_token_hash", "line_link_token_encrypted", "line_link_token_expires_at", "line_picture_url",
+    ];
+    spreadsheetGet.mockResolvedValueOnce({ data: {
+      sheets: [{ properties: { sheetId: 9, title: "Clients", gridProperties: { columnCount: 27 } } }],
+      namedRanges: [{ name: `line_link_code_${"a".repeat(64)}`, namedRangeId: "legacy-code-range" }],
+    } });
+    get.mockResolvedValueOnce({ data: { values: [legacyHeaders] } });
+    batchUpdate.mockResolvedValueOnce({});
+
+    await ensureClientSchema();
+
+    expect(batchUpdate).toHaveBeenCalledWith({ spreadsheetId: "spreadsheet_1", requestBody: { requests: [
+      { deleteDimension: { range: { sheetId: 9, dimension: "COLUMNS", startIndex: 21, endIndex: 22 } } },
+      { deleteDimension: { range: { sheetId: 9, dimension: "COLUMNS", startIndex: 18, endIndex: 19 } } },
+      { deleteDimension: { range: { sheetId: 9, dimension: "COLUMNS", startIndex: 17, endIndex: 18 } } },
+      { deleteNamedRange: { namedRangeId: "legacy-code-range" } },
+    ] } });
+  });
+
+  it("writes only blank missing LIFF header cells and preserves existing header values", async () => {
+    const { ensureClientSchema } = await import("./migration");
+    const headers = [...CLIENT_HEADERS];
+    headers[18] = "";
+    get.mockResolvedValueOnce({ data: { values: [headers] } });
     update.mockResolvedValue({});
 
     await ensureClientSchema();
 
     expect(get).toHaveBeenCalledWith({ spreadsheetId: "spreadsheet_1", range: "Clients!A1:AA1" });
-    expect(update).toHaveBeenCalledTimes(8);
-    expect(update).toHaveBeenNthCalledWith(1, expect.objectContaining({ range: "Clients!S1", requestBody: { values: [["line_link_code_expires_at"]] } }));
-    expect(update).toHaveBeenNthCalledWith(2, expect.objectContaining({ range: "Clients!U1", requestBody: { values: [["line_linked_at"]] } }));
-    expect(update).toHaveBeenNthCalledWith(3, expect.objectContaining({ range: "Clients!V1", requestBody: { values: [["line_link_message"]] } }));
-    expect(update).toHaveBeenNthCalledWith(4, expect.objectContaining({ range: "Clients!W1", requestBody: { values: [["line_link_error"]] } }));
-    expect(update).toHaveBeenNthCalledWith(5, expect.objectContaining({ range: "Clients!X1", requestBody: { values: [["line_link_token_hash"]] } }));
-    expect(update).toHaveBeenNthCalledWith(6, expect.objectContaining({ range: "Clients!Y1", requestBody: { values: [["line_link_token_encrypted"]] } }));
-    expect(update).toHaveBeenNthCalledWith(7, expect.objectContaining({ range: "Clients!Z1", requestBody: { values: [["line_link_token_expires_at"]] } }));
-    expect(update).toHaveBeenNthCalledWith(8, expect.objectContaining({ range: "Clients!AA1", requestBody: { values: [["line_picture_url"]] } }));
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({ range: "Clients!S1", requestBody: { values: [["line_linked_at"]] } }));
   });
 
   it("does not write when every header cell already has a value", async () => {
@@ -43,7 +62,7 @@ describe("ensureClientSchema", () => {
     expect(update).not.toHaveBeenCalled();
   });
 
-  it("expands legacy 17-column Clients grid before reading or writing through AA", async () => {
+  it("expands a 17-column Clients grid before inspecting legacy columns", async () => {
     const { ensureClientSchema } = await import("./migration");
     spreadsheetGet.mockResolvedValueOnce({ data: { sheets: [{ properties: { sheetId: 9, title: "Clients", gridProperties: { columnCount: 17 } } }] } });
     get.mockResolvedValueOnce({ data: { values: [[...CLIENT_HEADERS.slice(0, 17)]] } });

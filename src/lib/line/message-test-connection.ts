@@ -1,4 +1,4 @@
-import type { LineLinkClaimResult } from "@/lib/sheets/clients";
+import type { LineConnectionClaimResult } from "@/lib/sheets/clients";
 import type { ClientRecord } from "@/lib/sheets/clients";
 import type { PaymentAuditInput } from "@/lib/sheets/payments";
 import {
@@ -26,7 +26,7 @@ export type LineMessageTestConnectionDependencies = {
   getProfile: () => Promise<LineMessageTestProfile | null>;
   listClients: () => Promise<ClientRecord[]>;
   updateProfileIfUnchanged: (input: ProfileUpdate) => Promise<boolean>;
-  claimConnection: (input: ProfileClaim) => Promise<LineLinkClaimResult>;
+  claimConnection: (input: ProfileClaim) => Promise<LineConnectionClaimResult>;
   disconnectConnection: (input: ProfileUpdate) => Promise<boolean>;
   appendAudit: (record: PaymentAuditInput) => Promise<void>;
   tokenGenerator?: () => string;

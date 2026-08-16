@@ -5,7 +5,7 @@ import {
   parseLineMessageTestProfile,
   type LineMessageTestProfile,
 } from "@/lib/line/message-test-profile";
-import type { LineLinkClaimResult } from "./clients";
+import type { LineConnectionClaimResult } from "./clients";
 import { getGoogleSheets } from "./client";
 import { listOperationalSettings, upsertOperationalSetting } from "./settings";
 
@@ -101,7 +101,7 @@ export async function updateLineMessageTestProfileIfUnchanged({ expectedProfile,
   }
 }
 
-export async function claimLineMessageTestConnection({ expectedProfile, profile, tokenHash, lineUserId }: ClaimInput): Promise<LineLinkClaimResult> {
+export async function claimLineMessageTestConnection({ expectedProfile, profile, tokenHash, lineUserId }: ClaimInput): Promise<LineConnectionClaimResult> {
   if (!/^[a-f0-9]{64}$/.test(tokenHash)) throw new Error("LINE connection token hash is malformed");
   if (!/^U[a-f0-9]{32}$/.test(lineUserId)) throw new Error("LINE user ID is malformed");
   const expected = parseLineMessageTestProfile(expectedProfile);
