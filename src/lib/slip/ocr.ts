@@ -53,8 +53,8 @@ function timestampFromText(text: string): string | null {
 export function extractCommonThaiSlipFields(text: string): CommonThaiSlipFields {
   const compact = normalizeOcrText(text).replace(/\s+/g, " ").trim();
   const reference = compact.match(/(?:รหัสอ้างอิง|เลขที่รายการ|reference|transaction\s*(?:id|no|number)?)[\s:.-]*([A-Z0-9][A-Z0-9-]{5,})/i)?.[1] ?? null;
-  const labelledAmount = compact.match(/(?:จำนวนเงิน|จำนวน|amount)[\s:.-]*(?:฿\s*)?(\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?)(?:\s*(?:บาท|THB))?/i)?.[1] ?? null;
-  const monetaryCandidates = [...compact.matchAll(/(?:฿\s*)?(\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?)\s*(?:บาท|THB)/gi)]
+  const labelledAmount = compact.match(/(?:จำนวนเงิน|จำนวน|amount)(?:(?!ค่าธรรมเนียม|fee)\D){0,24}(?:฿\s*)?((?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d{1,2})?)(?:\s*(?:บาท|THB))?/i)?.[1] ?? null;
+  const monetaryCandidates = [...compact.matchAll(/(?:฿\s*)?((?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d{1,2})?)\s*(?:บาท|THB)/gi)]
     .map((match) => parseSatang(match[1]))
     .filter((amount): amount is number => amount !== null && amount > 0);
   const amountSatang = labelledAmount ? parseSatang(labelledAmount) : monetaryCandidates[0] ?? null;

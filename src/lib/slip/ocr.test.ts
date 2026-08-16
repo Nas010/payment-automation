@@ -59,6 +59,20 @@ describe("receiverFromOcrText", () => {
     expect(receiverFromOcrText(text, ["นางสาว พิมพ์ใจ ทดสอบ"])).toBe("นางสาว พิมพ์ใจ ทดสอบ");
   });
 
+  it("extracts an ungrouped amount after a short OCR-noise gap without selecting the fee", () => {
+    const fields = extractCommonThaiSlipFields(`
+      โอ น เง ิ น ส ํ า เร ็ จ
+      เล ข ท ี ่ ร า ย ก า ร : 016228095101APP00991
+      จ ํ า น ว น : ระ โร
+      5900.00 "no rE :
+      ค ่ า ธร ร ม เน ี ย ม :
+      0.00 บ า ท
+      16 ส . ค . 69 09:51 น .
+    `);
+
+    expect(fields.amountSatang).toBe(590000);
+  });
+
   it("recovers a configured Thai receiver from independent near-match OCR candidates", () => {
     expect(recoverReceiverFromOcrTexts([
       "ไปยัง นางสาว Wsws บุญสนิท XXX-XXX-8717",
