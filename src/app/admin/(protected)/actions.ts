@@ -8,9 +8,8 @@ import { requireAdmin } from "@/lib/admin-auth";
 import { DASHBOARD_COLLECTED_DELTA_DISPLAY_KEY, dashboardCollectedDeltaDisplaySchema } from "@/lib/admin/dashboard-metrics";
 import { runtimeConfig } from "@/lib/runtime-config";
 import { sendDueLinePaymentRequests } from "@/lib/line/due-payments";
-import { generateMissingLineConnections, renewLineConnection, type GenerateMissingLineConnectionsResult, type RenewLineConnectionResult } from "@/lib/line/connection";
+import { disconnectLineUser, generateMissingLineConnections, renewLineConnection, type GenerateMissingLineConnectionsResult, type RenewLineConnectionResult } from "@/lib/line/connection";
 import { createLineConnectionTokenFields } from "@/lib/line/connection-token";
-import { disconnectLineUser } from "@/lib/line/linking";
 import { parseReminderDeliveryLog } from "@/lib/line/reminder-delivery";
 import { parseSatang } from "@/lib/money";
 import { buildAssignedScheduleRows } from "@/lib/plans/assignment";
@@ -553,7 +552,7 @@ export async function renewLineConnectionAction(clientId: string): Promise<Renew
 
 export async function disconnectLineAction(clientId: string): Promise<boolean> {
   await requireAdmin();
-  const disconnected = await disconnectLineUser({ listClients, updateClient, updateLineLinkClient, appendAudit }, { clientId, now: new Date() });
+  const disconnected = await disconnectLineUser({ listClients, updateLineLinkClient, claimLineConnection, appendAudit }, { clientId, now: new Date() });
   revalidateLinePages(clientId);
   return disconnected;
 }

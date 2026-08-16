@@ -9,6 +9,13 @@ const messageSchema = z.string()
 const automaticReplyConfigSchema = z.object({
   version: z.literal(2),
   slip: z.object({
+    received: messageSchema,
+  }).strict(),
+}).strict();
+
+const legacyAutomaticReplyConfigSchema = z.object({
+  version: z.literal(1),
+  slip: z.object({
     autoRecorded: messageSchema,
     review: messageSchema,
     flagged: messageSchema,
@@ -16,7 +23,6 @@ const automaticReplyConfigSchema = z.object({
 }).strict();
 
 export type LineAutomaticReplyConfig = z.infer<typeof automaticReplyConfigSchema>;
-export type LineSlipReplyDecision = "AUTO_RECORDED" | "MANUAL_CONFIRMED" | "REVIEW" | "FLAGGED";
 export type ResolvedLineAutomaticReplyConfig = {
   kind: "VALID" | "INVALID";
   config: LineAutomaticReplyConfig;
@@ -25,9 +31,7 @@ export type ResolvedLineAutomaticReplyConfig = {
 export const DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG: LineAutomaticReplyConfig = {
   version: 2,
   slip: {
-    autoRecorded: "Payment slip received and recorded.",
-    review: "Payment slip received. It will be reviewed.",
-    flagged: "Payment slip received. Please contact your trainer so they can review it.",
+    received: "Payment slip received. We’ll confirm it shortly.",
   },
 };
 
@@ -41,6 +45,14 @@ export class LineAutomaticReplyConfigError extends Error {
 export function parseLineAutomaticReplyConfig(value: unknown): LineAutomaticReplyConfig {
   try {
     const parsed = typeof value === "string" ? JSON.parse(value) : value;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const current = { ...(parsed as Record<string, unknown>) };
+      delete current.connection;
+      const currentConfig = automaticReplyConfigSchema.safeParse(current);
+      if (currentConfig.success) return currentConfig.data;
+      legacyAutomaticReplyConfigSchema.parse(current);
+      return DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG;
+    }
     return automaticReplyConfigSchema.parse(parsed);
   } catch {
     throw new LineAutomaticReplyConfigError();
@@ -57,11 +69,6 @@ export function resolveLineAutomaticReplyConfig(settings: ReadonlyArray<{ key: s
   }
 }
 
-export function lineSlipReplyText(config: LineAutomaticReplyConfig, decision: LineSlipReplyDecision): string {
-  switch (decision) {
-    case "AUTO_RECORDED": return config.slip.autoRecorded;
-    case "FLAGGED": return config.slip.flagged;
-    case "MANUAL_CONFIRMED":
-    case "REVIEW": return config.slip.review;
-  }
+export function lineSlipReplyText(config: LineAutomaticReplyConfig): string {
+  return config.slip.received;
 }
