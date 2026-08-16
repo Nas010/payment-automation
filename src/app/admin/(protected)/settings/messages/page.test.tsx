@@ -2,7 +2,7 @@
 
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { DEFAULT_LINE_DUE_PROFILES, DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG, LINE_DUE_PROFILE_SETTING_KEYS, type ResolvedLineDueMessageProfiles } from "@/lib/line/message-profile";
 import { DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG } from "@/lib/line/reply-config";
 
@@ -42,12 +42,17 @@ describe("MessagesSettingsPage", () => {
     render(await MessagesSettingsPage());
 
     expect(mocks.listOperationalSettings).toHaveBeenCalledOnce();
+    expect(screen.getByRole("tab", { name: /Welcome message/ })).toBeTruthy();
+    expect(mocks.welcomeForm).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("tab", { name: /Automatic replies/ }));
     expect(mocks.automaticReplyForm).toHaveBeenCalledWith(expect.objectContaining({
       resolved: { kind: "VALID", config: DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG },
       saveAction: expect.any(Function),
       resetAction: expect.any(Function),
     }));
+    fireEvent.click(screen.getByRole("tab", { name: /Payment messages/ }));
     expect(mocks.dueForm).toHaveBeenCalledWith(expect.objectContaining({ profiles: { ONE_TIME: { kind: "VALID", profile: DEFAULT_LINE_DUE_PROFILES.ONE_TIME }, INSTALLMENTS: { kind: "INVALID" } } }));
+    fireEvent.click(screen.getByRole("tab", { name: /Installment reminders/ }));
     expect(mocks.reminderForm).toHaveBeenCalledWith(expect.objectContaining({ resolved: { kind: "VALID", config: DEFAULT_LINE_INSTALLMENT_REMINDER_CONFIG } }));
   });
 });

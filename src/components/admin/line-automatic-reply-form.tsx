@@ -2,8 +2,9 @@
 
 import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import type { LineAutomaticReplyConfig, ResolvedLineAutomaticReplyConfig } from "@/lib/line/reply-config";
 
@@ -61,44 +62,46 @@ export function LineAutomaticReplyForm({ resolved, saveAction, resetAction }: Pr
     });
   };
 
-  return <section className="space-y-4">
-    <div>
+  return <section className="flex flex-col gap-4">
+    <div className="flex flex-col gap-1">
       <h2 className="text-lg font-semibold">Automatic replies</h2>
       <p className="text-sm text-muted-foreground">Messages LINE sends after payment-slip processing or account connection.</p>
     </div>
     {resolved.kind === "INVALID" ? <p className="text-sm text-destructive">Saved automatic replies are invalid. Defaults are active until you save or restore them.</p> : null}
-    <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); save(); }}>
+    <form className="flex flex-col gap-4" onSubmit={(event) => { event.preventDefault(); save(); }}>
       <Card>
         <CardHeader>
-          <CardTitle>Payment slip replies</CardTitle>
-          <CardDescription>Sent when a client submits a payment slip through LINE.</CardDescription>
+          <CardTitle>Reply templates</CardTitle>
+          <CardDescription>Choose the event group to edit. Changes are saved together.</CardDescription>
         </CardHeader>
         <CardContent>
-          <FieldGroup>
-            <ReplyField id="line-slip-auto-recorded" label="Payment recorded automatically" value={draft.slip.autoRecorded} onChange={(value) => updateSlip("autoRecorded", value)} />
-            <ReplyField id="line-slip-review" label="Payment needs review" value={draft.slip.review} onChange={(value) => updateSlip("review", value)} />
-            <ReplyField id="line-slip-flagged" label="Payment flagged" value={draft.slip.flagged} onChange={(value) => updateSlip("flagged", value)} />
-          </FieldGroup>
+          <Tabs defaultValue="payment-slips">
+            <TabsList>
+              <TabsTrigger value="payment-slips">Payment slip replies</TabsTrigger>
+              <TabsTrigger value="connections">LINE connection replies</TabsTrigger>
+            </TabsList>
+            <TabsContent value="payment-slips" className="mt-4">
+              <FieldGroup>
+                <ReplyField id="line-slip-auto-recorded" label="Payment recorded automatically" value={draft.slip.autoRecorded} onChange={(value) => updateSlip("autoRecorded", value)} />
+                <ReplyField id="line-slip-review" label="Payment needs review" value={draft.slip.review} onChange={(value) => updateSlip("review", value)} />
+                <ReplyField id="line-slip-flagged" label="Payment flagged" value={draft.slip.flagged} onChange={(value) => updateSlip("flagged", value)} />
+              </FieldGroup>
+            </TabsContent>
+            <TabsContent value="connections" className="mt-4">
+              <FieldGroup>
+                <ReplyField id="line-connection-linked" label="Connected successfully" value={draft.connection.linked} onChange={(value) => updateConnection("linked", value)} />
+                <ReplyField id="line-connection-already-linked" label="Already connected" value={draft.connection.alreadyLinked} onChange={(value) => updateConnection("alreadyLinked", value)} />
+                <ReplyField id="line-connection-invalid" label="Invalid, expired, or inactive" value={draft.connection.invalidOrExpired} onChange={(value) => updateConnection("invalidOrExpired", value)} />
+                <ReplyField id="line-connection-conflict" label="Connection conflict" value={draft.connection.conflict} onChange={(value) => updateConnection("conflict", value)} />
+              </FieldGroup>
+            </TabsContent>
+          </Tabs>
         </CardContent>
+        <CardFooter className="justify-end gap-2">
+          <Button type="submit" disabled={pending}>{pending ? "Saving…" : "Save automatic replies"}</Button>
+          <Button type="button" variant="ghost" disabled={pending} onClick={restoreDefaults}>Restore defaults</Button>
+        </CardFooter>
       </Card>
-      <Card>
-        <CardHeader>
-          <CardTitle>LINE connection replies</CardTitle>
-          <CardDescription>Sent after a client tries to connect their LINE account.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <FieldGroup>
-            <ReplyField id="line-connection-linked" label="Connected successfully" value={draft.connection.linked} onChange={(value) => updateConnection("linked", value)} />
-            <ReplyField id="line-connection-already-linked" label="Already connected" value={draft.connection.alreadyLinked} onChange={(value) => updateConnection("alreadyLinked", value)} />
-            <ReplyField id="line-connection-invalid" label="Invalid, expired, or inactive" value={draft.connection.invalidOrExpired} onChange={(value) => updateConnection("invalidOrExpired", value)} />
-            <ReplyField id="line-connection-conflict" label="Connection conflict" value={draft.connection.conflict} onChange={(value) => updateConnection("conflict", value)} />
-          </FieldGroup>
-        </CardContent>
-      </Card>
-      <div className="flex flex-wrap items-center gap-2">
-        <Button type="submit" disabled={pending}>{pending ? "Saving…" : "Save automatic replies"}</Button>
-        <Button type="button" variant="ghost" disabled={pending} onClick={restoreDefaults}>Restore defaults</Button>
-      </div>
     </form>
     {outcome ? <p className="text-sm" aria-live="polite">{outcome}</p> : null}
   </section>;

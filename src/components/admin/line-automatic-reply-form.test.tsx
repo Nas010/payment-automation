@@ -15,7 +15,7 @@ afterEach(() => {
 });
 
 describe("LineAutomaticReplyForm", () => {
-  it("groups all seven automatic replies in Settings → Messages", () => {
+  it("separates payment slip and connection replies into focused tabs", () => {
     render(createElement(LineAutomaticReplyForm, {
       resolved: valid,
       saveAction: vi.fn(),
@@ -23,16 +23,21 @@ describe("LineAutomaticReplyForm", () => {
     }));
 
     expect(screen.getByText("Automatic replies")).toBeTruthy();
-    expect(screen.getByText("Payment slip replies")).toBeTruthy();
-    expect(screen.getByText("LINE connection replies")).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Payment slip replies" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "LINE connection replies" })).toBeTruthy();
     expect((screen.getByLabelText("Payment recorded automatically") as HTMLTextAreaElement).value).toBe(DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG.slip.autoRecorded);
     expect(screen.getByLabelText("Payment needs review")).toBeTruthy();
     expect(screen.getByLabelText("Payment flagged")).toBeTruthy();
+    expect(screen.queryByLabelText("Connection conflict")).toBeNull();
+
+    fireEvent.click(screen.getByRole("tab", { name: "LINE connection replies" }));
+
     expect(screen.getByLabelText("Connected successfully")).toBeTruthy();
     expect(screen.getByLabelText("Already connected")).toBeTruthy();
     expect(screen.getByLabelText("Invalid, expired, or inactive")).toBeTruthy();
     expect(screen.getByLabelText("Connection conflict")).toBeTruthy();
-    expect(screen.getAllByRole("textbox")).toHaveLength(7);
+    expect(screen.queryByLabelText("Payment flagged")).toBeNull();
+    expect(screen.getAllByRole("textbox")).toHaveLength(4);
   });
 
   it("saves one complete edited configuration", async () => {
@@ -47,6 +52,7 @@ describe("LineAutomaticReplyForm", () => {
     render(createElement(LineAutomaticReplyForm, { resolved: valid, saveAction, resetAction: vi.fn() }));
 
     fireEvent.change(screen.getByLabelText("Payment needs review"), { target: { value: "Custom review reply" } });
+    fireEvent.click(screen.getByRole("tab", { name: "LINE connection replies" }));
     fireEvent.change(screen.getByLabelText("Connection conflict"), { target: { value: "Custom conflict reply" } });
     fireEvent.click(screen.getByRole("button", { name: "Save automatic replies" }));
 
