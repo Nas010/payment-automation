@@ -48,22 +48,32 @@ beforeEach(() => {
   mocks.runtimeConfig.mockResolvedValue({ businessDisplayName: "Coach Bee", lineLiffId: "1234567890-AbCdEf" });
 });
 
-describe("ClientsPage LINE connection", () => {
-  it("provides the current welcome message to awaiting clients without exposing a legacy code", async () => {
+describe("ClientsPage directory", () => {
+  it("keeps connection controls off the directory", async () => {
     const html = renderToStaticMarkup(await ClientsPage({ searchParams: Promise.resolve({}) }));
 
-    expect(html).toContain("Awaiting connection");
-    expect(html).toContain("Copy welcome message");
-    expect(html).not.toContain("LINK ABCDEF0123");
-    expect(html).not.toContain("one-time code");
+    expect(html).not.toContain("Active plans and payment progress.");
+    expect(html).not.toContain("Create new connection link");
+    expect(html).not.toContain("Disconnect LINE");
+    expect(html).not.toContain("LINE not linked.");
+    expect(html).not.toContain("2026-08-10T12:00:00.000Z");
   });
 
-  it("shows the linked client's LINE picture in the directory", async () => {
-    mocks.listClients.mockResolvedValue([{ ...client(), line_user_id: "Uaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", line_display_name: "Nisa LINE", line_picture_url: "https://profile.line-scdn.net/avatar/path", line_link_status: "LINKED" }]);
+  it("shows type-only plan, compact payment progress, and quiet active state", async () => {
+    mocks.listClients.mockResolvedValue([{ ...client(), payment_type: "INSTALLMENTS", installment_count: "3" }]);
+    mocks.listSchedules.mockResolvedValue([
+      { client_id: "client_1", status: "PAID", due_date: "2026-08-01" },
+      { client_id: "client_1", status: "SCHEDULED", due_date: "2026-09-01" },
+      { client_id: "client_1", status: "SCHEDULED", due_date: "2026-10-01" },
+    ]);
 
     const html = renderToStaticMarkup(await ClientsPage({ searchParams: Promise.resolve({}) }));
 
-    expect(html).toContain("LINE profile picture for Nisa");
-    expect(html).toContain("https://profile.line-scdn.net/avatar/path");
+    expect(html).toContain(">Installments<");
+    expect(html).not.toContain("3 installments");
+    expect(html).toContain('aria-label="1 of 3 payments paid"');
+    expect(html).toContain(">1 / 3<");
+    expect(html).not.toContain("1 of 3 paid");
+    expect(html).toContain('aria-label="Client active"');
   });
 });
