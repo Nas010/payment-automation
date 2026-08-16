@@ -44,7 +44,7 @@ vi.mock("@/lib/sheets/schedules", () => ({ listSchedules: mocks.listSchedules, u
 vi.mock("@/lib/sheets/settings", () => ({ listPackages: mocks.listPackages, savePackage: mocks.savePackage, upsertOperationalSetting: mocks.upsertOperationalSetting }));
 
 import { hashLineConnectionToken, recoverLineConnectionToken } from "@/lib/line/connection-token";
-import { assignPackageAction, changePackageAssignmentAction, confirmPaymentAction, createClientAction, createManualPaymentAction, deletePackageAssignmentAction, disconnectLineAction, endPackageAssignmentAction, generateMissingLineConnectionsAction, pausePackageAssignmentAction, renewLineConnectionAction, resumePackageAssignmentAction, sendLinePaymentAction, stopAwaitingLineSlipAction, togglePackageActiveAction } from "./actions";
+import { assignPackageAction, changePackageAssignmentAction, confirmPaymentAction, createClientAction, createManualPaymentAction, deletePackageAssignmentAction, disconnectLineAction, endPackageAssignmentAction, generateMissingLineConnectionsAction, pausePackageAssignmentAction, renewLineConnectionAction, resumePackageAssignmentAction, savePackageAction, sendLinePaymentAction, stopAwaitingLineSlipAction, togglePackageActiveAction } from "./actions";
 
 const now = "2026-08-10T12:00:00.000Z";
 const userId = "Uaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -731,5 +731,18 @@ describe("existing client billing actions", () => {
 
     expect(mocks.savePackage).toHaveBeenCalledWith({ ...packageRecord, active: "FALSE" });
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/admin/packages");
+  });
+
+  it("creates a new package as active because its state is controlled from the catalogue", async () => {
+    const formData = new FormData();
+    formData.set("package_name", "Premium");
+    formData.set("total_price_thb", "1500");
+    formData.set("payment_type", "ONE_TIME");
+    formData.set("installment_count", "1");
+    formData.set("interval_months", "0");
+
+    await savePackageAction(formData);
+
+    expect(mocks.savePackage).toHaveBeenCalledWith(expect.objectContaining({ package_name: "Premium", active: "TRUE" }));
   });
 });
