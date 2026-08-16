@@ -137,6 +137,8 @@ describe("processLineSlipEvent", () => {
     await processLineSlipEvent(event, deps);
 
     expect(deps.analyzeSlip).toHaveBeenCalledWith(expect.any(Uint8Array), "image/jpeg", ["NAS O", "NAS OFFICE"]);
+    expect(deps.processSlipImage).toHaveBeenCalledWith(expect.objectContaining({ receiverAliases: ["NAS O", "NAS OFFICE"] }));
+    expect(deps.receiverAliases).toHaveBeenCalledTimes(1);
     expect(deps.appendAudit.mock.calls.flat().join(" ")).not.toContain("NAS OFFICE");
   });
 

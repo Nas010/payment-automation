@@ -68,7 +68,7 @@ describe("LINE automatic reply actions", () => {
 
   it("rejects invalid submitted config before persistence or audit", async () => {
     const formData = new FormData();
-    formData.set("config", JSON.stringify({ version: 1 }));
+    formData.set("config", JSON.stringify({ version: 2 }));
 
     await expect(saveLineAutomaticReplyConfigAction(formData)).rejects.toThrow();
     expect(mocks.saveLineAutomaticReplyConfig).not.toHaveBeenCalled();

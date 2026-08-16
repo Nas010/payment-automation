@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClientRecord } from "@/lib/sheets/clients";
+import * as connectionModule from "./connection";
 import { hashLineConnectionToken, recoverLineConnectionToken } from "./connection-token";
 import {
   createLineConnectionService,
@@ -19,7 +20,7 @@ const userB = "Ubbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 function client(overrides: Partial<ClientRecord> = {}): ClientRecord {
   return {
     rowNumber: 2, client_id: "client_1", active: "TRUE", client_name: "Nisa", line_user_id: "", line_display_name: "", line_picture_url: "", package_name: "PT", payment_type: "ONE_TIME", total_price_thb: "1000", installment_count: "1", interval_months: "0", first_due_date: "2026-08-10", default_amount_thb: "1000", billing_frequency: "MANUAL", next_due_date: "2026-08-10", notes: "", created_at: now, updated_at: now,
-    line_link_code: "", line_link_code_expires_at: "", line_link_status: "", line_linked_at: "", line_link_message: "", line_link_error: "",
+    line_link_status: "", line_linked_at: "", line_link_error: "",
     line_link_token_hash: "", line_link_token_encrypted: "", line_link_token_expires_at: "",
     ...overrides,
   };
@@ -44,6 +45,20 @@ beforeEach(() => vi.stubEnv("SETTINGS_ENCRYPTION_KEY", encryptionKey));
 afterEach(() => vi.unstubAllEnvs());
 
 describe("LINE connection issuance", () => {
+  it("disconnects a LIFF-linked client and releases its LINE-user reservation", async () => {
+    const disconnectLineUser = (connectionModule as unknown as { disconnectLineUser?: (dependencies: LineConnectionDependencies, input: { clientId: string; now: string }) => Promise<boolean> }).disconnectLineUser;
+    expect(disconnectLineUser).toBeTypeOf("function");
+    if (!disconnectLineUser) return;
+    const deps = dependencies([client({ line_user_id: userA, line_display_name: "Nisa LINE", line_picture_url: "https://profile.line-scdn.net/avatar/path", line_link_status: "LINKED", line_linked_at: now })]);
+
+    await expect(disconnectLineUser(deps, { clientId: "client_1", now })).resolves.toBe(true);
+    expect(deps.updateLineLinkClient).toHaveBeenCalledWith(expect.objectContaining({
+      client: expect.objectContaining({ line_user_id: "", line_display_name: "", line_picture_url: "", line_link_status: "", line_link_token_hash: "", line_link_token_encrypted: "", line_link_token_expires_at: "" }),
+      releaseLineUserId: userA,
+    }));
+    expect(deps.appendAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "LINE_LINK_DISCONNECTED", clientId: "client_1", newStatus: "" }));
+  });
+
   it("issues secure connections only for eligible clients and never creates short codes", async () => {
     const pending = client({ client_id: "pending" });
     const linked = client({ rowNumber: 3, client_id: "linked", line_user_id: userA, line_link_status: "LINKED" });
@@ -55,8 +70,6 @@ describe("LINE connection issuance", () => {
     });
     expect(deps.updateLineLinkClient).toHaveBeenCalledWith(expect.objectContaining({ client: expect.objectContaining({
       client_id: "pending",
-      line_link_code: "",
-      line_link_message: "",
       line_link_status: "LINK_ACTIVE",
       line_link_token_hash: hashLineConnectionToken(tokenA),
       line_link_token_expires_at: "2026-08-17T12:00:00.000Z",

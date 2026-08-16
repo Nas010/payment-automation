@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { AUDIT_HEADERS, CLIENT_HEADERS, PAYMENT_HEADERS, SCHEDULE_HEADERS, sheetColumnName } from "@/lib/sheets/records";
+import { AUDIT_HEADERS, CLIENT_HEADERS, PAYMENT_HEADERS, SCHEDULE_HEADERS } from "@/lib/sheets/records";
 import { DEFAULT_LINE_DUE_PROFILES } from "@/lib/line/message-profile";
 import { DEFAULT_LINE_WELCOME_TEMPLATE } from "@/lib/line/message-template";
 
@@ -73,8 +73,8 @@ describe("operational workbook provisioning", () => {
     } });
     const headerWrite = valuesBatchUpdate.mock.calls[0][0];
     expect(headerWrite.requestBody.data).toEqual([
-      { range: "Clients!A1:AA1", values: [[...CLIENT_HEADERS]] },
-      { range: `Installment Schedule!A1:${sheetColumnName(SCHEDULE_HEADERS.length)}1`, values: [[...SCHEDULE_HEADERS]] },
+      { range: "Clients!A1:X1", values: [[...CLIENT_HEADERS]] },
+      { range: "Installment Schedule!A1:R1", values: [[...SCHEDULE_HEADERS]] },
       { range: "Payments!A1:AY1", values: [[...PAYMENT_HEADERS]] },
       { range: "Settings!A1:B1", values: [["key", "value"]] },
       { range: "Settings!A2:B10", values: expect.arrayContaining([

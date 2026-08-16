@@ -12,33 +12,37 @@ function customConfig() {
   return {
     version: 2,
     slip: {
-      received: "received-custom",
+      autoRecorded: "recorded-custom",
+      review: "review-custom",
+      flagged: "flagged-custom",
     },
   };
 }
 
 describe("LINE automatic reply configuration", () => {
-  it("uses the documented neutral slip-received reply when no configuration exists", () => {
+  it("uses the documented recorded-slip reply when no configuration exists", () => {
     const resolved = resolveLineAutomaticReplyConfig([]);
 
     expect(resolved.kind).toBe("VALID");
-    expect(lineSlipReplyText(resolved.config)).toBe("Payment slip received. We’ll confirm it shortly.");
+    expect(lineSlipReplyText(resolved.config, "AUTO_RECORDED")).toBe("Payment slip received and recorded.");
   });
 
   it("trims every saved reply before delivery", () => {
     const config = customConfig();
-    config.slip.received = "  received custom  ";
+    config.slip.autoRecorded = "  recorded custom  ";
 
     expect(parseLineAutomaticReplyConfig(JSON.stringify(config))).toMatchObject({
-      slip: { received: "received custom" },
+      slip: { autoRecorded: "recorded custom" },
     });
   });
 
   it.each([
-    ["missing reply", () => ({ version: 2, slip: { received: undefined } })],
+    ["missing reply", () => ({ version: 2, slip: { ...customConfig().slip, review: undefined } })],
     ["unexpected reply", () => ({ version: 2, slip: { ...customConfig().slip, extra: "extra" } })],
-    ["unsupported version", () => ({ ...customConfig(), version: 3 })],
-    ["overlong reply", () => ({ ...customConfig(), slip: { received: "x".repeat(5001) } })],
+    ["unsupported version", () => ({ ...customConfig(), version: 1 })],
+    ["blank reply", () => ({ ...customConfig(), slip: { ...customConfig().slip, review: "   " } })],
+    ["overlong reply", () => ({ ...customConfig(), slip: { ...customConfig().slip, flagged: "x".repeat(5001) } })],
+    ["legacy connection replies", () => ({ ...customConfig(), connection: { linked: "legacy" } })],
   ])("rejects a %s", (_label, makeInvalid) => {
     expect(() => parseLineAutomaticReplyConfig(JSON.stringify(makeInvalid()))).toThrow(LineAutomaticReplyConfigError);
   });
@@ -51,13 +55,12 @@ describe("LINE automatic reply configuration", () => {
     expect(resolved).toEqual({ kind: "INVALID", config: DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG });
   });
 
-  it("migrates legacy outcome-specific replies to one neutral received reply", () => {
-    const legacy = { ...customConfig(), connection: { linked: "legacy", alreadyLinked: "legacy", invalidOrExpired: "legacy", conflict: "legacy" } };
-    legacy.version = 1;
-    legacy.slip = { autoRecorded: "recorded-custom", review: "review-custom", flagged: "flagged-custom" } as never;
-    const config = parseLineAutomaticReplyConfig(legacy);
+  it("routes every slip outcome to its configured reply", () => {
+    const config = parseLineAutomaticReplyConfig(customConfig());
 
-    expect(lineSlipReplyText(config)).toBe(DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG.slip.received);
-    expect(config).not.toHaveProperty("connection");
+    expect(lineSlipReplyText(config, "AUTO_RECORDED")).toBe("recorded-custom");
+    expect(lineSlipReplyText(config, "MANUAL_CONFIRMED")).toBe("review-custom");
+    expect(lineSlipReplyText(config, "REVIEW")).toBe("review-custom");
+    expect(lineSlipReplyText(config, "FLAGGED")).toBe("flagged-custom");
   });
 });

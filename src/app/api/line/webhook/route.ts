@@ -1,8 +1,7 @@
 import { getLineChannelAccessToken, getLineChannelSecret } from "@/lib/secrets/service";
-import { appendAudit } from "@/lib/sheets/payments";
-import { claimLineLink, listClients, updateClient, updateLineLinkClient } from "@/lib/sheets/clients";
+import { listClients, updateLineLinkClient } from "@/lib/sheets/clients";
 import { getLineProfile } from "@/lib/line/client";
-import { createLineLinkService } from "@/lib/line/linking";
+import { persistLineProfile } from "@/lib/line/profile";
 import { processLineSlipEvent, type LineSlipEvent } from "@/lib/line/slip-payments";
 import { verifyLineSignature } from "@/lib/line/signature";
 import { runtimeConfig } from "@/lib/runtime-config";
@@ -16,7 +15,7 @@ type DirectProfileEvent = { lineUserId: string };
 function directProfileEvent(value: unknown): DirectProfileEvent | null {
   if (!value || typeof value !== "object") return null;
   const event = value as LineEvent;
-  if (event.type !== "follow") return null;
+  if (event.type !== "follow" && event.type !== "message") return null;
   const source = event.source;
   if (!source || typeof source !== "object" || (source as { type?: unknown }).type !== "user") return null;
   const lineUserId = (source as { userId?: unknown }).userId;
@@ -39,7 +38,7 @@ function directImageEvent(value: unknown): LineSlipEvent | null {
   return { webhookEventId: typeof event.webhookEventId === "string" ? event.webhookEventId : "", replyToken: event.replyToken, lineUserId, messageId };
 }
 
-async function refreshLineProfile(service: ReturnType<typeof createLineLinkService>, lineUserId: string, channelAccessToken: string): Promise<void> {
+async function refreshLineProfile(lineUserId: string, channelAccessToken: string): Promise<void> {
   let profile: { displayName: string; pictureUrl: string; pictureUrlStatus: "present" | "missing" | "rejected" };
   try {
     profile = await getLineProfile({ channelAccessToken, userId: lineUserId, fetchFn: fetch });
@@ -49,7 +48,7 @@ async function refreshLineProfile(service: ReturnType<typeof createLineLinkServi
   }
 
   try {
-    const persisted = await service.persistLineProfile({ lineUserId, displayName: profile.displayName, pictureUrl: profile.pictureUrl, now: new Date() });
+    const persisted = await persistLineProfile({ listClients, updateLineLinkClient }, { lineUserId, displayName: profile.displayName, pictureUrl: profile.pictureUrl, now: new Date() });
     if (persisted) console.info(`[line-webhook] profile_refresh outcome=updated image=${profile.pictureUrlStatus}`);
     else console.warn("[line-webhook] profile_refresh outcome=skipped");
   } catch {
@@ -65,8 +64,7 @@ async function processProfileEvent(event: DirectProfileEvent): Promise<void> {
     console.warn("[line-webhook] profile_refresh outcome=profile_lookup_failed");
     return;
   }
-  const service = createLineLinkService({ listClients, updateClient, updateLineLinkClient, claimLineLink, appendAudit });
-  await refreshLineProfile(service, event.lineUserId, channelAccessToken);
+  await refreshLineProfile(event.lineUserId, channelAccessToken);
 }
 
 export async function POST(request: Request): Promise<Response> {

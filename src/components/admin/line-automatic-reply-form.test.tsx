@@ -15,7 +15,7 @@ afterEach(() => {
 });
 
 describe("LineAutomaticReplyForm", () => {
-  it("shows one client-facing payment-slip reply", () => {
+  it("shows only payment-slip replies in Settings → Messages", () => {
     render(createElement(LineAutomaticReplyForm, {
       resolved: valid,
       saveAction: vi.fn(),
@@ -23,10 +23,13 @@ describe("LineAutomaticReplyForm", () => {
     }));
 
     expect(screen.getByText("Automatic replies")).toBeTruthy();
-    expect((screen.getByLabelText("Payment slip received message") as HTMLTextAreaElement).value).toBe(DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG.slip.received);
-    expect(screen.queryByLabelText("Payment needs review")).toBeNull();
-    expect(screen.queryByLabelText("Payment flagged")).toBeNull();
-    expect(screen.queryByRole("tab", { name: "LINE connection replies" })).toBeNull();
+    expect(screen.getByText("Payment slip replies")).toBeTruthy();
+    expect(screen.queryByText("LINE connection replies")).toBeNull();
+    expect((screen.getByLabelText("Payment recorded automatically") as HTMLTextAreaElement).value).toBe(DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG.slip.autoRecorded);
+    expect(screen.getByLabelText("Payment needs review")).toBeTruthy();
+    expect(screen.getByLabelText("Payment flagged")).toBeTruthy();
+    expect(screen.queryByLabelText("Connected successfully")).toBeNull();
+    expect(screen.getAllByRole("textbox")).toHaveLength(3);
   });
 
   it("saves one complete edited configuration", async () => {
@@ -34,19 +37,19 @@ describe("LineAutomaticReplyForm", () => {
       ok: true,
       config: {
         ...DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG,
-        slip: { received: "Custom received reply" },
+        slip: { ...DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG.slip, review: "Custom review reply" },
       },
     });
     render(createElement(LineAutomaticReplyForm, { resolved: valid, saveAction, resetAction: vi.fn() }));
 
-    fireEvent.change(screen.getByLabelText("Payment slip received message"), { target: { value: "Custom received reply" } });
+    fireEvent.change(screen.getByLabelText("Payment needs review"), { target: { value: "Custom review reply" } });
     fireEvent.click(screen.getByRole("button", { name: "Save automatic replies" }));
 
     await waitFor(() => expect(saveAction).toHaveBeenCalledOnce());
     const submitted = JSON.parse(String((saveAction.mock.calls[0]?.[0] as FormData).get("config")));
     expect(submitted).toEqual({
       ...DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG,
-      slip: { received: "Custom received reply" },
+      slip: { ...DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG.slip, review: "Custom review reply" },
     });
     expect(await screen.findByText("Automatic replies saved.")).toBeTruthy();
   });
@@ -56,15 +59,15 @@ describe("LineAutomaticReplyForm", () => {
     const resetAction = vi.fn().mockResolvedValue({ ok: true, config: DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG });
     render(createElement(LineAutomaticReplyForm, { resolved: valid, saveAction, resetAction }));
 
-    const received = screen.getByLabelText("Payment slip received message") as HTMLTextAreaElement;
-    fireEvent.change(received, { target: { value: "Unsaved received reply" } });
+    const review = screen.getByLabelText("Payment needs review") as HTMLTextAreaElement;
+    fireEvent.change(review, { target: { value: "Unsaved review reply" } });
     fireEvent.click(screen.getByRole("button", { name: "Save automatic replies" }));
     expect(await screen.findByText("Could not save automatic replies.")).toBeTruthy();
-    expect(received.value).toBe("Unsaved received reply");
+    expect(review.value).toBe("Unsaved review reply");
 
     fireEvent.click(screen.getByRole("button", { name: "Restore defaults" }));
     await waitFor(() => expect(resetAction).toHaveBeenCalledOnce());
-    expect(received.value).toBe(DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG.slip.received);
+    expect(review.value).toBe(DEFAULT_LINE_AUTOMATIC_REPLY_CONFIG.slip.review);
     expect(screen.getByText("Documented defaults restored.")).toBeTruthy();
   });
 

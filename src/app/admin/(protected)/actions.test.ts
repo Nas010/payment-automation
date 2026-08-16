@@ -52,7 +52,7 @@ const userId = "Uaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 function client(overrides: Partial<ClientRecord> = {}): ClientRecord {
   return {
     rowNumber: 2, client_id: "client_1", active: "TRUE", client_name: "Nisa", line_user_id: "", line_display_name: "", line_picture_url: "", package_name: "PT", payment_type: "ONE_TIME", total_price_thb: "1000", installment_count: "1", interval_months: "0", first_due_date: "2026-08-10", default_amount_thb: "1000", billing_frequency: "MANUAL", next_due_date: "2026-08-10", notes: "", created_at: now, updated_at: now,
-    line_link_code: "", line_link_code_expires_at: "", line_link_status: "", line_linked_at: "", line_link_message: "", line_link_error: "",
+line_link_status: "", line_linked_at: "",line_link_error: "",
     line_link_token_hash: "", line_link_token_encrypted: "", line_link_token_expires_at: "",
     ...overrides,
   };
@@ -144,7 +144,7 @@ describe("protected LINE trainer actions", () => {
 
     const saved = mocks.writeClient.mock.calls[0]?.[0] as Record<string, string>;
     expect(mocks.requireAdmin).toHaveBeenCalledTimes(1);
-    expect(saved).toMatchObject({ line_user_id: "", line_display_name: "", line_link_status: "LINK_ACTIVE", line_linked_at: "", line_link_error: "", line_link_code: "", line_link_code_expires_at: "", line_link_message: "" });
+    expect(saved).toMatchObject({ line_user_id: "", line_display_name: "", line_link_status: "LINK_ACTIVE", line_linked_at: "", line_link_error: "" });
     const rawToken = recoverLineConnectionToken({ clientId: saved.client_id, encryptedToken: saved.line_link_token_encrypted });
     expect(rawToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(saved.line_link_token_hash).toBe(hashLineConnectionToken(rawToken));
@@ -173,12 +173,12 @@ describe("protected LINE trainer actions", () => {
     const result = await renewLineConnectionAction("client_1");
 
     expect(result).toEqual({ clientId: "client_1", status: "LINK_ACTIVE" });
-    expect(mocks.updateLineLinkClient).toHaveBeenCalledWith(expect.objectContaining({ client: expect.objectContaining({ line_user_id: "", line_link_status: "LINK_ACTIVE", line_link_code: "", line_link_message: "" }) }));
+    expect(mocks.updateLineLinkClient).toHaveBeenCalledWith(expect.objectContaining({ client: expect.objectContaining({ line_user_id: "", line_link_status: "LINK_ACTIVE" }) }));
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/admin/clients/client_1");
   });
 
   it("rejects renewal for a client that already has a different LINE user ID", async () => {
-    mocks.listClients.mockResolvedValue([client({ line_user_id: userId, line_display_name: "Nisa LINE", line_link_code: "ABCDEF0123", line_link_status: "LINKED" })]);
+    mocks.listClients.mockResolvedValue([client({ line_user_id: userId, line_display_name: "Nisa LINE", line_link_status: "LINKED" })]);
 
     await expect(renewLineConnectionAction("client_1")).resolves.toBeNull();
 
@@ -191,7 +191,7 @@ describe("protected LINE trainer actions", () => {
 
     await expect(disconnectLineAction("client_1")).resolves.toBe(true);
 
-    expect(mocks.updateLineLinkClient).toHaveBeenCalledWith(expect.objectContaining({ client: expect.objectContaining({ line_user_id: "", line_display_name: "", line_link_code: "", line_link_code_expires_at: "", line_link_status: "", line_linked_at: "", line_link_message: "", line_link_error: "", line_link_token_hash: "", line_link_token_encrypted: "", line_link_token_expires_at: "" }) }));
+    expect(mocks.updateLineLinkClient).toHaveBeenCalledWith(expect.objectContaining({ client: expect.objectContaining({ line_user_id: "", line_display_name: "",line_link_status: "", line_linked_at: "",line_link_error: "", line_link_token_hash: "", line_link_token_encrypted: "", line_link_token_expires_at: "" }) }));
     expect(mocks.updateLineLinkClient).toHaveBeenCalledWith(expect.objectContaining({ releaseLineUserId: userId }));
     expect(mocks.appendAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "LINE_LINK_DISCONNECTED", clientId: "client_1", source: "LINE_TRAINER" }));
   });
