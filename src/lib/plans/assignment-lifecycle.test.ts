@@ -94,3 +94,11 @@ describe("buildPackageAssignments", () => {
     expect(assignment).toMatchObject({ state: "COMPLETED", paidSatang: 120_000, outstandingSatang: 0 });
   });
 });
+
+
+it("groups legacy manual rows without assignment metadata and excludes known packages", () => {
+  const rows = [schedule({ package_name: "Old custom charge" }), schedule({ package_name: "Old custom charge", schedule_id: "second", installment_number: "2" }), schedule()];
+  const assignments = buildPackageAssignments(rows, new Set(["Coaching"]), "MANUAL");
+  expect(assignments).toHaveLength(1);
+  expect(assignments[0]).toMatchObject({ id: assignmentIdForSchedule(rows[0]), kind: "MANUAL", schedules: rows.slice(0, 2) });
+});

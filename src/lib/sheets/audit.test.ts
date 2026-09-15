@@ -45,3 +45,13 @@ describe("hasPaymentTransitionAudit", () => {
     await expect(hasPaymentTransitionAudit({ paymentId: "pay_1", action: "AUTO_RECORDED", source: "LINE_WEBHOOK", scheduleId: "schedule_2" })).resolves.toBe(false);
   });
 });
+
+it("records a fresh confirmation after an undo, while deduplicating its retries", async () => {
+  const confirmed = ["now", "pay_1", "client_1", "MANUAL_CONFIRMED", "REVIEW", "MANUAL_CONFIRMED", "", "ADMIN", JSON.stringify({ scheduleId: "schedule_1" })];
+  const undone = ["later", "pay_1", "client_1", "MANUAL_CONFIRMATION_UNDONE"];
+  const identity = { paymentId: "pay_1", action: "MANUAL_CONFIRMED", source: "ADMIN", scheduleId: "schedule_1" };
+  get.mockResolvedValue({ data: { values: [AUDIT_HEADERS, confirmed, undone] } });
+  await expect(hasPaymentTransitionAudit(identity)).resolves.toBe(false);
+  get.mockResolvedValue({ data: { values: [AUDIT_HEADERS, confirmed, undone, confirmed] } });
+  await expect(hasPaymentTransitionAudit(identity)).resolves.toBe(true);
+});

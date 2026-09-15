@@ -60,7 +60,7 @@ export function buildPackageAssignments<T extends AssignmentSchedule>(schedules:
   for (const schedule of schedules) {
     const isPackage = schedule.assignment_id
       ? schedule.assignment_kind === kind
-      : kind === "PACKAGE" && savedPackageNames.has(schedule.package_name);
+      : (savedPackageNames.has(schedule.package_name) ? "PACKAGE" : "MANUAL") === kind;
     if (!isPackage) continue;
     const id = assignmentIdForSchedule(schedule);
     const group = groups.get(id) ?? [];

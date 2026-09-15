@@ -33,7 +33,7 @@ export type ScheduleRecord = {
 export type NewScheduleRecord = Omit<ScheduleRecord, "rowNumber" | "assignment_id" | "assignment_kind" | "lifecycle_operation_id">
   & Partial<Pick<ScheduleRecord, "assignment_id" | "assignment_kind" | "lifecycle_operation_id">>;
 
-type ScheduleUpdate = { expectedSchedule: ScheduleRecord; schedule: ScheduleRecord };
+export type ScheduleUpdate = { expectedSchedule: ScheduleRecord; schedule: ScheduleRecord };
 
 function scheduleStatePrefix(scheduleId: string): string {
   return `schedule_state_${createHash("sha256").update(scheduleId).digest("hex")}_`;
@@ -205,8 +205,8 @@ export async function updateScheduleIfUnchanged({ schedule, expectedSchedule }: 
 }
 
 /** Atomically writes all supplied schedules only while every complete expected row is unchanged. */
-export async function updateSchedulesIfUnchanged({ updates }: { updates: readonly ScheduleUpdate[] }): Promise<boolean> {
-  if (!updates.length) return true;
+export async function prepareScheduleUpdateRequests({ updates }: { updates: readonly ScheduleUpdate[] }) {
+  if (!updates.length) return [];
   const rows = new Set<number>();
   for (const { schedule, expectedSchedule } of updates) {
     if (!Number.isInteger(schedule.rowNumber) || schedule.rowNumber < 2) throw new Error("Schedule physical row is required");
@@ -217,23 +217,30 @@ export async function updateSchedulesIfUnchanged({ updates }: { updates: readonl
   }
   await ensureScheduleSchema();
   for (const { expectedSchedule } of updates) {
-    if (!await ensureExpectedScheduleToken(expectedSchedule)) return false;
+    if (!await ensureExpectedScheduleToken(expectedSchedule)) return null;
   }
 
-  const { sheets, spreadsheetId } = await getGoogleSheets();
   const metadata = await scheduleSheetMetadata();
   const reservations = updates.map(({ expectedSchedule }) => {
     const tokens = tokenRanges(metadata, expectedSchedule.schedule_id);
     const currentToken = tokens.find((token) => token.name === scheduleStateTokenName(expectedSchedule) && token.namedRangeId);
     return tokens.length === 1 && currentToken?.namedRangeId ? currentToken.namedRangeId : null;
   });
-  if (reservations.some((reservation) => !reservation)) return false;
+  if (reservations.some((reservation) => !reservation)) return null;
 
-  try {
-    await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests: [
+  return [
       ...reservations.map((namedRangeId) => ({ deleteNamedRange: { namedRangeId: namedRangeId as string } })),
       ...updates.flatMap(({ schedule }) => [scheduleTokenRequest(schedule, metadata.sheetId), scheduleRowRequest(schedule, metadata.sheetId)]),
-    ] } });
+    ];
+}
+
+export async function updateSchedulesIfUnchanged({ updates }: { updates: readonly ScheduleUpdate[] }): Promise<boolean> {
+  const requests = await prepareScheduleUpdateRequests({ updates });
+  if (!requests) return false;
+  if (!requests.length) return true;
+  const { sheets, spreadsheetId } = await getGoogleSheets();
+  try {
+    await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests } });
     return true;
   } catch (error) {
     if (scheduleStateConflict(error)) return false;

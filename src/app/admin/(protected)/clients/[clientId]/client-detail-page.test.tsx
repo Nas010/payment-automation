@@ -133,3 +133,13 @@ it("hides removed manual charges from the client schedule", async () => {
   expect(html).not.toContain("Mistaken charge");
   expect(html).toContain("No payments scheduled");
 });
+
+
+it("shows cancellation and removal for an unpaid legacy manual schedule", async () => {
+  mocks.listPackages.mockResolvedValue([{ package_name: "Coaching", active: "TRUE" }]);
+  mocks.listSchedules.mockResolvedValue([{ schedule_id: "old-manual", client_id: "client_1", package_name: "Old extra session", payment_type: "ONE_TIME", installment_number: "1", installment_count: "1", amount_thb: "200", due_date: "2099-12-15", status: "SCHEDULED", created_at: now, assignment_id: "", assignment_kind: "" }]);
+  const html = renderToStaticMarkup(await ClientDetailPage({ params: Promise.resolve({ clientId: "client_1" }) }));
+  const table = html.slice(html.indexOf("Payment schedule"), html.indexOf("Activity"));
+  expect(table).toContain("Cancel payments");
+  expect(table).toContain("Remove");
+});

@@ -853,3 +853,19 @@ it.each(["ONE_TIME", "INSTALLMENTS"])("defers a future %s package's first messag
   expect(mocks.generateDuePaymentLinks).not.toHaveBeenCalled();
   expect(mocks.sendDueLinePaymentRequests).not.toHaveBeenCalled();
 });
+
+
+it.each([
+  ["cancel", "2000-01-01", "SCHEDULED"],
+  ["remove", "2099-12-15", "SCHEDULED"],
+  ["cancel", "2099-12-15", "GENERATED"],
+  ["remove", "2000-01-01", "GENERATED"],
+])("supports legacy manual %s for %s %s payments", async (action, dueDate, status) => {
+  const row = schedule({ assignment_id: "", assignment_kind: "", package_name: "Old custom charge", due_date: dueDate, status, payment_id: status === "GENERATED" ? "pay_1" : "" });
+  mocks.listSchedules.mockResolvedValue([row]);
+  mocks.listPayments.mockResolvedValue(status === "GENERATED" ? [payment()] : []);
+  const id = `legacy:${[row.client_id, row.package_name, row.payment_type, row.installment_count, row.created_at].map(encodeURIComponent).join(":")}`;
+  await (action === "cancel" ? cancelManualPaymentAction : removeManualPaymentAction)("client_1", assignmentForm({ assignment_id: id }));
+  expect(mocks.updateSchedulesIfUnchanged).toHaveBeenCalledWith({ updates: [expect.objectContaining({ schedule: expect.objectContaining({ status: action === "cancel" ? "CANCELLED" : "DELETED" }) })] });
+  if (status === "GENERATED") expect(mocks.updatePaymentIfUnchanged).toHaveBeenCalledWith(expect.objectContaining({ payment: expect.objectContaining({ status: "VOID", line_slip_expected: "FALSE" }) }));
+});

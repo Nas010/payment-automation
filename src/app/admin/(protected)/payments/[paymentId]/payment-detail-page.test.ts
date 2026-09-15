@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({ readPaymentClientSnapshot: vi.fn(), notFound: 
 vi.mock("next/navigation", () => ({ notFound: mocks.notFound }));
 vi.mock("next/image", () => ({ default: (props: React.ImgHTMLAttributes<HTMLImageElement>) => React.createElement("img", props) }));
 vi.mock("@/lib/sheets/payment-client-snapshot", () => ({ readPaymentClientSnapshot: mocks.readPaymentClientSnapshot }));
-vi.mock("../../actions", () => ({ confirmPaymentAction: mocks.confirmPaymentAction, sendLinePaymentAction: mocks.sendLinePaymentAction, stopAwaitingLineSlipAction: mocks.stopAwaitingLineSlipAction }));
+vi.mock("../../actions", () => ({ correctPaymentAction: vi.fn(), confirmPaymentAction: mocks.confirmPaymentAction, sendLinePaymentAction: mocks.sendLinePaymentAction, stopAwaitingLineSlipAction: mocks.stopAwaitingLineSlipAction }));
 
 import PaymentDetailPage from "./page";
 

@@ -17,6 +17,8 @@ import { buildAssignedScheduleRows } from "@/lib/plans/assignment";
 import { buildPackageAssignments, type PackageAssignment } from "@/lib/plans/assignment-lifecycle";
 import { buildInstallmentPlan, parseInstallmentOverrides } from "@/lib/plans/schedule";
 import { generateDuePaymentLinks } from "@/lib/payments/generate";
+import { correctPayment } from "@/lib/payments/correction";
+import { paymentStateTokenName } from "@/lib/sheets/payments";
 import { persistPaymentTransition } from "@/lib/payments/transition";
 import { claimLineConnection, listClients, updateClient, updateLineLinkClient, writeClient } from "@/lib/sheets/clients";
 import { getPaymentById, appendAudit, listPayments, updatePaymentIfUnchanged, type PaymentRecord } from "@/lib/sheets/payments";
@@ -395,8 +397,8 @@ async function finishPackageLifecycleAction(clientId: string): Promise<void> {
 async function updateManualPayment(clientId: string, formData: FormData, status: "CANCELLED" | "DELETED"): Promise<void> {
   await requireAdmin();
   const data = assignmentIdSchema.parse(values(formData));
-  const [schedules, payments] = await Promise.all([listSchedules(), listPayments()]);
-  const assignment = buildPackageAssignments(schedules.filter((row) => row.client_id === clientId), new Set(), "MANUAL")
+  const [schedules, payments, packages] = await Promise.all([listSchedules(), listPayments(), listPackages()]);
+  const assignment = buildPackageAssignments(schedules.filter((row) => row.client_id === clientId), new Set(packages.map((item) => item.package_name)), "MANUAL")
     .find((item) => item.id === data.assignment_id);
   if (!assignment) throw new Error("Manual payment was not found for this client");
   if (status === "DELETED" && assignment.schedules.some((row) => row.status === "PAID")) {
@@ -582,6 +584,28 @@ export async function disconnectLineAction(clientId: string): Promise<boolean> {
   const disconnected = await disconnectLineUser({ listClients, updateLineLinkClient, claimLineConnection, appendAudit }, { clientId, now: new Date() });
   revalidateLinePages(clientId);
   return disconnected;
+}
+
+export async function correctPaymentAction(formData: FormData): Promise<{ error?: string }> {
+  await requireAdmin();
+  const input = z.object({ payment_id: z.string().min(1), revision: z.string().min(1), amount_thb: z.string(), reason: z.string().trim().min(1), acknowledged: z.literal("on"), intent: z.enum(["correct", "undo"]) }).safeParse(values(formData));
+  if (!input.success) return { error: "Enter an amount, a reason, and confirm you checked the payment." };
+  const data = input.data;
+  const [payments, schedules] = await Promise.all([listPayments(), listSchedules()]);
+  const payment = payments.find((row) => row.payment_id === data.payment_id);
+  if (!payment) return { error: "Payment was not found." };
+  if (paymentStateTokenName(payment) !== data.revision) return { error: "Payment changed. Refresh before correcting it." };
+  try {
+    await correctPayment({ payment, payments, schedules, amountThb: data.amount_thb, reason: data.reason, undoConfirmation: data.intent === "undo" });
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "Could not save the correction. Refresh before retrying." };
+  }
+  revalidatePaymentPages(payment.payment_id);
+  revalidateClientBillingPages(payment.client_id);
+  revalidatePath("/admin/review");
+  revalidatePath("/admin/growth");
+  revalidatePath(`/p/${payment.public_token}`);
+  return {};
 }
 
 export async function confirmPaymentAction(formData: FormData): Promise<void> {

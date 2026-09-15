@@ -42,7 +42,9 @@ function auditScheduleId(metadata: string): string {
 
 /** Checks a terminal transition audit by its stable payment, action, source, and schedule identity. */
 export async function hasPaymentTransitionAudit(identity: PaymentTransitionAuditIdentity): Promise<boolean> {
-  return (await listAuditRecords()).some((record) => record.payment_id === identity.paymentId
+  const records = await listAuditRecords();
+  const undone = identity.action === "MANUAL_CONFIRMED" ? records.findIndex((record) => record.payment_id === identity.paymentId && record.action === "MANUAL_CONFIRMATION_UNDONE") : -1;
+  return (undone < 0 ? records : records.slice(0, undone)).some((record) => record.payment_id === identity.paymentId
     && record.action === identity.action
     && record.source === identity.source
     && auditScheduleId(record.metadata) === identity.scheduleId);

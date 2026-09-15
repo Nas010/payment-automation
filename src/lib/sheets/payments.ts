@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { getGoogleSheets } from "./client";
 import { ensurePaymentSchema } from "./migration";
 import { PAYMENT_HEADERS, recordToRow, rowToRecord, sheetColumnName } from "./records";
-import { listSchedules } from "./schedules";
+import { listSchedules, prepareScheduleUpdateRequests, type ScheduleUpdate } from "./schedules";
 import { needsManualConfirmationAudit } from "@/lib/payments/manual-confirmation";
 
 type PaymentFields = { [Key in (typeof PAYMENT_HEADERS)[number]]: string };
@@ -157,13 +157,13 @@ export async function updatePayment(payment: PaymentRecord): Promise<void> {
 }
 
 /** Atomically writes a payment row only while its complete expected state is unchanged. */
-export async function updatePaymentIfUnchanged({ payment, expectedPayment }: { payment: PaymentRecord; expectedPayment: PaymentRecord }): Promise<boolean> {
+async function preparePaymentUpdateRequests({ payment, expectedPayment }: { payment: PaymentRecord; expectedPayment: PaymentRecord }) {
   if (!Number.isInteger(payment.rowNumber) || payment.rowNumber < 2) throw new Error("Payment physical row is required");
   if (payment.rowNumber !== expectedPayment.rowNumber) throw new Error("Payment and expected payment must target the same physical row");
   await ensurePaymentSchema();
   const { sheets, spreadsheetId } = await getGoogleSheets();
   const initialActual = await readPaymentRow(expectedPayment);
-  if (!initialActual || !samePaymentState(initialActual, expectedPayment)) return false;
+  if (!initialActual || !samePaymentState(initialActual, expectedPayment)) return null;
   let metadata = await paymentSheetMetadata();
   let tokens = tokenRanges(metadata, expectedPayment.payment_id);
   const expectedTokenName = paymentStateTokenName(expectedPayment);
@@ -171,14 +171,14 @@ export async function updatePaymentIfUnchanged({ payment, expectedPayment }: { p
   if (!currentToken) {
     if (tokens.length) {
       await stabilizePaymentStateToken(expectedPayment);
-      return false;
+      return null;
     }
     try {
       await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests: [paymentTokenRequest(expectedPayment, metadata.sheetId)] } });
     } catch (error) {
       const conflict = paymentStateConflict(error);
       await stabilizePaymentStateToken(expectedPayment);
-      if (conflict) return false;
+      if (conflict) return null;
       throw error;
     }
     metadata = await paymentSheetMetadata();
@@ -187,19 +187,56 @@ export async function updatePaymentIfUnchanged({ payment, expectedPayment }: { p
     const refreshedActual = await readPaymentRow(expectedPayment);
     if (!currentToken || tokens.length !== 1 || !refreshedActual || !samePaymentState(refreshedActual, expectedPayment)) {
       await stabilizePaymentStateToken(expectedPayment);
-      return false;
+      return null;
     }
   }
   if (tokens.length !== 1 || !currentToken.namedRangeId) {
     await stabilizePaymentStateToken(expectedPayment);
-    return false;
+    return null;
   }
+  return [
+    { deleteNamedRange: { namedRangeId: currentToken.namedRangeId } },
+    paymentTokenRequest(payment, metadata.sheetId),
+    paymentRowRequest(payment, metadata.sheetId),
+  ];
+}
+
+export async function updatePaymentIfUnchanged(input: { payment: PaymentRecord; expectedPayment: PaymentRecord }): Promise<boolean> {
+  const requests = await preparePaymentUpdateRequests(input);
+  if (!requests) return false;
+  const { sheets, spreadsheetId } = await getGoogleSheets();
   try {
-    await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests: [
-      { deleteNamedRange: { namedRangeId: currentToken.namedRangeId } },
-      paymentTokenRequest(payment, metadata.sheetId),
-      paymentRowRequest(payment, metadata.sheetId),
-    ] } });
+    await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests } });
+    return true;
+  } catch (error) {
+    if (paymentStateConflict(error)) return false;
+    throw error;
+  }
+}
+
+/** Commits invoice corrections, their schedule and audit together, guarded by all row state tokens. */
+export async function updatePaymentRecordsAndSchedules(input: {
+  updates: Array<{ payment: PaymentRecord; expectedPayment: PaymentRecord }>;
+  scheduleUpdates: ScheduleUpdate[];
+  audit: PaymentAuditInput;
+}): Promise<boolean> {
+  const requests: import("googleapis").sheets_v4.Schema$Request[] = [];
+  for (const update of input.updates) {
+    const prepared = await preparePaymentUpdateRequests(update);
+    if (!prepared) return false;
+    requests.push(...prepared);
+  }
+  const preparedSchedules = await prepareScheduleUpdateRequests({ updates: input.scheduleUpdates });
+  if (!preparedSchedules) return false;
+  requests.push(...preparedSchedules);
+  const { sheets, spreadsheetId } = await getGoogleSheets();
+  const metadata = await sheets.spreadsheets.get({ spreadsheetId, fields: "sheets(properties(sheetId,title))" });
+  const auditSheetId = metadata.data.sheets?.find((sheet) => sheet.properties?.title === "Audit Log")?.properties?.sheetId;
+  if (auditSheetId === undefined || auditSheetId === null) throw new Error("Audit Log sheet is required");
+  const audit = input.audit;
+  requests.push({ appendCells: { sheetId: auditSheetId, rows: [{ values: [new Date().toISOString(), audit.paymentId, audit.clientId, audit.action, audit.previousStatus, audit.newStatus, audit.reason, audit.source, audit.metadata ?? ""].map(paymentCell) }], fields: "userEnteredValue" } });
+  try {
+    await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests } });
     return true;
   } catch (error) {
     if (paymentStateConflict(error)) return false;

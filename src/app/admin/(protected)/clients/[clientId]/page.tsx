@@ -36,7 +36,7 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ c
   const clientAudit = audit.filter((item) => item.client_id === clientId);
   const activePackages = packages.filter((item) => item.active.toUpperCase() === "TRUE");
   const packageAssignments = buildPackageAssignments(clientSchedules, new Set(packages.map((item) => item.package_name)));
-  const manualAssignments = buildPackageAssignments(clientSchedules, new Set(), "MANUAL");
+  const manualAssignments = buildPackageAssignments(clientSchedules, new Set(packages.map((item) => item.package_name)), "MANUAL");
   const manualActionsBySchedule = new Map(manualAssignments.map((assignment) => [assignment.schedules[0].schedule_id, assignment]));
   const summary = buildClientBillingSummary(clientSchedules.filter((item) => item.status !== "DELETED"));
   const liffId = config.lineLiffId;
