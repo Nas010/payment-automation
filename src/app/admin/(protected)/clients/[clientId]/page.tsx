@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { CalendarClockIcon, ReceiptTextIcon, ScrollTextIcon } from "lucide-react";
 import { notFound } from "next/navigation";
+import { ClientManualPayments } from "@/components/admin/client-manual-payments";
 import { ClientBillingActions } from "@/components/admin/client-billing-actions";
 import { ClientPackageAssignments } from "@/components/admin/client-package-assignments";
 import { ClientAvatar } from "@/components/admin/client-avatar";
@@ -22,7 +23,7 @@ import { listClients } from "@/lib/sheets/clients";
 import { listPayments } from "@/lib/sheets/payments";
 import { listSchedules } from "@/lib/sheets/schedules";
 import { getLineWelcomeTemplate, listPackages } from "@/lib/sheets/settings";
-import { assignPackageAction, changePackageAssignmentAction, createManualPaymentAction, deletePackageAssignmentAction, disconnectLineAction, endPackageAssignmentAction, pausePackageAssignmentAction, renewLineConnectionAction, resumePackageAssignmentAction } from "../../actions";
+import { cancelManualPaymentAction, removeManualPaymentAction, assignPackageAction, changePackageAssignmentAction, createManualPaymentAction, deletePackageAssignmentAction, disconnectLineAction, endPackageAssignmentAction, pausePackageAssignmentAction, renewLineConnectionAction, resumePackageAssignmentAction } from "../../actions";
 
 export default async function ClientDetailPage({ params }: { params: Promise<{ clientId: string }> }) {
   const { clientId } = await params;
@@ -35,7 +36,8 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ c
   const clientAudit = audit.filter((item) => item.client_id === clientId);
   const activePackages = packages.filter((item) => item.active.toUpperCase() === "TRUE");
   const packageAssignments = buildPackageAssignments(clientSchedules, new Set(packages.map((item) => item.package_name)));
-  const summary = buildClientBillingSummary(clientSchedules);
+  const manualAssignments = buildPackageAssignments(clientSchedules, new Set(), "MANUAL");
+  const summary = buildClientBillingSummary(clientSchedules.filter((item) => item.status !== "DELETED"));
   const liffId = config.lineLiffId;
   const welcomeMessage = liffId ? renderClientLineWelcomeMessage({ client, template: welcomeTemplate, businessName: config.businessDisplayName, liffId }) : "";
 
@@ -57,6 +59,8 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ c
       endPackageAssignmentAction={endPackageAssignmentAction.bind(null, clientId)}
       deletePackageAssignmentAction={deletePackageAssignmentAction.bind(null, clientId)}
     />
+
+    <ClientManualPayments assignments={manualAssignments} cancelAction={cancelManualPaymentAction.bind(null, clientId)} removeAction={removeManualPaymentAction.bind(null, clientId)} />
 
     <ClientBillingActions
       packages={activePackages}

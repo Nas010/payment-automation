@@ -19,7 +19,7 @@ export type PackageAssignmentState = "ACTIVE" | "PAUSED" | "ENDED" | "DELETED" |
 
 export type PackageAssignment<T extends AssignmentSchedule = AssignmentSchedule> = {
   id: string;
-  kind: "PACKAGE";
+  kind: "PACKAGE" | "MANUAL";
   clientId: string;
   label: string;
   paymentType: string;
@@ -54,13 +54,13 @@ export function assignmentIdForSchedule(schedule: AssignmentSchedule): string {
   return `legacy:${[schedule.client_id, schedule.package_name, schedule.payment_type, schedule.installment_count, schedule.created_at].map(encodeURIComponent).join(":")}`;
 }
 
-export function buildPackageAssignments<T extends AssignmentSchedule>(schedules: readonly T[], savedPackageNames: ReadonlySet<string>): PackageAssignment<T>[] {
+export function buildPackageAssignments<T extends AssignmentSchedule>(schedules: readonly T[], savedPackageNames: ReadonlySet<string>, kind: "PACKAGE" | "MANUAL" = "PACKAGE"): PackageAssignment<T>[] {
   const groups = new Map<string, T[]>();
 
   for (const schedule of schedules) {
     const isPackage = schedule.assignment_id
-      ? schedule.assignment_kind === "PACKAGE"
-      : savedPackageNames.has(schedule.package_name);
+      ? schedule.assignment_kind === kind
+      : kind === "PACKAGE" && savedPackageNames.has(schedule.package_name);
     if (!isPackage) continue;
     const id = assignmentIdForSchedule(schedule);
     const group = groups.get(id) ?? [];
@@ -82,7 +82,7 @@ export function buildPackageAssignments<T extends AssignmentSchedule>(schedules:
 
     return {
       id,
-      kind: "PACKAGE",
+      kind,
       clientId: first.client_id,
       label: first.package_name,
       paymentType: first.payment_type,

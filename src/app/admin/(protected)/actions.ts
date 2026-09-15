@@ -192,17 +192,18 @@ export async function createManualPaymentAction(clientId: string, formData: Form
   const clients = await listClients();
   const client = clients.find((item) => item.client_id === clientId);
   if (!client) throw new Error("Client was not found");
-  const totalSatang = parseSatang(data.amount_thb);
-  if (!totalSatang || totalSatang <= 0 || !Number.isSafeInteger(totalSatang)) throw new Error("Amount must be a positive THB amount");
+  const amountSatang = parseSatang(data.amount_thb);
+  if (!amountSatang || amountSatang <= 0 || !Number.isSafeInteger(amountSatang)) throw new Error("Amount must be a positive THB amount");
   const paymentType = data.frequency === "ONE_TIME" ? "ONE_TIME" : "INSTALLMENTS";
   const paymentCount = data.frequency === "ONE_TIME" ? 1 : data.payment_count;
   const intervalMonths = data.frequency === "ONE_TIME" ? 0 : data.interval_months;
   if (data.frequency === "RECURRING" && (paymentCount < 2 || intervalMonths < 1)) throw new Error("Recurring payments need at least two payments and a one-month interval");
+  const totalSatang = amountSatang * paymentCount;
+  if (!Number.isSafeInteger(totalSatang)) throw new Error("Total amount must be a safe THB amount");
   const now = new Date().toISOString();
   const schedules = buildAssignedScheduleRows({ client, label: data.description, paymentType, totalSatang, paymentCount, intervalMonths, firstDueDate: data.first_due_date, notes: data.notes, now, assignmentId: newAssignmentId(), assignmentKind: "MANUAL", createScheduleId: newScheduleId });
 
   for (const schedule of schedules) await writeSchedule(schedule);
-  await generateAndSendInitialPayment([schedules[0].schedule_id]);
   await appendAudit({ paymentId: "", clientId, action: "MANUAL_PAYMENT_SCHEDULED", previousStatus: "", newStatus: "SCHEDULED", reason: "Manual payment scheduled for existing client", source: "ADMIN", metadata: JSON.stringify({ description: data.description, paymentCount, intervalMonths, totalSatang }) });
   revalidateClientBillingPages(clientId);
   redirect(`/admin/clients/${clientId}`);
@@ -228,10 +229,6 @@ async function loadPackageLifecycleContext(clientId: string, assignmentId: strin
 
 function requireAssignmentState(assignment: PackageAssignment<ScheduleRecord>, allowed: readonly PackageAssignment<ScheduleRecord>["state"][], action: string): void {
   if (!allowed.includes(assignment.state)) throw new Error(`Package assignment must be ${allowed.map((item) => item.toLowerCase()).join(" or ")} to ${action}`);
-}
-
-function outstandingAssignmentSchedules(assignment: PackageAssignment<ScheduleRecord>): ScheduleRecord[] {
-  return assignment.schedules.filter((schedule) => !["PAID", "CANCELLED", "DELETED"].includes(schedule.status));
 }
 
 function paymentDeliveryInProgress(payment: PaymentRecord): boolean {
@@ -322,7 +319,9 @@ async function completeReplacementScheduleWrites(claim: ReplacementWriteClaim, o
 async function updateLifecycleSchedules(assignment: PackageAssignment<ScheduleRecord>, nextStatus: "PAUSED" | "SCHEDULED" | "CANCELLED" | "DELETED", payments: readonly PaymentRecord[], now: string, operationId: string): Promise<ScheduleRecord[]> {
   if (assignmentClaimedBy(assignment, operationId)) return assignment.schedules;
   const schedules = assignment.schedules;
-  const outstanding = new Set(outstandingAssignmentSchedules(assignment).map((schedule) => schedule.schedule_id));
+  const outstanding = new Set(schedules.filter((schedule) => nextStatus === "DELETED"
+    ? !["PAID", "DELETED"].includes(schedule.status)
+    : !["PAID", "CANCELLED", "DELETED"].includes(schedule.status)).map((schedule) => schedule.schedule_id));
   const paymentsById = new Map(payments.map((payment) => [payment.payment_id, payment]));
   const linkedPayments = new Map<string, PaymentRecord>();
   const paymentsByScheduleId = new Map<string, PaymentRecord>();
@@ -388,6 +387,31 @@ async function recordPackageLifecycleAction(input: {
 async function finishPackageLifecycleAction(clientId: string): Promise<void> {
   revalidateClientBillingPages(clientId);
   redirect(`/admin/clients/${clientId}`);
+}
+
+async function updateManualPayment(clientId: string, formData: FormData, status: "CANCELLED" | "DELETED"): Promise<void> {
+  await requireAdmin();
+  const data = assignmentIdSchema.parse(values(formData));
+  const [schedules, payments] = await Promise.all([listSchedules(), listPayments()]);
+  const assignment = buildPackageAssignments(schedules.filter((row) => row.client_id === clientId), new Set(), "MANUAL")
+    .find((item) => item.id === data.assignment_id);
+  if (!assignment) throw new Error("Manual payment was not found for this client");
+  if (status === "DELETED" && assignment.schedules.some((row) => row.status === "PAID")) {
+    throw new Error("Manual payment cannot be removed after a recorded payment");
+  }
+  const operationId = lifecycleOperationId(`manual_${status}`, [clientId, assignment.id]);
+  if (assignment.state === "DELETED" || (status === "CANCELLED" && ["ENDED", "COMPLETED"].includes(assignment.state))) return;
+  await updateLifecycleSchedules(assignment, status, payments, new Date().toISOString(), operationId);
+  await recordPackageLifecycleAction({ clientId, assignment, action: status === "DELETED" ? "MANUAL_PAYMENT_REMOVED" : "MANUAL_PAYMENT_CANCELLED", newStatus: status, reason: status === "DELETED" ? "Mistaken manual payment removed by admin" : "Remaining manual payments cancelled by admin" });
+  revalidateClientBillingPages(clientId);
+}
+
+export async function cancelManualPaymentAction(clientId: string, formData: FormData): Promise<void> {
+  await updateManualPayment(clientId, formData, "CANCELLED");
+}
+
+export async function removeManualPaymentAction(clientId: string, formData: FormData): Promise<void> {
+  await updateManualPayment(clientId, formData, "DELETED");
 }
 
 export async function pausePackageAssignmentAction(clientId: string, formData: FormData): Promise<void> {

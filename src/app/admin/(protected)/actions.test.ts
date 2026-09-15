@@ -44,7 +44,7 @@ vi.mock("@/lib/sheets/schedules", () => ({ listSchedules: mocks.listSchedules, u
 vi.mock("@/lib/sheets/settings", () => ({ listPackages: mocks.listPackages, savePackage: mocks.savePackage, upsertOperationalSetting: mocks.upsertOperationalSetting }));
 
 import { hashLineConnectionToken, recoverLineConnectionToken } from "@/lib/line/connection-token";
-import { assignPackageAction, changePackageAssignmentAction, confirmPaymentAction, createClientAction, createManualPaymentAction, deletePackageAssignmentAction, disconnectLineAction, endPackageAssignmentAction, generateMissingLineConnectionsAction, pausePackageAssignmentAction, renewLineConnectionAction, resumePackageAssignmentAction, savePackageAction, sendLinePaymentAction, stopAwaitingLineSlipAction, togglePackageActiveAction } from "./actions";
+import { cancelManualPaymentAction, removeManualPaymentAction, assignPackageAction, changePackageAssignmentAction, confirmPaymentAction, createClientAction, createManualPaymentAction, deletePackageAssignmentAction, disconnectLineAction, endPackageAssignmentAction, generateMissingLineConnectionsAction, pausePackageAssignmentAction, renewLineConnectionAction, resumePackageAssignmentAction, savePackageAction, sendLinePaymentAction, stopAwaitingLineSlipAction, togglePackageActiveAction } from "./actions";
 
 const now = "2026-08-10T12:00:00.000Z";
 const userId = "Uaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -367,7 +367,7 @@ describe("existing client billing actions", () => {
     await createManualPaymentAction("client_1", formData);
 
     expect(mocks.writeSchedule).toHaveBeenCalledTimes(3);
-    expect(mocks.writeSchedule).toHaveBeenNthCalledWith(1, expect.objectContaining({ package_name: "Nutrition check-in", payment_type: "INSTALLMENTS", installment_count: "3", amount_thb: "400", due_date: "2026-08-15", assignment_id: expect.stringMatching(/^assignment_[a-z0-9]+$/), assignment_kind: "MANUAL" }));
+    expect(mocks.writeSchedule).toHaveBeenNthCalledWith(1, expect.objectContaining({ package_name: "Nutrition check-in", payment_type: "INSTALLMENTS", installment_count: "3", amount_thb: "1200", due_date: "2026-08-15", assignment_id: expect.stringMatching(/^assignment_[a-z0-9]+$/), assignment_kind: "MANUAL" }));
     expect(mocks.writeSchedule).toHaveBeenNthCalledWith(3, expect.objectContaining({ installment_number: "3", due_date: "2026-10-15" }));
     const manualAssignmentIds = new Set(mocks.writeSchedule.mock.calls.map(([row]) => row.assignment_id));
     expect([...manualAssignmentIds]).toHaveLength(1);
@@ -375,9 +375,21 @@ describe("existing client billing actions", () => {
     expect(mocks.appendAudit).toHaveBeenCalledWith(expect.objectContaining({
       clientId: "client_1",
       action: "MANUAL_PAYMENT_SCHEDULED",
-      metadata: JSON.stringify({ description: "Nutrition check-in", paymentCount: 3, intervalMonths: 1, totalSatang: 120000 }),
+      metadata: JSON.stringify({ description: "Nutrition check-in", paymentCount: 3, intervalMonths: 1, totalSatang: 360000 }),
     }));
     expect(mocks.redirect).toHaveBeenCalledWith("/admin/clients/client_1");
+  });
+
+  it.each(["ONE_TIME", "RECURRING"])("defers future %s manual payments to scheduled delivery", async (frequency) => {
+    mocks.listClients.mockResolvedValue([client({ line_user_id: userId })]);
+    const formData = new FormData();
+    for (const [key, value] of [["description", "Assessment"], ["amount_thb", "750"], ["frequency", frequency], ["payment_count", "3"], ["interval_months", "1"], ["first_due_date", "2026-11-10"], ["notes", ""]]) formData.set(key, value);
+
+    await createManualPaymentAction("client_1", formData);
+
+    expect(mocks.writeSchedule).toHaveBeenCalledWith(expect.objectContaining({ status: "SCHEDULED", due_date: "2026-11-10", amount_thb: "750" }));
+    expect(mocks.generateDuePaymentLinks).not.toHaveBeenCalled();
+    expect(mocks.sendDueLinePaymentRequests).not.toHaveBeenCalled();
   });
 
   it("normalizes a one-time manual payment even when extra recurrence values are submitted", async () => {
@@ -744,5 +756,62 @@ describe("existing client billing actions", () => {
     await savePackageAction(formData);
 
     expect(mocks.savePackage).toHaveBeenCalledWith(expect.objectContaining({ package_name: "Premium", active: "TRUE" }));
+  });
+});
+
+
+describe("manual payment lifecycle", () => {
+  beforeEach(() => {
+    mocks.listClients.mockResolvedValue([client()]);
+    mocks.listSchedules.mockResolvedValue([schedule({ assignment_kind: "MANUAL" })]);
+    mocks.listPayments.mockResolvedValue([]);
+  });
+
+  it("cancels a recurring manual plan and voids its generated link", async () => {
+    mocks.listSchedules.mockResolvedValue([
+      schedule({ assignment_kind: "MANUAL", status: "GENERATED", payment_id: "pay_1", payment_url: "https://pay.test/p/token" }),
+      schedule({ assignment_kind: "MANUAL", schedule_id: "schedule_2", installment_number: "2" }),
+    ]);
+    mocks.listPayments.mockResolvedValue([payment()]);
+    await cancelManualPaymentAction("client_1", assignmentForm());
+    expect(mocks.updatePaymentIfUnchanged).toHaveBeenCalledWith(expect.objectContaining({ payment: expect.objectContaining({ status: "VOID", line_slip_expected: "FALSE" }) }));
+    expect(mocks.updateSchedulesIfUnchanged).toHaveBeenCalledWith({ updates: [
+      expect.objectContaining({ schedule: expect.objectContaining({ status: "CANCELLED", payment_id: "", payment_url: "" }) }),
+      expect.objectContaining({ schedule: expect.objectContaining({ status: "CANCELLED" }) }),
+    ] });
+    expect(mocks.appendAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "MANUAL_PAYMENT_CANCELLED" }));
+  });
+
+  it.each(["SCHEDULED", "CANCELLED"])("removes mistaken %s manual plans", async (status) => {
+    mocks.listSchedules.mockResolvedValue([schedule({ assignment_kind: "MANUAL", status })]);
+    await removeManualPaymentAction("client_1", assignmentForm());
+    expect(mocks.updateSchedulesIfUnchanged).toHaveBeenCalledWith({ updates: [expect.objectContaining({ schedule: expect.objectContaining({ status: "DELETED" }) })] });
+    expect(mocks.appendAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "MANUAL_PAYMENT_REMOVED" }));
+  });
+
+  it("preserves paid rows when cancelling remaining charges", async () => {
+    mocks.listSchedules.mockResolvedValue([schedule({ assignment_kind: "MANUAL", status: "PAID" }), schedule({ assignment_kind: "MANUAL", schedule_id: "remaining" })]);
+    await cancelManualPaymentAction("client_1", assignmentForm());
+    expect(mocks.updateSchedulesIfUnchanged).toHaveBeenCalledWith({ updates: [expect.objectContaining({ schedule: expect.objectContaining({ status: "PAID" }) }), expect.objectContaining({ schedule: expect.objectContaining({ status: "CANCELLED" }) })] });
+  });
+
+  it("rejects removal after a recorded payment", async () => {
+    mocks.listSchedules.mockResolvedValue([schedule({ assignment_kind: "MANUAL", status: "PAID" })]);
+    await expect(removeManualPaymentAction("client_1", assignmentForm())).rejects.toThrow("recorded payment");
+    expect(mocks.updateSchedulesIfUnchanged).not.toHaveBeenCalled();
+  });
+
+  it.each(["REVIEW", "PAID"])("preserves generated payments in %s", async (status) => {
+    mocks.listSchedules.mockResolvedValue([schedule({ assignment_kind: "MANUAL", status: "GENERATED", payment_id: "pay_1" })]);
+    mocks.listPayments.mockResolvedValue([payment({ status })]);
+    await expect(removeManualPaymentAction("client_1", assignmentForm())).rejects.toThrow();
+    expect(mocks.updatePaymentIfUnchanged).not.toHaveBeenCalled();
+    expect(mocks.updateSchedulesIfUnchanged).not.toHaveBeenCalled();
+  });
+
+  it.each(["PACKAGE", "OTHER_CLIENT"])("rejects %s assignments", async (kind) => {
+    mocks.listSchedules.mockResolvedValue([schedule({ assignment_kind: kind === "PACKAGE" ? "PACKAGE" : "MANUAL", client_id: kind === "OTHER_CLIENT" ? "client_2" : "client_1" })]);
+    await expect(cancelManualPaymentAction("client_1", assignmentForm())).rejects.toThrow("not found");
+    expect(mocks.updateSchedulesIfUnchanged).not.toHaveBeenCalled();
   });
 });

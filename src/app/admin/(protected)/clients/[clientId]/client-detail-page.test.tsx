@@ -15,6 +15,8 @@ const mocks = vi.hoisted(() => ({
   runtimeConfig: vi.fn(),
   assignPackageAction: vi.fn(),
   createManualPaymentAction: vi.fn(),
+  cancelManualPaymentAction: vi.fn(),
+  removeManualPaymentAction: vi.fn(),
   changePackageAssignmentAction: vi.fn(),
   pausePackageAssignmentAction: vi.fn(),
   resumePackageAssignmentAction: vi.fn(),
@@ -36,6 +38,8 @@ vi.mock("@/lib/runtime-config", () => ({ runtimeConfig: mocks.runtimeConfig }));
 vi.mock("../../actions", () => ({
   assignPackageAction: mocks.assignPackageAction,
   createManualPaymentAction: mocks.createManualPaymentAction,
+  cancelManualPaymentAction: mocks.cancelManualPaymentAction,
+  removeManualPaymentAction: mocks.removeManualPaymentAction,
   changePackageAssignmentAction: mocks.changePackageAssignmentAction,
   pausePackageAssignmentAction: mocks.pausePackageAssignmentAction,
   resumePackageAssignmentAction: mocks.resumePackageAssignmentAction,
@@ -113,6 +117,16 @@ describe("ClientDetailPage package assignments", () => {
     expect(html).toContain("Pause");
     expect(html).toContain("End");
     expect(html.indexOf("Package assignments")).toBeLessThan(html.indexOf("New billing"));
-    expect(html).not.toContain('>Extra session</h3>');
+    expect(html).toContain('>Extra session</h3>');
+    expect(html).toContain("Manual payments");
+    expect(html).toContain("Cancel payments");
   });
+});
+
+
+it("hides removed manual charges from the client schedule", async () => {
+  mocks.listSchedules.mockResolvedValue([{ schedule_id: "removed", client_id: "client_1", package_name: "Mistaken charge", payment_type: "ONE_TIME", installment_number: "1", installment_count: "1", amount_thb: "200", due_date: "2026-11-10", status: "DELETED", created_at: now, assignment_id: "manual_removed", assignment_kind: "MANUAL" }]);
+  const html = renderToStaticMarkup(await ClientDetailPage({ params: Promise.resolve({ clientId: "client_1" }) }));
+  expect(html).not.toContain("Mistaken charge");
+  expect(html).toContain("No payments scheduled");
 });

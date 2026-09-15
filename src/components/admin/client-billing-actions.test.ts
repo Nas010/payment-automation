@@ -33,7 +33,7 @@ describe("ClientBillingActions", () => {
     expect(screen.getByLabelText("First due date")).toBeInTheDocument();
     const manualForm = screen.getByRole("button", { name: "Add manual payment" }).closest("form")!;
     expect(within(manualForm).getByLabelText("Description")).toBeInTheDocument();
-    expect(within(manualForm).getByLabelText("Amount (THB)")).toBeInTheDocument();
+    expect(within(manualForm).getByLabelText("Amount per payment (THB)")).toBeInTheDocument();
     expect(within(manualForm).getByRole("combobox", { name: "Frequency" })).toHaveTextContent("One-time payment");
     expect(within(manualForm).getByLabelText("Payment count")).toBeInTheDocument();
     expect(within(manualForm).getByLabelText("Interval months")).toBeInTheDocument();
@@ -89,7 +89,7 @@ describe("ClientBillingActions", () => {
     const createManualPaymentAction = vi.fn();
     render(createElement(ClientBillingActions, { packages, assignPackageAction: vi.fn(), createManualPaymentAction }));
     fireEvent.change(screen.getByLabelText("Description"), { target: { value: "Assessment" } });
-    fireEvent.change(screen.getByLabelText("Amount (THB)"), { target: { value: "750" } });
+    fireEvent.change(screen.getByLabelText("Amount per payment (THB)"), { target: { value: "750" } });
     fireEvent.change(screen.getByLabelText("Manual payment first due date"), { target: { value: "2026-08-20" } });
 
     fireEvent.click(screen.getByRole("button", { name: "Add manual payment" }));

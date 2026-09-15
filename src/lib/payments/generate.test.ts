@@ -62,6 +62,25 @@ describe("generateDuePaymentLinks", () => {
     expect(result.created[0]).toMatchObject({ due_date: "2026-09-10", payment_url: "https://pay.example/p/token_1" });
   });
 
+  it.each([
+    ["2026-08-10", []],
+    ["2026-11-09", []],
+    ["2026-11-10", ["2026-11-10"]],
+    ["2026-12-02", []],
+    ["2026-12-03", ["2026-12-10"]],
+  ])("generates manual recurring links on the due date and later reminder window: %s", async (today, expectedDates) => {
+    const first = { rowNumber: 7, schedule_id: "manual_1", client_id: "client_1", client_name: "Nisa", line_user_id: "", line_display_name: "", package_name: "Check-in", payment_type: "INSTALLMENTS", installment_number: "1", installment_count: "2", amount_thb: "1200", due_date: "2026-11-10", status: today > "2026-11-10" ? "GENERATED" : "SCHEDULED", generated_at: "", payment_id: "", payment_url: "", notes: "", created_at: "2026-08-10T00:00:00.000Z", updated_at: "", assignment_id: "manual", assignment_kind: "MANUAL" };
+    listSchedules.mockResolvedValueOnce([first, { ...first, schedule_id: "manual_2", installment_number: "2", due_date: "2026-12-10", status: "SCHEDULED" }]);
+    listPayments.mockResolvedValueOnce([]);
+    updateScheduleIfUnchanged.mockResolvedValue(true);
+
+    const result = await generateDuePaymentLinks({ baseUrl: "https://pay.example", today, createPaymentId: () => "pay_manual", createToken: () => "token_manual" });
+
+    expect(result.failed).toEqual([]);
+    expect(result.created.map((payment) => payment.due_date)).toEqual(expectedDates);
+    for (const payment of result.created) expect(payment).toMatchObject({ amount_thb: "1200", total_price_thb: "2400" });
+  });
+
   it("voids a freshly appended payment when schedule generation loses its CAS", async () => {
     appendAudit.mockClear();
     const due = { rowNumber: 7, schedule_id: "schedule_1", client_id: "client_1", client_name: "Nisa", line_user_id: "", line_display_name: "", package_name: "PT", payment_type: "ONE_TIME", installment_number: "1", installment_count: "1", amount_thb: "1500", due_date: "2026-08-10", status: "SCHEDULED", generated_at: "", payment_id: "", payment_url: "", notes: "", created_at: "2026-08-01T00:00:00.000Z", updated_at: "" };
