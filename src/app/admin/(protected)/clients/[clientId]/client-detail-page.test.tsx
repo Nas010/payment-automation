@@ -117,8 +117,11 @@ describe("ClientDetailPage package assignments", () => {
     expect(html).toContain("Pause");
     expect(html).toContain("End");
     expect(html.indexOf("Package assignments")).toBeLessThan(html.indexOf("New billing"));
-    expect(html).toContain('>Extra session</h3>');
-    expect(html).toContain("Manual payments");
+    expect(html).not.toContain('>Extra session</h3>');
+    expect(html).not.toContain('id="manual-payments-title"');
+    const scheduleTable = html.slice(html.indexOf("Payment schedule"), html.indexOf("Activity"));
+    expect(scheduleTable).toContain("Cancel payments");
+    expect(scheduleTable).toContain("Remove");
     expect(html).toContain("Cancel payments");
   });
 });

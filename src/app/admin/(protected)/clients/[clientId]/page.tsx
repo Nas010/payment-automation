@@ -37,6 +37,7 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ c
   const activePackages = packages.filter((item) => item.active.toUpperCase() === "TRUE");
   const packageAssignments = buildPackageAssignments(clientSchedules, new Set(packages.map((item) => item.package_name)));
   const manualAssignments = buildPackageAssignments(clientSchedules, new Set(), "MANUAL");
+  const manualActionsBySchedule = new Map(manualAssignments.map((assignment) => [assignment.schedules[0].schedule_id, assignment]));
   const summary = buildClientBillingSummary(clientSchedules.filter((item) => item.status !== "DELETED"));
   const liffId = config.lineLiffId;
   const welcomeMessage = liffId ? renderClientLineWelcomeMessage({ client, template: welcomeTemplate, businessName: config.businessDisplayName, liffId }) : "";
@@ -60,8 +61,6 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ c
       deletePackageAssignmentAction={deletePackageAssignmentAction.bind(null, clientId)}
     />
 
-    <ClientManualPayments assignments={manualAssignments} cancelAction={cancelManualPaymentAction.bind(null, clientId)} removeAction={removeManualPaymentAction.bind(null, clientId)} />
-
     <ClientBillingActions
       packages={activePackages}
       assignPackageAction={assignPackageAction.bind(null, clientId)}
@@ -76,7 +75,7 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ c
     <Card>
       <CardHeader><CardTitle>Payment schedule</CardTitle><CardDescription>Package installments and custom charges, ordered by due date.</CardDescription></CardHeader>
       <CardContent><div className="overflow-x-auto"><Table>
-        <TableHeader><TableRow><TableHead>Plan or charge</TableHead><TableHead>#</TableHead><TableHead>Due date</TableHead><TableHead>Amount</TableHead><TableHead>Status</TableHead><TableHead>Payment</TableHead></TableRow></TableHeader>
+        <TableHeader><TableRow><TableHead>Plan or charge</TableHead><TableHead>#</TableHead><TableHead>Due date</TableHead><TableHead>Amount</TableHead><TableHead>Status</TableHead><TableHead>Payment</TableHead><TableHead>Actions</TableHead></TableRow></TableHeader>
         <TableBody>{summary.orderedSchedules.length ? summary.orderedSchedules.map((item) => <TableRow key={item.schedule_id}>
           <TableCell className="font-medium">{item.package_name}</TableCell>
           <TableCell>{item.installment_number}/{item.installment_count}</TableCell>
@@ -84,7 +83,8 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ c
           <TableCell>{formatThb(parseSatang(item.amount_thb) ?? 0)}</TableCell>
           <TableCell><StatusBadge status={item.status} /></TableCell>
           <TableCell>{item.payment_id ? <Link className="underline" href={`/admin/payments/${item.payment_id}`}>Open</Link> : "—"}</TableCell>
-        </TableRow>) : <EmptyTableRow colSpan={6} icon={<CalendarClockIcon />} title="No payments scheduled" description="Assign a package or add a manual payment above." />}</TableBody>
+          <TableCell>{manualActionsBySchedule.has(item.schedule_id) ? <ClientManualPayments assignments={[manualActionsBySchedule.get(item.schedule_id)!]} cancelAction={cancelManualPaymentAction.bind(null, clientId)} removeAction={removeManualPaymentAction.bind(null, clientId)} /> : "—"}</TableCell>
+        </TableRow>) : <EmptyTableRow colSpan={7} icon={<CalendarClockIcon />} title="No payments scheduled" description="Assign a package or add a manual payment above." />}</TableBody>
       </Table></div></CardContent>
     </Card>
 
