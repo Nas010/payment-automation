@@ -815,3 +815,29 @@ describe("manual payment lifecycle", () => {
     expect(mocks.updateSchedulesIfUnchanged).not.toHaveBeenCalled();
   });
 });
+
+describe("package installment overrides", () => {
+  it.each(["new", "existing"])("saves reconciled amounts for %s clients", async (kind) => {
+    const data = clientForm();
+    data.set("payment_type", "INSTALLMENTS");
+    data.set("installment_count", "3");
+    data.set("interval_months", "1");
+    data.set("installment_overrides", '["200","",""]');
+    if (kind === "new") await createClientAction(data);
+    else {
+      mocks.listClients.mockResolvedValue([client()]);
+      await assignPackageAction("client_1", data);
+    }
+    expect(mocks.writeSchedule.mock.calls.map(([row]) => row.amount_thb)).toEqual(["200", "400", "400"]);
+  });
+  it.each(['["1000"]', '["-1"]', '["0.001"]', '[null]', '{}'])("rejects invalid overrides before writing: %s", async (overrides) => {
+    const data = clientForm();
+    data.set("payment_type", "INSTALLMENTS");
+    data.set("installment_count", "3");
+    data.set("interval_months", "1");
+    data.set("installment_overrides", overrides);
+    await expect(createClientAction(data)).rejects.toThrow();
+    expect(mocks.writeClient).not.toHaveBeenCalled();
+    expect(mocks.writeSchedule).not.toHaveBeenCalled();
+  });
+});

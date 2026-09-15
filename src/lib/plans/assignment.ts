@@ -10,6 +10,7 @@ export type AssignedScheduleInput = {
   };
   label: string;
   paymentType: "ONE_TIME" | "INSTALLMENTS";
+  amountOverrides?: (number | null)[];
   totalSatang: number;
   paymentCount: number;
   intervalMonths: number;
@@ -23,6 +24,7 @@ export type AssignedScheduleInput = {
 
 export function buildAssignedScheduleRows(input: AssignedScheduleInput): NewScheduleRecord[] {
   const plan = buildInstallmentPlan({
+    amountOverrides: input.amountOverrides,
     totalSatang: input.totalSatang,
     installmentCount: input.paymentCount,
     intervalMonths: input.intervalMonths,

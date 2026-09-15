@@ -2,6 +2,7 @@ import { parseSatang } from "@/lib/money";
 import type { NewPaymentRecord } from "@/lib/sheets/payments";
 
 export type InstallmentPlanInput = {
+  amountOverrides?: (number | null)[];
   totalSatang: number;
   installmentCount: number;
   intervalMonths: number;
@@ -68,11 +69,23 @@ export function buildInstallmentPlan(input: InstallmentPlanInput): PlannedInstal
   if (!Number.isInteger(input.intervalMonths) || input.intervalMonths < 0 || (input.installmentCount > 1 && input.intervalMonths < 1)) throw new Error("intervalMonths must be valid for the installment count");
 
   const firstDueDate = parseDateOnly(input.firstDueDate);
-  const baseAmount = Math.floor(input.totalSatang / input.installmentCount);
-  const remainder = input.totalSatang - baseAmount * input.installmentCount;
+  const overrides = input.amountOverrides ?? [];
+  if (overrides.length > input.installmentCount || overrides.some((amount) => amount !== null && (!Number.isSafeInteger(amount) || amount <= 0))) {
+    throw new Error("Installment overrides must be positive amounts");
+  }
+  const fixedTotal = overrides.reduce<number>((sum, amount) => sum + (amount ?? 0), 0);
+  const automaticCount = input.installmentCount - overrides.filter((amount) => amount !== null).length;
+  const balance = input.totalSatang - fixedTotal;
+  if (!Number.isSafeInteger(fixedTotal) || (automaticCount === 0 ? balance !== 0 : balance < automaticCount)) {
+    throw new Error("Installment amounts must match the total and leave at least ฿0.01 for each automatic installment");
+  }
+  const baseAmount = automaticCount ? Math.floor(balance / automaticCount) : 0;
+  const remainder = balance - baseAmount * automaticCount;
+  let lastAutomatic = input.installmentCount - 1;
+  while (lastAutomatic >= 0 && overrides[lastAutomatic] != null) lastAutomatic--;
   return Array.from({ length: input.installmentCount }, (_, index) => ({
     installmentNumber: index + 1,
-    amountSatang: baseAmount + (index === input.installmentCount - 1 ? remainder : 0),
+    amountSatang: overrides[index] ?? (baseAmount + (index === lastAutomatic ? remainder : 0)),
     dueDate: formatDateOnly(addMonthsClamped(firstDueDate, index * input.intervalMonths)),
   }));
 }
@@ -186,4 +199,16 @@ export function buildPaymentForSchedule(schedule: PaymentSchedule, input: { paym
     line_terms_image_token: "",
     line_reminder_delivery_log: "",
   };
+}
+
+export function parseInstallmentOverrides(value: string | undefined): (number | null)[] {
+  if (!value) return [];
+  const amounts: unknown = JSON.parse(value);
+  if (!Array.isArray(amounts)) throw new Error("Invalid installment overrides");
+  return amounts.map((amount) => {
+    if (amount === "") return null;
+    const satang = typeof amount === "string" ? parseSatang(amount) : null;
+    if (satang === null || satang <= 0) throw new Error("Installment overrides must be positive THB amounts");
+    return satang;
+  });
 }

@@ -129,3 +129,21 @@ describe("selectPaymentGenerationSchedules", () => {
     expect(selectPaymentGenerationSchedules([laterInstallment], "2026-08-12")).toEqual([]);
   });
 });
+
+describe("installment amount overrides", () => {
+  const input = { totalSatang: 600_000, installmentCount: 6, intervalMonths: 1, firstDueDate: "2026-09-15" };
+  it("fixes the overridden installment and evenly splits the balance", () => {
+    expect(buildInstallmentPlan({ ...input, amountOverrides: [50_000] }).map((row) => row.amountSatang)).toEqual([50_000, 110_000, 110_000, 110_000, 110_000, 110_000]);
+  });
+  it("preserves multiple overrides and puts rounding in the last automatic installment", () => {
+    const amounts = buildInstallmentPlan({ ...input, totalSatang: 600_001, amountOverrides: [50_000, null, null, null, null, 100_000] }).map((row) => row.amountSatang);
+    expect(amounts).toEqual([50_000, 112_500, 112_500, 112_500, 112_501, 100_000]);
+    expect(amounts.reduce((sum, amount) => sum + amount, 0)).toBe(600_001);
+  });
+  it.each([[600_000], [0], [-1], [1.5], [NaN], [100_000, 100_000, 100_000, 100_000, 100_000, 99_999], [null, null, null, null, null, null, 1]])("rejects invalid override set %j", (...amountOverrides) => {
+    expect(() => buildInstallmentPlan({ ...input, amountOverrides })).toThrow();
+  });
+  it("allows every installment to be fixed when the sum matches", () => {
+    expect(buildInstallmentPlan({ ...input, amountOverrides: [50_000, 50_000, 50_000, 50_000, 50_000, 350_000] }).map((row) => row.amountSatang)).toEqual([50_000, 50_000, 50_000, 50_000, 50_000, 350_000]);
+  });
+});

@@ -101,3 +101,22 @@ describe("ClientBillingActions", () => {
     expect(submitted.get("interval_months")).toBe("0");
   });
 });
+
+ it("rebalances overrides, blocks invalid totals, and submits fixed amounts", async () => {
+    const action = vi.fn();
+    render(createElement(ClientBillingActions, { packages, assignPackageAction: action, createManualPaymentAction: vi.fn() }));
+    const first = screen.getByLabelText("Installment 1 override (THB)");
+    const second = screen.getByLabelText("Installment 2 override (THB)");
+    fireEvent.change(first, { target: { value: "200" } });
+    expect(second).toHaveAttribute("placeholder", "1000.00");
+    fireEvent.change(first, { target: { value: "1200" } });
+    expect(screen.getByRole("alert")).toHaveTextContent("leave at least");
+    fireEvent.click(screen.getByRole("button", { name: "Assign package" }));
+    expect(action).not.toHaveBeenCalled();
+    fireEvent.change(first, { target: { value: "200" } });
+    fireEvent.click(screen.getByRole("button", { name: "Assign package" }));
+    await waitFor(() => expect(action).toHaveBeenCalledTimes(1));
+    expect(action.mock.calls[0][0].get("installment_overrides")).toBe('["200",""]');
+    fireEvent.change(first, { target: { value: "" } });
+    expect(second).toHaveAttribute("placeholder", "600.00");
+  });

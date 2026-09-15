@@ -14,7 +14,7 @@ import { parseReminderDeliveryLog } from "@/lib/line/reminder-delivery";
 import { parseSatang } from "@/lib/money";
 import { buildAssignedScheduleRows } from "@/lib/plans/assignment";
 import { buildPackageAssignments, type PackageAssignment } from "@/lib/plans/assignment-lifecycle";
-import { buildInstallmentPlan } from "@/lib/plans/schedule";
+import { buildInstallmentPlan, parseInstallmentOverrides } from "@/lib/plans/schedule";
 import { generateDuePaymentLinks } from "@/lib/payments/generate";
 import { persistPaymentTransition } from "@/lib/payments/transition";
 import { claimLineConnection, listClients, updateClient, updateLineLinkClient, writeClient } from "@/lib/sheets/clients";
@@ -22,8 +22,8 @@ import { getPaymentById, appendAudit, listPayments, updatePaymentIfUnchanged, ty
 import { listSchedules, updateSchedulesIfUnchanged, writeSchedule, type ScheduleRecord } from "@/lib/sheets/schedules";
 import { listPackages, savePackage, upsertOperationalSetting } from "@/lib/sheets/settings";
 
-const clientSchema = z.object({ client_name: z.string().trim().min(1), package_name: z.string().trim().min(1), payment_type: z.enum(["ONE_TIME", "INSTALLMENTS"]), total_price_thb: z.string(), installment_count: z.coerce.number().int().min(1), interval_months: z.coerce.number().int().min(0), first_due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), notes: z.string().trim() });
-const assignPackageSchema = z.object({ package_name: z.string().trim().min(1), payment_type: z.enum(["ONE_TIME", "INSTALLMENTS"]), total_price_thb: z.string(), installment_count: z.coerce.number().int().min(1), interval_months: z.coerce.number().int().min(0), first_due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), notes: z.string().trim() });
+const clientSchema = z.object({ installment_overrides: z.string().optional(), client_name: z.string().trim().min(1), package_name: z.string().trim().min(1), payment_type: z.enum(["ONE_TIME", "INSTALLMENTS"]), total_price_thb: z.string(), installment_count: z.coerce.number().int().min(1), interval_months: z.coerce.number().int().min(0), first_due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), notes: z.string().trim() });
+const assignPackageSchema = z.object({ installment_overrides: z.string().optional(), package_name: z.string().trim().min(1), payment_type: z.enum(["ONE_TIME", "INSTALLMENTS"]), total_price_thb: z.string(), installment_count: z.coerce.number().int().min(1), interval_months: z.coerce.number().int().min(0), first_due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), notes: z.string().trim() });
 const manualPaymentSchema = z.object({ description: z.string().trim().min(1), amount_thb: z.string(), frequency: z.enum(["ONE_TIME", "RECURRING"]), payment_count: z.coerce.number().int().min(1), interval_months: z.coerce.number().int().min(0), first_due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), notes: z.string().trim() });
 const assignmentIdSchema = z.object({ assignment_id: z.string().trim().min(1) });
 const changePackageAssignmentSchema = assignmentIdSchema.extend({ package_name: z.string().trim().min(1), first_due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), notes: z.string().trim() });
@@ -137,7 +137,7 @@ export async function createClientAction(formData: FormData): Promise<void> {
   const clientId = `client_${crypto.randomUUID().replaceAll("-", "")}`;
   const now = new Date().toISOString();
   const lineLinkFields = { line_link_code: "", line_link_code_expires_at: "", line_linked_at: "", line_link_message: "", line_link_error: "", ...createLineConnectionTokenFields({ clientId, now }) };
-  const plan = buildInstallmentPlan({ totalSatang, installmentCount: count, intervalMonths: interval, firstDueDate: data.first_due_date });
+  const plan = buildInstallmentPlan({ amountOverrides: paymentType === "INSTALLMENTS" ? parseInstallmentOverrides(data.installment_overrides) : [], totalSatang, installmentCount: count, intervalMonths: interval, firstDueDate: data.first_due_date });
   if (clients.some((client) => client.client_id === clientId)) throw new Error("Could not allocate a unique client ID");
   await writeClient({ client_id: clientId, active: "TRUE", client_name: data.client_name, line_user_id: "", line_display_name: "", line_picture_url: "", package_name: data.package_name, payment_type: paymentType, total_price_thb: String(totalSatang / 100), installment_count: String(count), interval_months: String(interval), first_due_date: data.first_due_date, default_amount_thb: String(plan[0].amountSatang / 100), billing_frequency: "MANUAL", next_due_date: data.first_due_date, notes: data.notes, created_at: now, updated_at: now, ...lineLinkFields });
   const assignmentId = newAssignmentId();
@@ -164,7 +164,7 @@ export async function assignPackageAction(clientId: string, formData: FormData):
   const intervalMonths = paymentType === "ONE_TIME" ? 0 : data.interval_months;
   if (paymentType === "INSTALLMENTS" && (paymentCount < 2 || intervalMonths < 1)) throw new Error("Installment plans need at least two payments and a one-month interval");
   const now = new Date().toISOString();
-  const schedules = buildAssignedScheduleRows({ client, label: selectedPackage.package_name, paymentType, totalSatang, paymentCount, intervalMonths, firstDueDate: data.first_due_date, notes: data.notes, now, assignmentId: newAssignmentId(), assignmentKind: "PACKAGE", createScheduleId: newScheduleId });
+  const schedules = buildAssignedScheduleRows({ client, label: selectedPackage.package_name, paymentType, amountOverrides: paymentType === "INSTALLMENTS" ? parseInstallmentOverrides(data.installment_overrides) : [], totalSatang, paymentCount, intervalMonths, firstDueDate: data.first_due_date, notes: data.notes, now, assignmentId: newAssignmentId(), assignmentKind: "PACKAGE", createScheduleId: newScheduleId });
 
   for (const schedule of schedules) await writeSchedule(schedule);
   await generateAndSendInitialPayment([schedules[0].schedule_id]);
