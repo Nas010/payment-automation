@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
+import { bangkokDateKey } from "@/lib/date";
 import { requireAdmin } from "@/lib/admin-auth";
 import { DASHBOARD_COLLECTED_DELTA_DISPLAY_KEY, dashboardCollectedDeltaDisplaySchema } from "@/lib/admin/dashboard-metrics";
 import { runtimeConfig } from "@/lib/runtime-config";
@@ -108,7 +109,9 @@ function lifecycleOperationId(action: string, values: readonly string[]): string
   return `${action}_${hash}`;
 }
 
-async function generateAndSendInitialPayment(scheduleIds: string[]): Promise<void> {
+async function generateAndSendInitialPayment(schedules: Pick<ScheduleRecord, "schedule_id" | "due_date">[]): Promise<void> {
+  const today = bangkokDateKey();
+  const scheduleIds = schedules.filter((schedule) => schedule.due_date <= today).map((schedule) => schedule.schedule_id);
   if (!scheduleIds.length) return;
   const baseUrl = (await runtimeConfig()).publicBaseUrl;
   const generated = await generateDuePaymentLinks({ baseUrl, scheduleIds });
@@ -143,7 +146,7 @@ export async function createClientAction(formData: FormData): Promise<void> {
   const assignmentId = newAssignmentId();
   const schedules = plan.map((item) => ({ schedule_id: `schedule_${crypto.randomUUID().replaceAll("-", "")}`, client_id: clientId, client_name: data.client_name, line_user_id: "", line_display_name: "", package_name: data.package_name, payment_type: paymentType, installment_number: String(item.installmentNumber), installment_count: String(count), amount_thb: String(item.amountSatang / 100), due_date: item.dueDate, status: "SCHEDULED", generated_at: "", payment_id: "", payment_url: "", notes: data.notes, created_at: now, updated_at: now, assignment_id: assignmentId, assignment_kind: "PACKAGE" as const }));
   for (const schedule of schedules) await writeSchedule(schedule);
-  await generateAndSendInitialPayment([schedules[0].schedule_id]);
+  await generateAndSendInitialPayment(schedules.slice(0, 1));
   await appendAudit({ paymentId: "", clientId, action: "CLIENT_CREATED", previousStatus: "", newStatus: "SCHEDULED", reason: "Client and payment schedule created from admin", source: "ADMIN", metadata: JSON.stringify({ packageName: data.package_name, installmentCount: count, intervalMonths: interval }) });
   revalidatePath("/admin");
   redirect(`/admin/clients/${clientId}`);
@@ -167,7 +170,7 @@ export async function assignPackageAction(clientId: string, formData: FormData):
   const schedules = buildAssignedScheduleRows({ client, label: selectedPackage.package_name, paymentType, amountOverrides: paymentType === "INSTALLMENTS" ? parseInstallmentOverrides(data.installment_overrides) : [], totalSatang, paymentCount, intervalMonths, firstDueDate: data.first_due_date, notes: data.notes, now, assignmentId: newAssignmentId(), assignmentKind: "PACKAGE", createScheduleId: newScheduleId });
 
   for (const schedule of schedules) await writeSchedule(schedule);
-  await generateAndSendInitialPayment([schedules[0].schedule_id]);
+  await generateAndSendInitialPayment(schedules.slice(0, 1));
   await updateClient({
     ...client,
     package_name: selectedPackage.package_name,
@@ -529,7 +532,7 @@ export async function changePackageAssignmentAction(clientId: string, formData: 
     }
     await completeReplacementScheduleWrites(replacementWriteClaim, operationId, new Date().toISOString());
   }
-  await generateAndSendInitialPayment(schedules.length ? [schedules[0].schedule_id] : []);
+  await generateAndSendInitialPayment(schedules.slice(0, 1));
   await updateClient({
     ...context.client,
     package_name: selectedPackage.package_name,

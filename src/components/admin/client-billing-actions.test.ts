@@ -120,3 +120,24 @@ describe("ClientBillingActions", () => {
     fireEvent.change(first, { target: { value: "" } });
     expect(second).toHaveAttribute("placeholder", "600.00");
   });
+
+
+it.each([
+  ["2099-12-15", "15 Dec 2099"],
+  ["2000-01-01", "01 Jan 2000"],
+  ["", "Choose a first due date"],
+])("explains manual payment message timing for %s", (date, expected) => {
+  render(createElement(ClientBillingActions, { packages, assignPackageAction: vi.fn(), createManualPaymentAction: vi.fn() }));
+  const input = screen.getByLabelText("Manual payment first due date");
+  fireEvent.change(input, { target: { value: date } });
+  expect(input).toHaveAccessibleDescription(expect.stringContaining(expected));
+  expect(input).toHaveAccessibleDescription(date ? `The message will be sent on ${expected}.` : "Choose a first due date.");
+});
+
+
+it("shows the selected package message date", () => {
+  render(createElement(ClientBillingActions, { packages, assignPackageAction: vi.fn(), createManualPaymentAction: vi.fn() }));
+  const input = screen.getByLabelText("First due date", { exact: true });
+  fireEvent.change(input, { target: { value: "2099-12-15" } });
+  expect(input).toHaveAccessibleDescription("The message will be sent on 15 Dec 2099.");
+});

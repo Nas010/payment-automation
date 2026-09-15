@@ -4,7 +4,7 @@ import { useEffect, useRef, useTransition } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
-import { bangkokDateKey } from "@/lib/date";
+import { bangkokDateKey, formatDate } from "@/lib/date";
 import { PaymentPlanFields, type AdminPackage } from "@/components/admin/payment-plan-fields";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -87,6 +87,7 @@ function ManualPaymentForm({ action }: { action: BillingAction }) {
     defaultValues: { description: "", amount_thb: 0, frequency: "ONE_TIME", payment_count: 1, interval_months: 0, first_due_date: bangkokDateKey(), notes: "" },
   });
   const frequency = form.watch("frequency");
+  const firstDueDate = form.watch("first_due_date");
   useEffect(() => {
     if (frequency !== "ONE_TIME") return;
     form.setValue("payment_count", 1);
@@ -99,7 +100,7 @@ function ManualPaymentForm({ action }: { action: BillingAction }) {
       <FieldSet><FieldGroup className="grid gap-4 sm:grid-cols-2">
         <Field className="sm:col-span-2" data-invalid={Boolean(form.formState.errors.description)}><FieldLabel htmlFor="manual_description">Description</FieldLabel><Input id="manual_description" {...form.register("description")} aria-invalid={Boolean(form.formState.errors.description)} placeholder="Extra session, assessment, add-on…" /><FieldError>{form.formState.errors.description?.message}</FieldError></Field>
         <Field data-invalid={Boolean(form.formState.errors.amount_thb)}><FieldLabel htmlFor="manual_amount_thb">Amount per payment (THB)</FieldLabel><Input id="manual_amount_thb" type="number" min="0.01" step="0.01" inputMode="decimal" {...form.register("amount_thb")} aria-invalid={Boolean(form.formState.errors.amount_thb)} /><FieldError>{form.formState.errors.amount_thb?.message}</FieldError></Field>
-        <Field data-invalid={Boolean(form.formState.errors.first_due_date)}><FieldLabel htmlFor="manual_first_due_date">Manual payment first due date</FieldLabel><Input id="manual_first_due_date" type="date" {...form.register("first_due_date")} aria-invalid={Boolean(form.formState.errors.first_due_date)} /><FieldError>{form.formState.errors.first_due_date?.message}</FieldError></Field>
+        <Field data-invalid={Boolean(form.formState.errors.first_due_date)}><FieldLabel htmlFor="manual_first_due_date">Manual payment first due date</FieldLabel><Input id="manual_first_due_date" aria-describedby="manual_message_timing" type="date" {...form.register("first_due_date")} aria-invalid={Boolean(form.formState.errors.first_due_date)} /><FieldDescription id="manual_message_timing" aria-live="polite">{firstDueDate ? `The message will be sent on ${formatDate(firstDueDate)}.` : "Choose a first due date."}</FieldDescription><FieldError>{form.formState.errors.first_due_date?.message}</FieldError></Field>
         <Field><FieldLabel htmlFor="manual_frequency">Frequency</FieldLabel><Select name="frequency" value={frequency} onValueChange={(value) => form.setValue("frequency", value === "RECURRING" ? "RECURRING" : "ONE_TIME", { shouldValidate: true })}><SelectTrigger id="manual_frequency" className="w-full"><SelectValue>{frequency === "RECURRING" ? "Recurring" : "One-time payment"}</SelectValue></SelectTrigger><SelectContent><SelectGroup><SelectItem value="ONE_TIME">One-time payment</SelectItem><SelectItem value="RECURRING">Recurring</SelectItem></SelectGroup></SelectContent></Select></Field>
         <Field data-disabled={frequency === "ONE_TIME"} data-invalid={Boolean(form.formState.errors.payment_count)}><FieldLabel htmlFor="manual_payment_count">Payment count</FieldLabel><Input id="manual_payment_count" type="number" min={frequency === "ONE_TIME" ? 1 : 2} readOnly={frequency === "ONE_TIME"} {...form.register("payment_count")} aria-invalid={Boolean(form.formState.errors.payment_count)} /><FieldError>{form.formState.errors.payment_count?.message}</FieldError></Field>
         <Field data-disabled={frequency === "ONE_TIME"} data-invalid={Boolean(form.formState.errors.interval_months)}><FieldLabel htmlFor="manual_interval_months">Interval months</FieldLabel><Input id="manual_interval_months" type="number" min={frequency === "ONE_TIME" ? 0 : 1} readOnly={frequency === "ONE_TIME"} {...form.register("interval_months")} aria-invalid={Boolean(form.formState.errors.interval_months)} /><FieldDescription>{frequency === "ONE_TIME" ? "No recurrence interval is needed." : "Whole months between payments."}</FieldDescription><FieldError>{form.formState.errors.interval_months?.message}</FieldError></Field>

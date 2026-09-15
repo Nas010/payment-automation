@@ -841,3 +841,15 @@ describe("package installment overrides", () => {
     expect(mocks.writeSchedule).not.toHaveBeenCalled();
   });
 });
+
+
+it.each(["ONE_TIME", "INSTALLMENTS"])("defers a future %s package's first message", async (paymentType) => {
+  mocks.listClients.mockResolvedValue([client()]);
+  mocks.listPackages.mockResolvedValue([{ package_name: "PT", active: "TRUE" }]);
+  const data = new FormData();
+  for (const [key, value] of Object.entries({ package_name: "PT", payment_type: paymentType, total_price_thb: "1200", installment_count: "3", interval_months: "1", first_due_date: "2099-12-15", notes: "" })) data.set(key, value);
+  await assignPackageAction("client_1", data);
+  expect(mocks.writeSchedule).toHaveBeenCalledWith(expect.objectContaining({ due_date: "2099-12-15", status: "SCHEDULED" }));
+  expect(mocks.generateDuePaymentLinks).not.toHaveBeenCalled();
+  expect(mocks.sendDueLinePaymentRequests).not.toHaveBeenCalled();
+});
