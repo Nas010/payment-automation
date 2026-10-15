@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   generateDuePaymentLinks: vi.fn(),
   reconcileManualConfirmations: vi.fn(),
   sendDueLinePaymentRequests: vi.fn(),
+  sendInstallmentReminderRequests: vi.fn(),
 }));
 
 vi.mock("@/lib/config", () => ({ cronSecret: mocks.cronSecret }));
@@ -17,6 +18,7 @@ vi.mock("@/lib/installation/repository", () => ({ getInstallation: mocks.getInst
 vi.mock("@/lib/payments/generate", () => ({ generateDuePaymentLinks: mocks.generateDuePaymentLinks }));
 vi.mock("@/lib/sheets/payments", () => ({ reconcileManualConfirmations: mocks.reconcileManualConfirmations }));
 vi.mock("@/lib/line/due-payments", () => ({ sendDueLinePaymentRequests: mocks.sendDueLinePaymentRequests }));
+vi.mock("@/lib/line/installment-reminders", () => ({ sendInstallmentReminderRequests: mocks.sendInstallmentReminderRequests }));
 
 import { GET } from "./route";
 
@@ -32,6 +34,7 @@ beforeEach(() => {
   mocks.generateDuePaymentLinks.mockResolvedValue({ created: [{ payment_id: "pay_1" }], existing: [], failed: [] });
   mocks.reconcileManualConfirmations.mockResolvedValue(1);
   mocks.sendDueLinePaymentRequests.mockResolvedValue({ accepted: ["pay_1"], alreadyAccepted: [], skippedMissingUserId: [], failed: [], disabled: false });
+  mocks.sendInstallmentReminderRequests.mockResolvedValue([]);
 });
 
 describe("GET /api/cron/generate", () => {
@@ -46,6 +49,7 @@ describe("GET /api/cron/generate", () => {
     expect(mocks.generateDuePaymentLinks).not.toHaveBeenCalled();
     expect(mocks.reconcileManualConfirmations).not.toHaveBeenCalled();
     expect(mocks.sendDueLinePaymentRequests).not.toHaveBeenCalled();
+    expect(mocks.sendInstallmentReminderRequests).not.toHaveBeenCalled();
   });
 
   it("returns 503 without writes while dashboard setup is incomplete", async () => {
@@ -54,9 +58,10 @@ describe("GET /api/cron/generate", () => {
     expect(mocks.generateDuePaymentLinks).not.toHaveBeenCalled();
     expect(mocks.reconcileManualConfirmations).not.toHaveBeenCalled();
     expect(mocks.sendDueLinePaymentRequests).not.toHaveBeenCalled();
+    expect(mocks.sendInstallmentReminderRequests).not.toHaveBeenCalled();
   });
 
-  it("runs generation, reconciliation, and LINE delivery in strict completed order", async () => {
+  it("finishes generation and reconciliation before prioritizing reminder slots over due-payment retries", async () => {
     const completed: string[] = [];
     mocks.generateDuePaymentLinks.mockImplementation(async () => {
       await Promise.resolve();
@@ -64,12 +69,46 @@ describe("GET /api/cron/generate", () => {
       return { created: [], existing: [], failed: [] };
     });
     mocks.reconcileManualConfirmations.mockImplementation(async () => { expect(completed).toEqual(["generate"]); completed.push("reconcile"); return 1; });
-    mocks.sendDueLinePaymentRequests.mockImplementation(async () => { expect(completed).toEqual(["generate", "reconcile"]); completed.push("line"); return { accepted: [], alreadyAccepted: [], skippedMissingUserId: [], failed: [], disabled: false }; });
+    mocks.sendInstallmentReminderRequests.mockImplementation(async () => { expect(completed).toEqual(["generate", "reconcile"]); completed.push("reminders"); return []; });
+    mocks.sendDueLinePaymentRequests.mockImplementation(async () => { expect(completed).toEqual(["generate", "reconcile", "reminders"]); completed.push("line"); return { accepted: [], alreadyAccepted: [], skippedMissingUserId: [], failed: [], disabled: false }; });
 
     const response = await GET(request());
 
-    expect(completed).toEqual(["generate", "reconcile", "line"]);
+    expect(completed).toEqual(["generate", "reconcile", "reminders", "line"]);
     await expect(response.json()).resolves.toMatchObject({ created: 0, manual_confirmations_reconciled: 1, line: { accepted: [] } });
+  });
+
+  it("still sends existing reminder invoices when generation fails", async () => {
+    mocks.generateDuePaymentLinks.mockRejectedValue(new Error("private Sheets detail"));
+    mocks.sendInstallmentReminderRequests.mockResolvedValue(["pay_existing"]);
+
+    const response = await GET(request());
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toMatchObject({ reminders: ["pay_existing"], failed_stages: ["generate"] });
+    expect(mocks.sendDueLinePaymentRequests).toHaveBeenCalledOnce();
+  });
+
+  it("does not let a reconciliation failure suppress reminders", async () => {
+    mocks.reconcileManualConfirmations.mockRejectedValue(new Error("private reconciliation detail"));
+
+    const response = await GET(request());
+
+    expect(response.status).toBe(503);
+    expect(mocks.sendInstallmentReminderRequests).toHaveBeenCalledOnce();
+    expect(mocks.sendDueLinePaymentRequests).toHaveBeenCalledOnce();
+  });
+
+  it("reports a reminder-stage failure without suppressing due-payment delivery or exposing secrets", async () => {
+    mocks.sendInstallmentReminderRequests.mockRejectedValue(new Error("private credential detail"));
+
+    const response = await GET(request());
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(body.failed_stages).toEqual(["reminders"]);
+    expect(JSON.stringify(body)).not.toContain("private credential detail");
+    expect(mocks.sendDueLinePaymentRequests).toHaveBeenCalledOnce();
   });
 
   it("returns a failed-generation count without exposing generator error details", async () => {
