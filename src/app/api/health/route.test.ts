@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   requiredConfiguration: vi.fn(),
@@ -21,6 +21,7 @@ vi.mock("@/lib/runtime-config", () => ({ runtimeConfig: mocks.runtimeConfig }));
 import { GET } from "./route";
 
 beforeEach(() => {
+  vi.stubEnv("VERCEL_GIT_COMMIT_SHA", "");
   vi.clearAllMocks();
   mocks.requiredConfiguration.mockReturnValue([]);
   mocks.getInstallation.mockResolvedValue({ setupStatus: "COMPLETE" });
@@ -32,10 +33,19 @@ beforeEach(() => {
   mocks.runtimeConfig.mockResolvedValue({ businessDisplayName: "Coach Bee" });
 });
 
+afterEach(() => vi.unstubAllEnvs());
+
 describe("health route", () => {
   it("reports only safe ready categories", async () => {
     const response = await GET();
-    await expect(response.json()).resolves.toEqual({ ok: true, status: "ready", checks: { bootstrap: "ready", owner: "ready", workspace: "ready", workbook: "ready", folder: "ready", business: "ready" } });
+    await expect(response.json()).resolves.toEqual({ ok: true, status: "ready", checks: { bootstrap: "ready", owner: "ready", workspace: "ready", workbook: "ready", folder: "ready", business: "ready" }, revision: null });
+  });
+
+  it("reports only a public commit SHA so a deployed fix can be verified without privileged logs", async () => {
+    vi.stubEnv("VERCEL_GIT_COMMIT_SHA", "a".repeat(40));
+    await expect((await GET()).json()).resolves.toMatchObject({ revision: "a".repeat(40) });
+    vi.stubEnv("VERCEL_GIT_COMMIT_SHA", "private deployment metadata");
+    await expect((await GET()).json()).resolves.toMatchObject({ revision: null });
   });
 
   it("reports a revoked folder connection without exposing IDs or vendor errors", async () => {
