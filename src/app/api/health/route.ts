@@ -26,5 +26,7 @@ export async function GET(): Promise<Response> {
     try { await runtimeConfig(); checks.business = "ready"; } catch { checks.business = "attention"; }
   }
   const ready = installation?.setupStatus === "COMPLETE" && Object.values(checks).every((value) => value === "ready");
-  return Response.json({ ok: true, status: ready ? "ready" : "needs_configuration", checks });
+  const commit = process.env.VERCEL_GIT_COMMIT_SHA;
+  const revision = commit && /^[a-f0-9]{40}$/.test(commit) ? commit : null;
+  return Response.json({ ok: true, status: ready ? "ready" : "needs_configuration", checks, revision });
 }
