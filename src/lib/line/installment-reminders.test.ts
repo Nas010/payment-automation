@@ -95,6 +95,38 @@ beforeEach(() => {
 });
 
 describe("sendInstallmentReminderRequests", () => {
+  it.each([
+    ["T_MINUS_3_DAYS", "2026-08-19"],
+    ["T_MINUS_1_DAY", "2026-08-17"],
+    ["DUE_DATE", "2026-08-16"],
+    ["T_PLUS_1_DAY", "2026-08-15"],
+  ] as const)("seven-day recovery skips both new and retryable %s messages", async (slot, dueDate) => {
+    const config = reminderConfig(true);
+    config.config.enabled[slot] = true;
+    mocks.getLineInstallmentReminderConfig.mockResolvedValue(config);
+    const retryLog = JSON.stringify({ version: 1, deliveries: { [slot]: {
+      status: "FAILED_RETRYABLE", renderedMessage: "Other reminder", retryKey: "other-key", errorCode: "HTTP_500",
+    } } });
+    const acceptedLog = JSON.stringify({ version: 1, deliveries: { T_MINUS_7_DAYS: { status: "ACCEPTED" } } });
+    mocks.readPaymentClientSnapshot.mockResolvedValue({
+      payments: [
+        payment(),
+        { ...payment(), payment_id: "other_new", due_date: dueDate },
+        { ...payment(retryLog), payment_id: "other_retry", due_date: dueDate },
+        { ...payment(acceptedLog), payment_id: "already_accepted" },
+      ],
+      clients: [linkedClient()], schedules: [],
+    });
+
+    await expect(sendInstallmentReminderRequests({
+      baseUrl: "https://pay.example", today: "2026-08-16", slots: ["T_MINUS_7_DAYS"],
+    })).resolves.toEqual(["pay_1"]);
+
+    expect(mocks.sendLinePushMessage).toHaveBeenCalledOnce();
+    expect(mocks.updatePaymentIfUnchanged.mock.calls.every(([input]) => input.payment.payment_id === "pay_1")).toBe(true);
+    expect(mocks.appendAudit.mock.calls.every(([input]) => input.paymentId === "pay_1")).toBe(true);
+  });
+
   it("does not send or revive a reminder when a stale snapshot loses to VOID", async () => {
     mocks.updatePaymentIfUnchanged.mockResolvedValue(false);
 
@@ -170,8 +202,8 @@ describe("sendInstallmentReminderRequests", () => {
     expect(mocks.sendLinePushMessage).not.toHaveBeenCalled();
     expect(JSON.parse(stored.line_reminder_delivery_log).deliveries.T_MINUS_7_DAYS.status).toBe("FAILED_RETRYABLE");
 
-    await expect(sendInstallmentReminderRequests({ baseUrl: "https://pay.example", today: recoveryDay })).resolves.toEqual(["pay_1"]);
-    await expect(sendInstallmentReminderRequests({ baseUrl: "https://pay.example", today: recoveryDay })).resolves.toEqual([]);
+    await expect(sendInstallmentReminderRequests({ baseUrl: "https://pay.example", today: recoveryDay, slots: ["T_MINUS_7_DAYS"] })).resolves.toEqual(["pay_1"]);
+    await expect(sendInstallmentReminderRequests({ baseUrl: "https://pay.example", today: recoveryDay, slots: ["T_MINUS_7_DAYS"] })).resolves.toEqual([]);
     expect(mocks.sendLinePushMessage).toHaveBeenCalledOnce();
   });
 
