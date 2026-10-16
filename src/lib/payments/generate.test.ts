@@ -17,6 +17,24 @@ vi.mock("@/lib/sheets/schedules", () => ({ listSchedules, updateSchedule, update
 import { generateDuePaymentLinks } from "./generate";
 
 describe("generateDuePaymentLinks", () => {
+  it("limits the independent reminder recovery job to later installments and does not create unrelated due charges", async () => {
+    vi.clearAllMocks();
+    const first = { rowNumber: 7, schedule_id: "first", client_id: "client_1", client_name: "Nisa", line_display_name: "", package_name: "PT", payment_type: "INSTALLMENTS", installment_number: "1", installment_count: "2", amount_thb: "1500", due_date: "2026-08-10", status: "SCHEDULED", payment_id: "", created_at: "2026-08-01T00:00:00.000Z" };
+    listSchedules.mockResolvedValueOnce([first,
+      { ...first, schedule_id: "reminder", installment_number: "2", due_date: "2026-08-17" },
+      { ...first, client_id: "client_2", schedule_id: "one_time", payment_type: "ONE_TIME", installment_count: "1" },
+    ]);
+    listPayments.mockResolvedValueOnce([]);
+    updateScheduleIfUnchanged.mockResolvedValueOnce(true);
+
+    const result = await generateDuePaymentLinks({ baseUrl: "https://pay.example", today: "2026-08-10", remindersOnly: true, createPaymentId: () => "pay_reminder", createToken: () => "token_reminder" });
+
+    expect(result.failed).toEqual([]);
+    expect(result.created).toHaveLength(1);
+    expect(result.created[0]).toMatchObject({ installment_number: "2", due_date: "2026-08-17", total_price_thb: "3000" });
+    expect(appendPayment).toHaveBeenCalledOnce();
+  });
+
   it("creates one link from each due canonical schedule row and marks it generated", async () => {
     listSchedules.mockResolvedValueOnce([
       {

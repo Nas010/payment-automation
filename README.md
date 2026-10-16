@@ -93,3 +93,15 @@ npm run build
 Vercel Cron calls `/api/cron/generate` daily and `/api/cron/dashboard-metrics` monthly. Authenticated cron requests return `503` without writes until setup is complete. Disabled or incomplete LINE setup returns `404` before webhook bodies are read.
 
 The health endpoint exposes only safe categories: bootstrap, owner, workspace, workbook, folder, and business configuration.
+
+### Installment reminder recovery
+
+The daily job generates invoices, reconciles payment state, processes installment reminders, then processes due-payment requests. A failed stage no longer suppresses the remaining stages. Failed stages return HTTP 503 with safe `failed_stages` names; `PAYMENT_CRON_STAGE` logs record stage duration without customer data or credentials.
+
+Reminder preparation failures and missing recipients are recorded in the payment's `line_reminder_delivery_log` and Audit Log. Retryable preparation failures can resume on a later job. A stale payment state token is retried once only after re-reading an identical pending invoice; paid, voided, edited, or already-claimed invoices are never revived. A malformed row or unavailable audit log does not stop the following clients.
+
+Frozen messages retain their LINE retry keys. Ambiguous requests older than LINE's 24-hour deduplication window move to REVIEW instead of risking duplicate delivery. Before retrying those requests, verify delivery with the coach. Existing slots with no durable retry state are not automatically backfilled, and enabling a reminder after its scheduled date does not send old messages.
+
+For rollout, inspect the production `/api/cron/generate` logs and deployment revision, deploy to a preview environment with isolated test data, and validate an enabled reminder, a preparation failure/recovery, and a repeated invocation. Do not use the production cron endpoint as a read-only diagnostic: it can create invoices and send real LINE messages. Review existing missed reminders against their current payment and delivery status before any manual follow-up.
+
+An independent `/api/cron/reminders` recovery job runs daily at 04:05 UTC (11:05 Bangkok, subject to the hosting plan's scheduling precision), two hours after the primary job. It creates only missing later-installment invoices within the existing reminder window, then retries eligible reminders without entering the due-payment/T&S image workflow. Accepted slots are not sent again. Start/completion events are recorded in Audit Log; LINE push requests have a 10-second timeout so a stalled request can be retried with its existing key. Both cron routes require the existing `CRON_SECRET`; no new credentials are needed. The health response exposes only the public Git revision in addition to its existing safe status categories, allowing release verification without privileged logs.

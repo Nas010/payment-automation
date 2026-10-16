@@ -40,6 +40,7 @@ export async function sendLinePushMessage({ channelAccessToken, to, messages, re
       method: "POST",
       headers: { ...authorization(channelAccessToken), "Content-Type": "application/json", "X-Line-Retry-Key": retryKey },
       body: JSON.stringify({ to, messages }),
+      signal: AbortSignal.timeout(10_000),
     });
     if (response.ok) return { accepted: true, retryable: false, requestId: response.headers.get("x-line-request-id") ?? "", errorCode: "" };
     const acceptedRequestId = response.headers.get("x-line-accepted-request-id");
