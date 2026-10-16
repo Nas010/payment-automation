@@ -15,7 +15,7 @@ async function auditJob(action: string, status: string, metadata: object): Promi
   }
 }
 
-/** Independent same-day recovery; deliberately excludes the due-payment/T&S image workflow. */
+/** Recover only seven-day reminders; other reminder slots stay in the primary job. */
 export async function GET(request: NextRequest): Promise<Response> {
   const secret = cronSecret();
   if (!secret || request.headers.get("authorization") !== `Bearer ${secret}`) return Response.json({ error: "Unauthorized" }, { status: 401 });
@@ -34,7 +34,7 @@ export async function GET(request: NextRequest): Promise<Response> {
     failedStages.push("generate");
   }
   let reminders: string[] = [];
-  try { reminders = await sendInstallmentReminderRequests({ baseUrl: config.publicBaseUrl }); }
+  try { reminders = await sendInstallmentReminderRequests({ baseUrl: config.publicBaseUrl, slots: ["T_MINUS_7_DAYS"] }); }
   catch { failedStages.push("reminders"); }
   await auditJob("LINE_REMINDER_JOB_COMPLETED", failedStages.length ? "ATTENTION" : "COMPLETED", { created, accepted: reminders.length, failedStages });
   return Response.json({ created, reminders, failed_stages: failedStages }, { status: failedStages.length ? 503 : 200 });
