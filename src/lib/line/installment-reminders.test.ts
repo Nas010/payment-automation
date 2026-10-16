@@ -156,7 +156,7 @@ describe("sendInstallmentReminderRequests", () => {
     expect(mocks.sendLinePushMessage).not.toHaveBeenCalled();
   });
 
-  it("recovers a persisted preparation failure on the following day and never resends an accepted slot", async () => {
+  it.each(["2026-08-16", "2026-08-17"])("recovers a persisted preparation failure on %s and never resends an accepted slot", async (recoveryDay) => {
     let stored = payment();
     mocks.readPaymentClientSnapshot.mockImplementation(async () => ({ payments: [{ ...stored }], clients: [linkedClient()], schedules: [] }));
     mocks.updatePaymentIfUnchanged.mockImplementation(async ({ expectedPayment, payment: next }) => {
@@ -170,8 +170,8 @@ describe("sendInstallmentReminderRequests", () => {
     expect(mocks.sendLinePushMessage).not.toHaveBeenCalled();
     expect(JSON.parse(stored.line_reminder_delivery_log).deliveries.T_MINUS_7_DAYS.status).toBe("FAILED_RETRYABLE");
 
-    await expect(sendInstallmentReminderRequests({ baseUrl: "https://pay.example", today: "2026-08-17" })).resolves.toEqual(["pay_1"]);
-    await expect(sendInstallmentReminderRequests({ baseUrl: "https://pay.example", today: "2026-08-17" })).resolves.toEqual([]);
+    await expect(sendInstallmentReminderRequests({ baseUrl: "https://pay.example", today: recoveryDay })).resolves.toEqual(["pay_1"]);
+    await expect(sendInstallmentReminderRequests({ baseUrl: "https://pay.example", today: recoveryDay })).resolves.toEqual([]);
     expect(mocks.sendLinePushMessage).toHaveBeenCalledOnce();
   });
 
