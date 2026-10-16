@@ -64,6 +64,7 @@ describe("independent installment reminder recovery", () => {
     const response = await GET(request());
     expect(response.status).toBe(200);
     expect(mocks.generateDuePaymentLinks).toHaveBeenCalledWith({ baseUrl: "https://pay.example", remindersOnly: true });
+    expect(mocks.sendInstallmentReminderRequests).toHaveBeenCalledWith({ baseUrl: "https://pay.example", slots: ["T_MINUS_7_DAYS"] });
     await expect(response.json()).resolves.toMatchObject({ created: 1, reminders: ["pay_1"], failed_stages: [] });
     expect(mocks.appendAudit).toHaveBeenLastCalledWith(expect.objectContaining({ action: "LINE_REMINDER_JOB_COMPLETED", newStatus: "COMPLETED", metadata: JSON.stringify({ created: 1, accepted: 1, failedStages: [] }) }));
   });
@@ -72,6 +73,7 @@ describe("independent installment reminder recovery", () => {
     mocks.generateDuePaymentLinks.mockRejectedValueOnce(new Error("private upstream detail"));
     const response = await GET(request());
     expect(response.status).toBe(503);
+    expect(mocks.sendInstallmentReminderRequests).toHaveBeenCalledWith({ baseUrl: "https://pay.example", slots: ["T_MINUS_7_DAYS"] });
     await expect(response.json()).resolves.toMatchObject({ reminders: ["pay_1"], failed_stages: ["generate"] });
   });
 

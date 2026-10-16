@@ -51,7 +51,7 @@ function ambiguousRetryExpired(delivery: ReminderDelivery | undefined): boolean 
   return !Number.isFinite(attemptedAt) || Date.now() - attemptedAt >= 24 * 60 * 60 * 1000;
 }
 
-export async function sendInstallmentReminderRequests({ baseUrl, today = bangkokDateKey() }: { baseUrl: string; today?: string }): Promise<string[]> {
+export async function sendInstallmentReminderRequests({ baseUrl, today = bangkokDateKey(), slots }: { baseUrl: string; today?: string; slots?: readonly ReminderSlot[] }): Promise<string[]> {
   const config = await runtimeConfig();
   if (!config.lineMessagingEnabled) return [];
   const [snapshot, resolved] = await Promise.all([readPaymentClientSnapshot(), getLineInstallmentReminderConfig()]);
@@ -72,7 +72,7 @@ export async function sendInstallmentReminderRequests({ baseUrl, today = bangkok
     let enabledSlots: ReminderSlot[];
     try {
       enabledSlots = eligibleReminderSlots({ dueDate: payment.due_date, createdAt: payment.created_at, today, log })
-        .filter((slot) => resolved.config.enabled[slot]);
+        .filter((slot) => resolved.config.enabled[slot] && (!slots || slots.includes(slot)));
     } catch {
       await auditReminder(payment, undefined, "LINE_INSTALLMENT_REMINDER_FAILED", "REVIEW", "INVALID_REMINDER_DATE");
       continue;
