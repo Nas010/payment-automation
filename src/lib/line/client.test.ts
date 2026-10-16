@@ -52,6 +52,7 @@ describe("LINE HTTP client", () => {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", "X-Line-Retry-Key": "retry_1" },
       body: JSON.stringify({ to: "Uaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", messages: [{ type: "text", text: "Payment due" }] }),
+      signal: expect.any(AbortSignal),
     });
   });
 
@@ -59,6 +60,23 @@ describe("LINE HTTP client", () => {
     const fetchFn = vi.fn(async () => new Response(null, { status: 409, headers: { "x-line-accepted-request-id": "request_already_accepted" } }));
 
     await expect(sendLinePushMessage({ channelAccessToken: token, to: "Uaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", messages: [{ type: "text", text: "Payment due" }], retryKey: "retry_1", fetchFn })).resolves.toEqual({ accepted: true, retryable: false, requestId: "request_already_accepted", errorCode: "" });
+  });
+
+  it("ends a stalled push after its timeout and leaves it retryable with the same request key", async () => {
+    const controller = new AbortController();
+    const timeout = vi.spyOn(AbortSignal, "timeout").mockReturnValue(controller.signal);
+    const fetchFn = vi.fn((_url: string, init?: RequestInit) => new Promise<Response>((_, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(new Error("timed out")), { once: true });
+    }));
+
+    const pending = sendLinePushMessage({ channelAccessToken: token, to: "Uaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", messages: [{ type: "text", text: "Payment due" }], retryKey: "retry_1", fetchFn });
+    controller.abort();
+
+    await expect(pending).resolves.toEqual({ accepted: false, retryable: true, requestId: "", errorCode: "NETWORK_ERROR" });
+    expect(timeout).toHaveBeenCalledWith(10_000);
+    expect(fetchFn).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
+      headers: expect.objectContaining({ "X-Line-Retry-Key": "retry_1" }), signal: controller.signal,
+    }));
   });
 
   it.each([429, 500, 503])("marks HTTP %i push failures retryable without reading remote body", async (status) => {
